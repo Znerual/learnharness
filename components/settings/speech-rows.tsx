@@ -1,6 +1,6 @@
 "use client";
 /**
- * The read-aloud row of the Keys section's Tools & services group
+ * The read-aloud row of the Keys section's Read aloud group
  * (read-aloud wave, owner 2026-10-24): the OpenAI-compatible
  * text-to-speech endpoint's base URL, voice and speed (click-unfold
  * editor, the dictation rows' look). The voice list comes from the

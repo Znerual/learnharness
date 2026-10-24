@@ -1,6 +1,6 @@
 "use client";
 /**
- * The dictation-engine rows of the Keys section's Tools & services group
+ * The dictation-engine rows of the Keys section's Dictation group
  * (local-STT wave, owner 2026-10-24): an explicit Deepgram | Local switch
  * and the local endpoint's base URL + model (click-unfold editor, the key
  * rows' look). The local endpoint's optional key is the curated

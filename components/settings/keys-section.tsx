@@ -15,8 +15,8 @@
  *    a paste box on a key the UI cannot make live would mislead.
  *  - OpenRouter is NOT special: one provider among 33, a row only when
  *    stored, otherwise it lives in the Add dropdown like everyone else.
- *  - Tools & services (Deepgram, the Google pair) keep their own group,
- *    same look, same interaction.
+ *  - Providers groups API keys, subscriptions, dictation and search.
+ *    Unknown variables stay masked/read-only at the end of Model API keys.
  *
  * Custom endpoints (2026-10-24) get their own group between the model
  * providers and the tools (./endpoints-group.tsx).
@@ -32,6 +32,7 @@ import { SettingsGroup } from "./controls.tsx";
 import { EndpointsGroup } from "./endpoints-group.tsx";
 import { DictationEngineRows } from "./dictation-engine.tsx";
 import { SpeechRows } from "./speech-rows.tsx";
+import { ChatGPTConnection } from "./chatgpt-connection.tsx";
 import { ProviderMenuList } from "./model-menu.tsx";
 import { MenuShell } from "@/components/menu-shell";
 import { notifySettingsSaved } from "@/components/settings-signal";
@@ -323,6 +324,21 @@ function AddProviderRow({
 	);
 }
 
+type ToolGroup = "Dictation" | "Read aloud" | "Search";
+
+const TOOL_GROUP_TESTIDS: Record<ToolGroup, string> = {
+	Dictation: "group-dictation",
+	"Read aloud": "group-read-aloud",
+	Search: "group-search",
+};
+
+/** Which service group a curated tool key belongs to. Pure — exported for pins. */
+export function toolGroupOf(id: string): ToolGroup {
+	if (id === "DEEPGRAM_API_KEY" || id === "LH_STT_KEY") return "Dictation";
+	if (id === "LH_TTS_KEY") return "Read aloud";
+	return "Search";
+}
+
 export function KeysSection({
 	/** A deep-linked row to unfold on arrival (zero-keys wave): the
 	 *  dictation error's click lands here on DEEPGRAM_API_KEY. Followed
@@ -421,7 +437,7 @@ export function KeysSection({
 
 	return (
 		<>
-			<SettingsGroup label="Model providers" testid="group-provider-keys">
+			<SettingsGroup label="Model API keys" testid="group-provider-keys">
 				{providerRows.map((status) => (
 					<KeyTableRow
 						key={status.id}
@@ -455,6 +471,16 @@ export function KeysSection({
 						<AddProviderEditor provider={adding} onSave={(v) => void saveNewProvider(adding, v)} onCancel={() => setAdding(null)} error={addError} />
 					</div>
 				)}
+				{unknownRows.length > 0 && <div data-testid="group-unknown-keys">
+					{unknownRows.map((status) => <div key={status.id} data-testid={`unknown-${status.id}`} className="flex items-center justify-between gap-3 px-1 py-1.5 opacity-40">
+						<span className="font-mono text-xs text-foreground">{status.id}</span>
+						<span className="font-mono text-[11px] text-muted-foreground">{status.masked}</span>
+					</div>)}
+				</div>}
+			</SettingsGroup>
+
+			<SettingsGroup label="Subscriptions" testid="group-subscriptions">
+				<div data-testid="group-chatgpt"><ChatGPTConnection /></div>
 			</SettingsGroup>
 
 			<EndpointsGroup
@@ -465,13 +491,13 @@ export function KeysSection({
 				}}
 			/>
 
-			<SettingsGroup label="Tools & services" testid="group-tool-keys">
-				{/* The dictation engine (local-STT wave, 2026-10-24): Deepgram's
-				    key and LH_STT_KEY are rows below. */}
-				<DictationEngineRows />
-				{/* Read-aloud (2026-10-24): LH_TTS_KEY is a row below. */}
-				<SpeechRows />
-				{toolRows.map((status) => (
+			{/* Tool keys by service (upstream 0.3.6). The fork's rows join their
+			    service: the dictation engine (local-STT wave, 2026-10-24) with
+			    Deepgram + LH_STT_KEY, read-aloud (2026-10-24) with LH_TTS_KEY. */}
+			{(["Dictation", "Read aloud", "Search"] as const).map((label) => <SettingsGroup key={label} label={label} testid={TOOL_GROUP_TESTIDS[label]}>
+				{label === "Dictation" && <DictationEngineRows />}
+				{label === "Read aloud" && <SpeechRows />}
+				{toolRows.filter((status) => toolGroupOf(status.id) === label).map((status) => (
 					<KeyTableRow
 						key={status.id}
 						label={status.info?.label ?? status.id}
@@ -489,22 +515,8 @@ export function KeysSection({
 						testid={`key-${status.id.toLowerCase()}`}
 					/>
 				))}
-			</SettingsGroup>
+			</SettingsGroup>)}
 
-			{unknownRows.length > 0 && (
-				<SettingsGroup label="Other stored variables" testid="group-unknown-keys">
-					{unknownRows.map((status) => (
-						<div
-							key={status.id}
-							data-testid={`unknown-${status.id}`}
-							className="flex items-center justify-between gap-3 px-1 py-1.5 opacity-40"
-						>
-							<span className="font-mono text-xs text-foreground">{status.id}</span>
-							<span className="font-mono text-[11px] text-muted-foreground">{status.masked}</span>
-						</div>
-					))}
-				</SettingsGroup>
-			)}
 		</>
 	);
 }

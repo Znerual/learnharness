@@ -12,6 +12,7 @@ import {
 import { extractionStatuses } from "../agent/subagents/extraction.ts";
 import { stores } from "./stores.ts";
 import { scheduleObsidianExport } from "./obsidian.ts";
+import { callCost } from "./pricing.ts";
 
 /**
  * Server-side graph entry for the home view (GET /api/graph). A PURE READ:
@@ -42,7 +43,7 @@ export function graphCosts(): GraphCostSummary {
 		.readSources()
 		.filter((s) => s.extractions?.length)
 		.map((s) => ({ filePath: s.filePath, extractions: s.extractions! }));
-	return graphCostSummary({ chats, sources });
+	return graphCostSummary({ chats, sources }, callCost);
 }
 
 /** The graph's version stamp (session-deletion wave 6): the max mtime

@@ -81,7 +81,12 @@ files:
   - node_modules/universalify/**/*
   - node_modules/ms/**/*
   - node_modules/argparse/**/*
+  # Main-process ID-token signature verification (no bundled OAuth implementation).
+  - node_modules/jose/**/*
 extraResources:
+  # Attribution/license for the bounded local Pi cutoff-selector port.
+  - from: docs/compaction-accounting.md
+    to: licenses/pi-compaction.md
   # Copy from the PARENT dir (.next), not .next/standalone itself:
   # electron-builder hard-excludes a copy's root node_modules and the
   # default no-filter pattern is a literal path match (empirically both
@@ -177,8 +182,16 @@ publish:
   # from a private repo are impossible, and a token baked into the app
   # would be a leak. desktop:dist passes no --publish flag, so builds never
   # upload; publishing happens at release time (GH_TOKEN + --publish).
+  #
+  # FORK FEED (2026-10-24): this fork's installed apps update from the
+  # fork's own releases, never from upstream amosblomqvist/learnharness —
+  # an upstream release once replaced a fork build and dropped its
+  # features. Fork versions are upstream's plus a counter in the patch
+  # (0.3.6 -> 0.3.6001, 0.3.6002, ...), so they always rank above the
+  # upstream base. Release with scripts/release-fork.sh; the pin is
+  # guarded by tests/fork-update-feed.test.ts.
   - provider: github
-    owner: amosblomqvist
+    owner: Znerual
     repo: learnharness
     # All three CI jobs contribute assets; only the owner publishes it.
     releaseType: draft
