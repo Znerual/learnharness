@@ -28,7 +28,7 @@ function windowOptions(platform: string) {
 	};
 	const context = {
 		require: (id: string) => id === "electron" ? electron : require(id),
-		process: { platform, argv: [], env: {}, on() {} },
+		process: { platform, argv: [], env: {}, on() {}, stdout: { on() {} }, stderr: { on() {} } },
 		__dirname: dirname(mainFile),
 	};
 	runInNewContext(mainSource, context, { filename: mainFile });

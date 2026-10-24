@@ -29,6 +29,7 @@ function helperFixture(connected = true, channel = true) {
 	const process = Object.assign(new EventEmitter(), {
 		platform: "win32", argv: ["electron", "--browser-service"], env: {},
 		connected, channel: channel ? {} : undefined,
+		stdout: new EventEmitter(), stderr: new EventEmitter(),
 	});
 	Object.defineProperty(process, "stdin", { get() { state.stdinReads++; return stdin; } });
 	const app = {
