@@ -161,16 +161,30 @@ function freePort() {
  *  effect on the next model call — no restart. Real environment variables
  *  still win over the file inside the child (its documented rule). */
 
+// A broken stdout pipe reports EPIPE asynchronously, as an 'error' event —
+// the try/catch in log() never sees it. Unlistened, it became an
+// uncaughtException whose handler logged to stdout again: a self-feeding
+// loop that pinned the main thread and grew main.log to 29 GB (2026-10-24).
+// The first stream error marks stdout dead; log() then writes the file only.
+let stdoutDead = false;
+for (const stream of [process.stdout, process.stderr]) {
+	stream.on("error", () => {
+		stdoutDead = true;
+	});
+}
+
 function log(line) {
 	const stamp = new Date().toISOString();
 	// The stdout write is guarded (EPIPE hardening, 2026-10-10): a packaged
 	// app launched with a consumer-owned pipe (a launcher that exits, a
 	// piped run) must not die on its next log line when the pipe breaks.
 	// The file below stays the durable channel.
-	try {
-		console.log(`[lh ${stamp}] ${line}`);
-	} catch {
-		/* stdout gone — userData/logs/main.log still carries it */
+	if (!stdoutDead) {
+		try {
+			console.log(`[lh ${stamp}] ${line}`);
+		} catch {
+			/* stdout gone — userData/logs/main.log still carries it */
+		}
 	}
 	// Belt and braces: also append to userData/logs so a misbehaving child
 	// can be diagnosed after the window is gone. Best effort only.

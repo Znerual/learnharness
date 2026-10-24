@@ -380,7 +380,7 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 					jobStore.updateJob(jobId, { activity: activityLine(toolName, input) });
 				},
 			});
-			if (!brief.trim()) throw new Error("the researcher produced no text");
+			if (!brief.trim()) throw new Error("the researcher produced no brief, even after a forced final turn");
 			const research: ResearchResult = { brief: brief.trim(), sources: parseSources(brief.trim(), fetchedUrls) };
 			await finishJob(jobId, research);
 		} catch (err) {

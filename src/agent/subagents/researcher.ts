@@ -90,21 +90,35 @@ export interface ResearcherRunOptions {
  * text = the brief. The engine and search seam are injectable so tests run
  * the loop scripted.
  */
+/** The forced final turn's nudge: the loop hit maxTurns on a tool call, so
+ *  the last assistant message carries no text — synthesize what was
+ *  gathered instead of discarding the whole run. */
+const FINAL_TURN_MESSAGE =
+	"Your research turn budget is exhausted — do not call any more tools. Write your final brief now, in the required format, from what you have already gathered. Put anything you could not verify under ## Gaps.";
+
 export async function runResearcherAgent(prompt: string, opts: ResearcherRunOptions = {}): Promise<string> {
 	const tools = Object.values(createWebTools(opts.search ?? (() => null)));
 	if (opts.pdfDir) tools.push(...Object.values(createPdfReadTools(opts.pdfDir)));
-	const { text } = await runSubagent(tools, {
-		role: "researcher",
-		prompt,
+	const run = {
+		role: "researcher" as const,
 		engine: opts.engine,
 		systemPrompt: INSTRUCTIONS,
-		maxTurns: 12,
 		abortSignal: opts.abortSignal,
 		onUsage: opts.onUsage,
 		onToolStart: opts.onToolStart,
 		chatId: opts.chatId,
+	};
+	const { text, newMessages } = await runSubagent(tools, { ...run, prompt, maxTurns: 12 });
+	if (text.trim()) return text;
+	// Forced final turn (2026-10-24): one more call on the same transcript.
+	// Tools stay declared — some providers reject tool calls in a transcript
+	// that declares no tools; a model that still calls one yields no text.
+	const final = await runSubagent(tools, {
+		...run,
+		messages: [...newMessages, { role: "user", content: FINAL_TURN_MESSAGE, timestamp: Date.now() }],
+		maxTurns: 1,
 	});
-	return text;
+	return final.text;
 }
 
 export type ResearcherAgent = ReturnType<typeof runResearcherAgent>;

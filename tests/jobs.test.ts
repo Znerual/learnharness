@@ -610,6 +610,37 @@ describe("research runner (async protocol §3)", () => {
 		assert.deepEqual(search.queries, ["sigma.js latest version (5)"]);
 	});
 
+	it("a researcher that spends its whole turn budget on tool calls gets a forced final turn and still delivers", async () => {
+		const chat = chatStore.createChat("Test: turn budget exhausted");
+		trackChat(chat.id);
+		chatStore.saveMessages(chat.id, nativeToolMessages("which sigma version?", "research", "call-cap1", RESEARCH_INPUT));
+
+		const job = jobStore.createJob({ kind: "research", chatId: chat.id, toolCallId: "call-cap1" });
+		trackJob(job.id);
+
+		const delivery = fakeDeliver();
+		const runner = createJobRunner({ chatStore, jobStore, deliver: delivery.deliver, searchProvider: () => stubSearch() });
+		// 12 tool-call turns hit maxTurns; the 13th call is the forced final turn.
+		researchModelOverride.current = fauxEngine([
+			...Array.from({ length: 12 }, (_, i) =>
+				fauxAssistantMessage([fauxToolCall("web_search", { query: `sigma ${i}` }, { id: `ws${i}` })], {
+					stopReason: "toolUse",
+				}),
+			),
+			fauxAssistantMessage([fauxText(BRIEF)]),
+		]);
+		try {
+			await runner.runJob(job.id);
+		} finally {
+			researchModelOverride.current = undefined;
+		}
+
+		const done = jobStore.getJob(job.id)!;
+		assert.equal(done.status, "done");
+		assert.equal((done.result as ResearchResult).brief, BRIEF);
+		assert.equal(done.usage?.steps, 13, "the forced final turn is billed like any step");
+	});
+
 	it("a failing runner still steers (the teacher learns the outcome) and the job lands error", async () => {
 		const chat = chatStore.createChat("Test: runner failure");
 		trackChat(chat.id);
