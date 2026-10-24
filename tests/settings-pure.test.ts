@@ -253,6 +253,7 @@ describe("classifyKeys — the Keys section's two-group projection", () => {
 		assert.deepEqual(out.toolRows.map((r) => r.id), [
 			"DEEPGRAM_API_KEY",
 			"LH_STT_KEY",
+			"LH_TTS_KEY",
 			"TAVILY_API_KEY",
 			"BRAVE_API_KEY",
 		]);

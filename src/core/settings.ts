@@ -31,6 +31,7 @@ import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { AUTH_PROVIDER_KEYS } from "./auth-keys.ts";
 import { sanitizeEndpoints, type EndpointsSettings } from "./endpoints.ts";
 import { sanitizeDictation, type DictationSettings } from "./dictation.ts";
+import { sanitizeSpeech, type SpeechSettings } from "./speech.ts";
 import type { ModelRole } from "../../config.ts";
 import type { ChatSettings } from "./contracts/chat.ts";
 import type { SearchEngineId } from "./search.ts";
@@ -381,6 +382,9 @@ export interface UserSettings {
 	/** The dictation engine choice (local-STT wave, 2026-10-24 —
 	 *  core/dictation.ts owns the shape). */
 	dictation?: DictationSettings;
+	/** Read-aloud (read-aloud wave, 2026-10-24 — core/speech.ts owns the
+	 *  shape). */
+	speech?: SpeechSettings;
 	[key: string]: unknown;
 }
 
@@ -643,6 +647,9 @@ export function sanitizeUserSettings(raw: unknown): UserSettings | null {
 	}
 	if (r.dictation !== null && typeof r.dictation === "object" && !Array.isArray(r.dictation)) {
 		out.dictation = sanitizeDictation(r.dictation as Record<string, unknown>);
+	}
+	if (r.speech !== null && typeof r.speech === "object" && !Array.isArray(r.speech)) {
+		out.speech = sanitizeSpeech(r.speech as Record<string, unknown>);
 	}
 	if (r.endpoints !== null && typeof r.endpoints === "object" && !Array.isArray(r.endpoints)) {
 		out.endpoints = sanitizeEndpoints(r.endpoints as Record<string, unknown>);

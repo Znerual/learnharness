@@ -5,6 +5,7 @@ import { Loader2Icon, MicIcon } from "lucide-react";
 import { useSettingsDialog } from "@/components/settings/settings-dialog";
 import { useSettingsSaved } from "@/components/settings-signal";
 import { Hint } from "@/components/ui/hint";
+import { stopReadAloud } from "@/components/read-aloud";
 
 /**
  * LOCAL ENGINE (local-STT wave, owner 2026-10-24): the engine is an
@@ -496,6 +497,8 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 
 	const start = useCallback(async () => {
 		dictationActiveFlag = true;
+		// The mic must not hear the reply being read aloud.
+		stopReadAloud();
 		setError(null);
 		setPhase("connecting");
 		reconnectsRef.current = 0;

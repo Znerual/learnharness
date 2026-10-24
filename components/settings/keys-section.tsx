@@ -31,6 +31,7 @@ import { AUTH_KEYS, isEndpointKeyVar, type AuthKeyStatus } from "@/src/core";
 import { SettingsGroup } from "./controls.tsx";
 import { EndpointsGroup } from "./endpoints-group.tsx";
 import { DictationEngineRows } from "./dictation-engine.tsx";
+import { SpeechRows } from "./speech-rows.tsx";
 import { ProviderMenuList } from "./model-menu.tsx";
 import { MenuShell } from "@/components/menu-shell";
 import { notifySettingsSaved } from "@/components/settings-signal";
@@ -468,6 +469,8 @@ export function KeysSection({
 				{/* The dictation engine (local-STT wave, 2026-10-24): Deepgram's
 				    key and LH_STT_KEY are rows below. */}
 				<DictationEngineRows />
+				{/* Read-aloud (2026-10-24): LH_TTS_KEY is a row below. */}
+				<SpeechRows />
 				{toolRows.map((status) => (
 					<KeyTableRow
 						key={status.id}

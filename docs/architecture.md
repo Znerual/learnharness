@@ -191,6 +191,7 @@ flowchart LR
         LLM["LLM engines — pi-ai/OpenRouter via piEngineFor"]
         HEAD["headless Chrome — demo verify · SVG render"]
         DEEP["Deepgram STT — token-minting route, browser-side WebSocket · or LOCAL: /api/stt/transcribe → OpenAI-compatible /audio/transcriptions"]
+        TTS["read-aloud — /api/tts/speak → math in words (KaTeX MathML + Speech Rule Engine) → OpenAI-compatible /audio/speech"]
         WEB["web tools — Google CSE + Readability/Jina (researcher)"]
     end
 
@@ -207,6 +208,7 @@ flowchart LR
     SESS --> HEAD
     SESS --> WEB
     BROWSER --> DEEP
+    BROWSER --> TTS
 ```
 
 ---
@@ -532,6 +534,7 @@ Every place the architecture is designed to be cut — the "one file" a future c
 | Storage decision (JSON→SQLite, remote) | `src/server/stores.ts` | the adapters, once |
 | LLM engine / model per role | settings `models` slots + `src/agent/models.ts` (`piEngineFor`) | provider wiring, one place |
 | Dictation engine (Deepgram / local) | settings `dictation` + `core/dictation.ts` + `src/server/stt.ts` + `components/dictation.tsx` | speech-to-text |
+| Read-aloud (text-to-speech) | settings `speech` + `core/speech.ts` + `core/speech-script.ts` + `src/server/tts.ts` + `components/read-aloud.tsx` | what replies sound like: spoken script, math in words (Speech Rule Engine), the `/audio/speech` endpoint |
 | Obsidian vault sync (export + Sync) | settings `graph.obsidianVault` + `core/obsidian-export.ts` + `src/server/obsidian.ts` | the graph ↔ an Obsidian vault |
 | Custom OpenAI-compatible endpoint | settings `endpoints` section + `core/endpoints.ts` + `src/agent/models.ts` (`customEndpointProvider`) | self-hosted model servers |
 | Turn composition | `src/server/chat-handler.ts` | what a turn consists of |

@@ -71,6 +71,13 @@ const nextConfig: NextConfig = {
 			"node_modules/@resvg/resvg-js-*/**/*",
 			"node_modules/@earendil-works/pi-ai/dist/providers/data/**/*",
 			"node_modules/@earendil-works/pi-agent-core/dist/**/*.json",
+			// Read-aloud (2026-10-24): Speech Rule Engine reads its locale JSON
+			// with fs and loads its own deps through a runtime require — both
+			// invisible to the tracer. Only the English rules are used.
+			"node_modules/speech-rule-engine/lib/mathmaps/base.json",
+			"node_modules/speech-rule-engine/lib/mathmaps/en.json",
+			"node_modules/speech-rule-engine/node_modules/**/*",
+			"node_modules/wicked-good-xpath/**/*",
 		],
 	},
 	// Framework-free core lives in src/ (plain TS, imported by routes and CLI alike).
@@ -82,6 +89,7 @@ const nextConfig: NextConfig = {
 		"pdfjs-dist", // sources v0: bundling breaks its node fake-worker path
 		"@napi-rs/canvas", // native binding — bundling breaks the .node require
 		"@resvg/resvg-js", // native binding — same
+		"speech-rule-engine", // read-aloud math: resolves its locale dir from its own install path
 	],
 };
 

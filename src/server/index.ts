@@ -46,3 +46,4 @@ export * from "./model-catalog.ts";
 export * from "./endpoints.ts";
 export * from "./obsidian.ts";
 export * from "./stt.ts";
+export * from "./tts.ts";

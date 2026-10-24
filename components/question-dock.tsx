@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { finishDictation, isDictationActive, joinDictation, useDictationTarget } from "@/components/dictation";
 import { useEnterSubmits } from "@/components/enter-submits";
 import { MessageResponse } from "@/components/ai-elements/message";
+import { offerQuestion } from "@/components/read-aloud";
 import { cn } from "@/lib/utils";
 import {
 	buildAnswer,
@@ -21,6 +22,7 @@ import {
 	parseAskInput,
 	parseQuizInput,
 	parseExplainInput,
+	questionSpeechBlocks,
 	toggleOption,
 	toggleOther,
 	type AnswerRequest,
@@ -123,6 +125,12 @@ export function QuestionDock({
 	// crash on `.map` over model-authored bytes.
 	const parsed =
 		canonical === "quiz" ? parseQuizInput(input) : canonical === "explain" ? parseExplainInput(input) : parseAskInput(input);
+	// Auto-read (owner, 2026-10-24) reads the question once it is SHOWN —
+	// a check behind the reveal waits for the reveal.
+	const shown = expanded && parsed !== null;
+	useEffect(() => {
+		if (shown) offerQuestion(toolCallId, questionSpeechBlocks(toolName, toolCallId, input));
+	}, [shown, toolName, toolCallId, input]);
 	if (!parsed) {
 		return (
 			<div data-testid="malformed-question" className="rounded-xl border border-dashed bg-card/60 p-3 text-sm text-muted-foreground">
