@@ -44,7 +44,7 @@ import { notifySettingsSaved, useSettingsSaved } from "@/components/settings-sig
 import { Hint } from "@/components/ui/hint";
 import { type ProviderKeyInfo } from "@/components/settings/keys-section";
 import { ProviderMenuList } from "@/components/settings/model-menu";
-import { defaultOrderLevel, populateLevel, THINKING_LABEL } from "@/components/thinking-default";
+import { defaultOrderLevel, populateLevel, thinkingLabel } from "@/components/thinking-default";
 import { ThinkingMenuList } from "@/components/settings/model-menu";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 
@@ -538,7 +538,7 @@ export function SetupDialog({
 												className="flex h-7 w-24 items-center gap-1 rounded-sm border border-border bg-background px-1.5 font-ui text-xs text-foreground transition-colors hover:border-muted-foreground/50 disabled:cursor-not-allowed disabled:opacity-40"
 											>
 												<span className="min-w-0 flex-1 truncate text-left">
-													{entry ? (level ? THINKING_LABEL[level] ?? level : "…") : "—"}
+													{entry ? (level ? thinkingLabel(level, entry) : "…") : "—"}
 												</span>
 												<span aria-hidden className="text-muted-foreground">
 													▾
@@ -555,6 +555,7 @@ export function SetupDialog({
 													<ThinkingMenuList
 														levels={levelsForEntry.map(String)}
 														effectiveLevel={level}
+														labelFor={(lv) => thinkingLabel(lv, entry)}
 														onPick={(lv) => {
 															setLevels((prev) => ({ ...prev, [slot]: lv as ThinkingLevel }));
 															setOpenMenu(null);

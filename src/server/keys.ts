@@ -51,7 +51,19 @@ import {
 	maskKey,
 	validateKeyShape,
 } from "../core/auth-keys.ts";
+import { isEndpointKeyVar } from "../core/endpoints.ts";
 import { authStore } from "../store/auth.ts";
+import { settingsStore } from "../store/settings.ts";
+
+/** The stored custom endpoints' ids (custom-endpoints wave, 2026-10-24). */
+export function customEndpointIds(): string[] {
+	return (settingsStore.readSettings()?.endpoints?.list ?? []).map((e) => e.id);
+}
+
+/** Does `provider` name a stored custom endpoint? */
+function isCustomEndpointId(provider: string): boolean {
+	return customEndpointIds().includes(provider);
+}
 
 // The once-per-process boot record — globalThis anchor (HMR re-imports the
 // module; the snapshot must not re-run and misread fill-gapped vars as real
@@ -71,10 +83,18 @@ function boot(): AuthBoot {
 	return g[BOOT_KEY];
 }
 
-/** Is `id` a WRITABLE key name — curated catalog or model-provider env
- *  var (provider-keys interlude: PUT/DELETE accept both). */
+/** Is `id` a WRITABLE key name — curated catalog, model-provider env
+ *  var (provider-keys interlude: PUT/DELETE accept both), or a custom
+ *  endpoint's key var (custom-endpoints wave, 2026-10-24). */
 export function isWritableAuthKey(id: string): boolean {
-	return isKnownAuthKey(id) || isProviderEnvVar(id);
+	return isKnownAuthKey(id) || isProviderEnvVar(id) || isEndpointKeyVar(id);
+}
+
+/** Endpoint keys: paste hygiene only — local servers use short keys. */
+function endpointKeyGuard(id: string, rawValue: string): { ok: true } | { ok: false; error: string } {
+	const value = rawValue.trim();
+	if (value.length > 0 && !/\s/.test(value)) return { ok: true };
+	return { ok: false, error: `${id} must be non-empty with no whitespace` };
 }
 
 /** The settings page's provider dropdown: every pi-ai provider that takes
@@ -200,6 +220,9 @@ export function keyValue(id: string): string | undefined {
  * (gate by what would run). Providers absent from AUTH_PROVIDER_KEYS take
  * no key at all: nothing to gate, present by definition. */
 export function providerKeyPresent(provider: string): boolean {
+	// Custom endpoints take an OPTIONAL key (owner, 2026-10-24): a keyless
+	// one is configured, and a builtin id never names one (the write gate).
+	if (isCustomEndpointId(provider)) return true;
 	const info = AUTH_PROVIDER_KEYS.find((p) => p.id === provider);
 	return info ? keyValue(info.envVar) !== undefined : true;
 }
@@ -211,7 +234,11 @@ export function providerKeyPresent(provider: string): boolean {
  * reports shadowedByEnv so the page can explain it).
  */
 export function saveKey(id: string, value: string): { ok: true; status: AuthKeyStatus } | { ok: false; error: string } {
-	const shape = isProviderEnvVar(id) ? genericProviderKeyGuard(id, value) : validateKeyShape(id, value);
+	const shape = isEndpointKeyVar(id)
+		? endpointKeyGuard(id, value)
+		: isProviderEnvVar(id)
+			? genericProviderKeyGuard(id, value)
+			: validateKeyShape(id, value);
 	if (!shape.ok) return { ok: false, error: shape.error };
 	const trimmed = value.trim();
 	authStore.setAuthVar(id, trimmed);

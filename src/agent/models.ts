@@ -1,16 +1,19 @@
 import {
 	clampThinkingLevel,
 	createModels,
+	createProvider,
 	getSupportedThinkingLevels,
 	type Api,
 	type Model,
 	type Models,
 	type StreamFunction,
 } from "@earendil-works/pi-ai";
+import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
 import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { type ModelRole } from "../../config.ts";
 import { DEFAULT_THINKING_ORDER } from "../core/settings.ts";
+import { effectiveModelValues, endpointKeyVar, type CustomEndpoint, type EndpointModel } from "../core/endpoints.ts";
 import packageMetadata from "../../package.json" with { type: "json" };
 
 /** App identity is immutable and shared by Models and every native Agent.
@@ -52,13 +55,103 @@ let collection: ReturnType<typeof createModels> | undefined;
  *  the environment (the keys seam reflects file-saved keys into env), and
  *  a provider with no key simply fails its stream with "not configured" —
  *  honest, late, and unreachable through the picker, which gates on
- *  keyPresent. */
+ *  keyPresent.
+ *
+ *  Custom endpoints (custom-endpoints wave, 2026-10-24) join the same
+ *  collection: every call re-syncs them from the registered source (the
+ *  settings record, read fresh — a settings PUT lands on the next call). */
 export function piModels() {
 	if (!collection) {
 		collection = createModels({ identity: APP_IDENTITY });
 		for (const provider of builtinProviders()) collection.setProvider(provider);
 	}
+	if (endpointSource) syncCustomEndpoints(collection, endpointSource());
 	return collection;
+}
+
+/** The builtin pi-ai provider ids — a custom endpoint id must not shadow one. */
+export function builtinProviderIds(): Set<string> {
+	return new Set(builtinProviders().map((p) => p.id));
+}
+
+// ─── custom endpoints (custom-endpoints wave, 2026-10-24) ──────────────────
+
+/** Where the endpoint definitions come from. Registered by the server's
+ *  composition root (this layer never reads settings — the setTurnRunner
+ *  pattern); unset (tests, scripts) = no custom providers. */
+let endpointSource: (() => readonly CustomEndpoint[]) | undefined;
+/** Fingerprint of the last synced definitions → ids it registered. */
+let syncedFingerprint = "";
+let syncedIds: string[] = [];
+
+export function setCustomEndpointSource(source: (() => readonly CustomEndpoint[]) | undefined): void {
+	endpointSource = source;
+}
+
+/** Placeholder bearer for keyless endpoints — pi-ai's OpenAI client
+ *  refuses an empty key; keyless servers ignore the header. */
+const KEYLESS_PLACEHOLDER = "no-key";
+
+/** One stored model → the pi Model it runs as. Thinking is ON/OFF only
+ *  (owner ruling): the level map leaves exactly off + high, and the
+ *  endpoint's format decides what "on" sends. Costs are zero — self-hosted. */
+export function customEndpointModel(endpoint: CustomEndpoint, stored: EndpointModel): Model<"openai-completions"> {
+	const values = effectiveModelValues(stored);
+	const reasoning = values.reasoning && endpoint.thinkingFormat !== "none";
+	return {
+		id: stored.id,
+		name: stored.id,
+		api: "openai-completions",
+		provider: endpoint.id,
+		baseUrl: endpoint.baseUrl,
+		reasoning,
+		...(reasoning ? { thinkingLevelMap: { minimal: null, low: null, medium: null, high: "high" } } : {}),
+		input: values.vision ? ["text", "image"] : ["text"],
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		contextWindow: values.contextWindow,
+		maxTokens: values.maxTokens,
+		compat: {
+			supportsDeveloperRole: false,
+			supportsReasoningEffort: endpoint.thinkingFormat === "openai",
+			supportsStore: false,
+			...(endpoint.thinkingFormat !== "none" ? { thinkingFormat: endpoint.thinkingFormat } : {}),
+		},
+	};
+}
+
+/** One endpoint → its pi provider. The key is read from the env per
+ *  request (the keys seam reflects auth.json there), optional. */
+export function customEndpointProvider(endpoint: CustomEndpoint) {
+	const keyVar = endpointKeyVar(endpoint.id);
+	return createProvider({
+		id: endpoint.id,
+		name: endpoint.name,
+		baseUrl: endpoint.baseUrl,
+		auth: {
+			apiKey: {
+				name: endpoint.name,
+				resolve: async () => ({ auth: { apiKey: process.env[keyVar] || KEYLESS_PLACEHOLDER } }),
+			},
+		},
+		models: endpoint.models.map((m) => customEndpointModel(endpoint, m)),
+		api: openAICompletionsApi(),
+	});
+}
+
+/** Make the collection's custom providers match `endpoints` exactly —
+ *  a no-op when nothing changed since the last sync. */
+function syncCustomEndpoints(models: ReturnType<typeof createModels>, endpoints: readonly CustomEndpoint[]): void {
+	const fingerprint = JSON.stringify(endpoints);
+	if (fingerprint === syncedFingerprint) return;
+	const builtin = builtinProviderIds();
+	for (const id of syncedIds) models.deleteProvider(id);
+	syncedIds = [];
+	for (const endpoint of endpoints) {
+		if (builtin.has(endpoint.id)) continue; // the write gate refuses these; a hand edit never shadows a builtin
+		models.setProvider(customEndpointProvider(endpoint));
+		syncedIds.push(endpoint.id);
+	}
+	syncedFingerprint = fingerprint;
 }
 
 /** OpenRouter API key (BYOK); tests never read this — they inject engines. */

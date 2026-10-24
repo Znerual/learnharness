@@ -11,6 +11,7 @@ import { graphStore } from "../store/graph.ts";
 import { jobStore } from "../store/jobs.ts";
 import { settingsStore } from "../store/settings.ts";
 import { resolveSettings, type EffectiveSettings } from "../core/settings-resolution.ts";
+import { setCustomEndpointSource } from "../agent/models.ts";
 /** The wired adapters. Satisfies core/graph.ts's GraphDeps structurally. */
 export const stores = {
 	chatStore,
@@ -20,6 +21,12 @@ export const stores = {
 };
 
 export type Stores = typeof stores;
+
+// Custom endpoints (custom-endpoints wave, 2026-10-24): the engine
+// collection re-syncs its custom providers from the settings record on
+// every access — wired here, beside the settings adapter, so every path
+// that reaches piModels() through the server sees the same record.
+setCustomEndpointSource(() => settingsStore.readSettings()?.endpoints?.list ?? []);
 
 /**
  * The resolved view of the settings record (core/settings-resolution.ts):

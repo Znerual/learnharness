@@ -19,7 +19,7 @@
 
 import { clampThinkingLevel, getSupportedThinkingLevels, type Api, type Model } from "@earendil-works/pi-ai";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import { piModels } from "../agent/models.ts";
+import { builtinProviderIds, piModels } from "../agent/models.ts";
 import { settingsStore } from "../store/settings.ts";
 import { effectiveSettings } from "./stores.ts";
 import { keyValue } from "./keys.ts";
@@ -34,6 +34,7 @@ import type {
 } from "../core/contracts/models.ts";
 import type { EffectiveModelSpec, EffectiveSlot } from "../core/settings-resolution.ts";
 import { AUTH_PROVIDER_KEYS } from "../core/auth-keys.ts";
+import { endpointKeyVar, type EndpointsSettings } from "../core/endpoints.ts";
 import { BACKGROUND_MODEL_ROLES, MODEL_SLOTS, type BackgroundModelRole, type ModelSlotName, type ModelsSettings } from "../core/settings.ts";
 
 /** The picker's client-safe model entry (contract: core/contracts/models.ts). */
@@ -121,11 +122,25 @@ export function catalogSlots(): SlotPins {
  *  with keyPresent read env-wins through the keys seam, fresh per call —
  *  saving a key immediately federates the provider into the picker. */
 export function catalogProviders(): CatalogProvider[] {
-	return AUTH_PROVIDER_KEYS.map((p) => ({
+	const builtin: CatalogProvider[] = AUTH_PROVIDER_KEYS.map((p) => ({
 		id: p.id,
 		envVar: p.envVar,
 		keyPresent: keyValue(p.envVar) !== undefined,
-	})).sort((a, b) => a.id.localeCompare(b.id));
+	}));
+	// Custom endpoints (custom-endpoints wave, 2026-10-24): the key is
+	// optional, so a stored endpoint always federates.
+	const custom: CatalogProvider[] = customEndpoints().map((e) => ({
+		id: e.id,
+		envVar: endpointKeyVar(e.id),
+		keyPresent: true,
+		custom: true,
+	}));
+	return [...builtin, ...custom].sort((a, b) => a.id.localeCompare(b.id));
+}
+
+/** The stored custom endpoints, read fresh. */
+function customEndpoints() {
+	return settingsStore.readSettings()?.endpoints?.list ?? [];
 }
 
 /** The providers whose key is present — the picker federates exactly
@@ -136,8 +151,9 @@ function keyedProviderIds(): Set<string> {
 }
 
 /** Project one catalog model to the client DTO. */
-export function toModelDto(model: Model<Api>): ModelDto {
+export function toModelDto(model: Model<Api>, custom = false): ModelDto {
 	return {
+		...(custom ? { custom: true } : {}),
 		id: model.id,
 		name: model.name,
 		provider: model.provider,
@@ -180,11 +196,12 @@ export function catalogContextLimits(): Map<string, number> {
  *  pins (the settings UI's per-role default captions). */
 export function modelCatalog(): ModelCatalogResponse {
 	const keyed = keyedProviderIds();
+	const customIds = new Set(customEndpoints().map((e) => e.id));
 	const models = piModels()
 		.getProviders()
 		.filter((p) => keyed.has(p.id))
 		.flatMap((p) => piModels().getModels(p.id))
-		.map(toModelDto)
+		.map((m) => toModelDto(m, customIds.has(m.provider)))
 		.sort((a, b) => (a.provider === b.provider ? a.id.localeCompare(b.id) : a.provider.localeCompare(b.provider)));
 	return {
 		models,
@@ -223,6 +240,19 @@ export function validateChatSettings(settings: ChatSettings): SettingsValidation
 	// below, applied by the routes) and stores the clamped result; a bare
 	// level with no model anywhere rides unchecked and clamps against
 	// whatever the chain later holds at engine build.
+	return { ok: true };
+}
+
+/** The endpoints section's catalog gate (custom-endpoints wave,
+ *  2026-10-24): an endpoint id must not shadow a builtin pi-ai provider
+ *  (the parser checked shapes; this checks the catalog). */
+export function validateEndpointsSettings(settings: EndpointsSettings): SettingsValidation {
+	const builtin = builtinProviderIds();
+	for (const endpoint of settings.list ?? []) {
+		if (builtin.has(endpoint.id)) {
+			return { ok: false, error: `Endpoint id "${endpoint.id}" is a builtin provider — choose another` };
+		}
+	}
 	return { ok: true };
 }
 

@@ -18,14 +18,18 @@
  *  - Tools & services (Deepgram, the Google pair) keep their own group,
  *    same look, same interaction.
  *
+ * Custom endpoints (2026-10-24) get their own group between the model
+ * providers and the tools (./endpoints-group.tsx).
+ *
  * API: GET /api/keys (masked statuses + the providers array), PUT
  * /api/keys/:id (shape-gated 400s land inline), DELETE. Saves take
  * effect immediately. Plaintext never returns from the store.
  */
 
 import { useEffect, useRef, useState } from "react";
-import { AUTH_KEYS, type AuthKeyStatus } from "@/src/core";
+import { AUTH_KEYS, isEndpointKeyVar, type AuthKeyStatus } from "@/src/core";
 import { SettingsGroup } from "./controls.tsx";
+import { EndpointsGroup } from "./endpoints-group.tsx";
 import { ProviderMenuList } from "./model-menu.tsx";
 import { MenuShell } from "@/components/menu-shell";
 import { notifySettingsSaved } from "@/components/settings-signal";
@@ -81,6 +85,9 @@ export function classifyKeys(
 	const unknownRows: AuthKeyStatus[] = [];
 	for (const s of statuses) {
 		if (isTool(s.id)) continue;
+		// Custom-endpoint keys render inside their endpoint's editor
+		// (custom-endpoints wave, 2026-10-24), never as loose rows.
+		if (isEndpointKeyVar(s.id)) continue;
 		if (providerEnv.has(s.id) || (!s.info && providers === undefined)) providerRows.push(s);
 		else if (!s.info) unknownRows.push(s);
 		// (pre-interlude catalogs: a curated-but-unclassified status still
@@ -447,6 +454,14 @@ export function KeysSection({
 					</div>
 				)}
 			</SettingsGroup>
+
+			<EndpointsGroup
+				keyStatuses={statuses}
+				onKeysChanged={async () => {
+					await reload();
+					notifySettingsSaved("keys");
+				}}
+			/>
 
 			<SettingsGroup label="Tools & services" testid="group-tool-keys">
 				{toolRows.map((status) => (
