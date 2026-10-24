@@ -28,6 +28,7 @@ import { blurAfterPointerClick } from "@/components/focus-hygiene";
 import { dockStateKey } from "@/components/dock-state-key";
 import { QueuedSteersBody, type QueuedSteerLine } from "@/components/queued-steers";
 import { DictationBar, finishDictation, joinDictation, useDictation } from "@/components/dictation";
+import { ReadAloudButton, ReadAloudToggle, stopReadAloud, useAutoRead } from "@/components/read-aloud";
 import { useFieldCycle } from "@/components/field-cycle";
 import { JobsContext } from "@/components/jobs-context";
 import { StatsBar } from "@/components/stats-bar";
@@ -238,6 +239,10 @@ export function Chat({
 	// turn stream is the VERBATIM AgentEvent passthrough the server emits.
 	const { messages, nativeMessages, send, steer, steerQueue, submitAnswer, dismissQuestion, dismissProblem, setMessages, adoptRecord, status, error, stop, clearError, resumeStream, setReattachSettled } =
 		useChatSession({ chatId, initialMessages, initiallyInFlight });
+
+	// Read-aloud (2026-10-24): every reply that streams in while auto-read
+	// is on is spoken as its blocks close (components/read-aloud.tsx).
+	useAutoRead(messages, status);
 
 	const sessionFindScopeRef = useRef<HTMLDivElement | null>(null);
 	const scrollContextRef = useRef<StickToBottomContext | null>(null);
@@ -491,6 +496,7 @@ export function Chat({
 		(text: string) => {
 			const problem = activeProblemRef.current;
 			if (!problem) return;
+			stopReadAloud();
 			void send({ type: "thinking", problemCallId: problem.toolCallId, text });
 		},
 		[send],
@@ -1126,6 +1132,8 @@ export function Chat({
 
 	const onSend = () => {
 		if (pending || compacting) return;
+		// Sending ends the reading (read-aloud, owner 2026-10-24).
+		stopReadAloud();
 		/* FINISH DICTATION FIRST (owner, 2026-10-01): a learner who keeps
 		 * talking right through Enter must not lose the tail — stop the run,
 		 * let the last finals land in the composer, then send the REF value
@@ -1532,6 +1540,7 @@ export function Chat({
 												}
 											})}
 										</MessageContent>
+										<ReadAloudButton message={m} />
 									</Message>
 									)}
 								</Fragment>
@@ -1605,7 +1614,15 @@ export function Chat({
 					phase={phases.at(-1) ?? "probe"}
 					turns={turns}
 					onReserve={setDockReserve}
-					dictationSlot={<DictationBar dictation={dictation} />}
+					dictationSlot={
+						// The auto-read toggle rides beside the mic (read-aloud, owner 2026-10-24).
+						<div className="flex w-full min-w-0 items-center gap-2">
+							<ReadAloudToggle />
+							<div className="flex min-w-0 flex-1 items-center justify-center">
+								<DictationBar dictation={dictation} />
+							</div>
+						</div>
+					}
 					dictationCancel={dictation.cancel}
 					queuedSteers={visibleQueuedSteers(steerQueue, nativeMessages)}
 					setupCta={
@@ -1660,6 +1677,7 @@ export function Chat({
 						// check answer is its only carrier.
 						const reading = readingThinkingRef.current.trim() || undefined;
 						clearReadingThinking();
+						stopReadAloud();
 						submitAnswer(pending.tool, pending.toolCallId, reading ? { ...output, readingThinking: reading } : output);
 					}}
 				/>

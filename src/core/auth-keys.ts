@@ -43,6 +43,12 @@ export const AUTH_KEYS: readonly AuthKeyInfo[] = [
 		docsUrl: "https://platform.openai.com/docs/api-reference/audio/createTranscription",
 	},
 	{
+		id: "LH_TTS_KEY",
+		label: "Read-aloud key",
+		description: "Optional bearer key for the OpenAI-compatible text-to-speech endpoint that reads replies aloud.",
+		docsUrl: "https://platform.openai.com/docs/api-reference/audio/createSpeech",
+	},
+	{
 		id: "TAVILY_API_KEY",
 		label: "Tavily",
 		description: "Web-search engine for the researcher sub-agent (AI-native search API). Setting the key activates it — no engine toggle needed.",
@@ -171,6 +177,7 @@ export function validateKeyShape(id: string, rawValue: string): KeyShapeResult {
 			// No public format — the length floor only catches truncated pastes.
 			return nonEmpty(20);
 		case "LH_STT_KEY":
+		case "LH_TTS_KEY":
 			// Self-hosted servers use short keys — paste hygiene only.
 			return nonEmpty(1);
 		default:

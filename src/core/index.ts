@@ -74,6 +74,10 @@ export * from "./auth-keys.ts";
 export * from "./endpoints.ts";
 // dictation.ts (local-STT wave, 2026-10-24): the dictation engine choice.
 export * from "./dictation.ts";
+// speech.ts (read-aloud wave, 2026-10-24): the read-aloud endpoint + toggle.
+export * from "./speech.ts";
+// speech-script.ts (read-aloud wave): reply markdown → what gets spoken.
+export * from "./speech-script.ts";
 // keyboard.ts: the shortcut registry + binding normalization (pure, browser-safe).
 export * from "./keyboard.ts";
 export * from "./coverage.ts";

@@ -36,6 +36,7 @@ import {
 	type EndpointThinkingFormat,
 } from "../core/endpoints.ts";
 import { DICTATION_ENGINES, type DictationSettings } from "../core/dictation.ts";
+import { SPEECH_SPEED_MAX, SPEECH_SPEED_MIN, isSpeechSpeed, type SpeechSettings } from "../core/speech.ts";
 
 /** Parsed-or-rejected — `ok: false` carries the 400's error message. */
 export type SettingsBodyResult<T> =
@@ -507,6 +508,35 @@ export function parseDictationSettingsBody(body: unknown): SettingsBodyResult<Di
 	return { ok: true, settings };
 }
 
+// ─── speech (read-aloud wave, 2026-10-24) ───────────────────────────────────
+
+/** speech: { url?, voice?, speed?, autoRead? } — strict. */
+export function parseSpeechSettingsBody(body: unknown): SettingsBodyResult<SpeechSettings> {
+	const raw = asRecord(body);
+	if (!raw) return { ok: false, error: "Invalid JSON body" };
+	const settings: SpeechSettings = {};
+	if (raw.url !== undefined && raw.url !== "") {
+		const url = typeof raw.url === "string" ? normalizeBaseUrl(raw.url) : null;
+		if (!url) return { ok: false, error: "url must be an http(s) URL without query or fragment" };
+		settings.url = url;
+	}
+	if (raw.voice !== undefined && raw.voice !== "") {
+		if (typeof raw.voice !== "string") return { ok: false, error: "voice must be a string" };
+		settings.voice = raw.voice.trim();
+	}
+	if (raw.speed !== undefined) {
+		if (!isSpeechSpeed(raw.speed)) {
+			return { ok: false, error: `speed must be a number from ${SPEECH_SPEED_MIN} to ${SPEECH_SPEED_MAX}` };
+		}
+		settings.speed = raw.speed;
+	}
+	if (raw.autoRead !== undefined) {
+		if (typeof raw.autoRead !== "boolean") return { ok: false, error: "autoRead must be a boolean" };
+		settings.autoRead = raw.autoRead;
+	}
+	return { ok: true, settings };
+}
+
 export const SETTINGS_SECTIONS = {
 	general: parseGeneralSettingsBody,
 	chat: parseSettingsBody,
@@ -517,6 +547,7 @@ export const SETTINGS_SECTIONS = {
 	models: parseModelsSettingsBody,
 	endpoints: parseEndpointsSettingsBody,
 	dictation: parseDictationSettingsBody,
+	speech: parseSpeechSettingsBody,
 } as const;
 
 export type SettingsSectionName = keyof typeof SETTINGS_SECTIONS;
