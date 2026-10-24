@@ -21,7 +21,7 @@ TAG="v$VERSION"
 
 [[ "$(git branch --show-current)" == main ]] || { echo "release from main"; exit 1; }
 [[ -z "$(git status --porcelain)" ]] || { echo "working tree not clean"; exit 1; }
-git remote get-url fork >/dev/null 2>&1 || { echo "no 'fork' remote (git@github.com:$OWNER/$REPO.git)"; exit 1; }
+git remote get-url fork >/dev/null 2>&1 || { echo "no 'fork' remote (https://github.com/$OWNER/$REPO.git)"; exit 1; }
 export GH_TOKEN
 GH_TOKEN=$(gh auth token --user "$OWNER")
 if gh release view "$TAG" --repo "$OWNER/$REPO" >/dev/null 2>&1; then
@@ -41,7 +41,9 @@ FEED=dist/linux-unpacked/resources/app-update.yml
 grep -q "owner: $OWNER" "$FEED" && grep -q "repo: $REPO" "$FEED" || { echo "unexpected update feed in $FEED:"; cat "$FEED"; exit 1; }
 
 git tag -a "$TAG" -m "LearnHarness fork $VERSION"
-git push fork main "$TAG"
+# HTTPS with the Znerual token: the machine's SSH key belongs to another account.
+git -c credential.helper= -c credential.helper='!f() { echo username=x-access-token; echo "password=$GH_TOKEN"; }; f' \
+	push fork main "$TAG"
 gh release create "$TAG" --repo "$OWNER/$REPO" --title "LearnHarness $VERSION (fork)" \
 	--notes "Fork build of upstream $(node -p 'const v=require("./package.json").version.split("."); v[0]+"."+v[1]+"."+Math.floor(v[2]/1000)') with this fork's features. Linux x64." \
 	"dist/LearnHarness-$VERSION-x86_64.AppImage" "dist/LearnHarness-$VERSION-amd64.deb" dist/latest-linux.yml
