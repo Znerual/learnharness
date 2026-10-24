@@ -185,8 +185,9 @@ function isEmbeddingModel(id: string, info: LmStudioModelInfo | undefined): bool
 /**
  * Parse the OpenAI-style GET <baseUrl>/models body (+ LM Studio's index
  * when the server has one) into detected models, sorted by id.
- * Context: vLLM's `max_model_len`, else LM Studio's max_context_length,
- * else FALLBACK_CONTEXT_WINDOW. Vision: LM Studio `type: "vlm"` only
+ * Context: vLLM's `max_model_len` (top-level, or nested under `openai`
+ * when an Open WebUI gateway proxies vLLM), else LM Studio's
+ * max_context_length, else FALLBACK_CONTEXT_WINDOW. Vision: LM Studio `type: "vlm"` only
  * (nothing else reports it — the user overrides). Reasoning: assumed on
  * (the thinking format decides what is sent; a model whose template has
  * no thinking switch ignores it).
@@ -203,7 +204,9 @@ export function parseModelListing(body: unknown, lmStudio: Map<string, LmStudioM
 		const info = lmStudio.get(e.id);
 		if (isEmbeddingModel(e.id, info)) continue;
 		seen.add(e.id);
-		const contextWindow = positiveInt(e.max_model_len) ?? info?.maxContextLength ?? FALLBACK_CONTEXT_WINDOW;
+		const upstream = e.openai && typeof e.openai === "object" ? (e.openai as Record<string, unknown>) : undefined;
+		const contextWindow =
+			positiveInt(e.max_model_len) ?? positiveInt(upstream?.max_model_len) ?? info?.maxContextLength ?? FALLBACK_CONTEXT_WINDOW;
 		out.push({
 			id: e.id,
 			contextWindow,
