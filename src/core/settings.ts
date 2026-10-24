@@ -30,6 +30,7 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { AUTH_PROVIDER_KEYS } from "./auth-keys.ts";
 import { sanitizeEndpoints, type EndpointsSettings } from "./endpoints.ts";
+import { sanitizeDictation, type DictationSettings } from "./dictation.ts";
 import type { ModelRole } from "../../config.ts";
 import type { ChatSettings } from "./contracts/chat.ts";
 import type { SearchEngineId } from "./search.ts";
@@ -377,6 +378,9 @@ export interface UserSettings {
 	/** User-added OpenAI-compatible endpoints (custom-endpoints wave,
 	 *  2026-10-24 — core/endpoints.ts owns the shape). */
 	endpoints?: EndpointsSettings;
+	/** The dictation engine choice (local-STT wave, 2026-10-24 —
+	 *  core/dictation.ts owns the shape). */
+	dictation?: DictationSettings;
 	[key: string]: unknown;
 }
 
@@ -636,6 +640,9 @@ export function sanitizeUserSettings(raw: unknown): UserSettings | null {
 	if (r.models !== null && typeof r.models === "object" && !Array.isArray(r.models)) {
 		const models = sanitizeModels(r.models as Record<string, unknown>);
 		if (Object.keys(models).length) out.models = models;
+	}
+	if (r.dictation !== null && typeof r.dictation === "object" && !Array.isArray(r.dictation)) {
+		out.dictation = sanitizeDictation(r.dictation as Record<string, unknown>);
 	}
 	if (r.endpoints !== null && typeof r.endpoints === "object" && !Array.isArray(r.endpoints)) {
 		out.endpoints = sanitizeEndpoints(r.endpoints as Record<string, unknown>);

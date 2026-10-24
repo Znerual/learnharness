@@ -190,7 +190,7 @@ flowchart LR
         FS["fs stores — src/store (data/)"]
         LLM["LLM engines — pi-ai/OpenRouter via piEngineFor"]
         HEAD["headless Chrome — demo verify · SVG render"]
-        DEEP["Deepgram STT — token-minting route, browser-side WebSocket"]
+        DEEP["Deepgram STT — token-minting route, browser-side WebSocket · or LOCAL: /api/stt/transcribe → OpenAI-compatible /audio/transcriptions"]
         WEB["web tools — Google CSE + Readability/Jina (researcher)"]
     end
 
@@ -531,6 +531,7 @@ Every place the architecture is designed to be cut — the "one file" a future c
 |---|---|---|
 | Storage decision (JSON→SQLite, remote) | `src/server/stores.ts` | the adapters, once |
 | LLM engine / model per role | settings `models` slots + `src/agent/models.ts` (`piEngineFor`) | provider wiring, one place |
+| Dictation engine (Deepgram / local) | settings `dictation` + `core/dictation.ts` + `src/server/stt.ts` + `components/dictation.tsx` | speech-to-text |
 | Obsidian vault sync (export + Sync) | settings `graph.obsidianVault` + `core/obsidian-export.ts` + `src/server/obsidian.ts` | the graph ↔ an Obsidian vault |
 | Custom OpenAI-compatible endpoint | settings `endpoints` section + `core/endpoints.ts` + `src/agent/models.ts` (`customEndpointProvider`) | self-hosted model servers |
 | Turn composition | `src/server/chat-handler.ts` | what a turn consists of |
