@@ -118,6 +118,13 @@ describe("detection parsers", () => {
 			],
 		);
 	});
+	it("reads the context Open WebUI nests under `openai`", () => {
+		const [m] = core.parseModelListing({
+			data: [{ id: "qwen3.8-27b", owned_by: "openai", openai: { id: "qwen3.8-27b", max_model_len: 262144 } }],
+		});
+		assert.equal(m?.contextWindow, 262144);
+		assert.equal(m?.maxTokens, 16384);
+	});
 	it("falls back without server facts and survives junk", () => {
 		const m = core.parseModelListing({ data: [{ id: "llama" }] })[0]!;
 		assert.equal(m.contextWindow, core.FALLBACK_CONTEXT_WINDOW);
