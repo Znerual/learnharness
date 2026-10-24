@@ -99,6 +99,12 @@ export interface NotesSource {
 	 * ignored: every explicit notes import processes the whole file. New
 	 * imports do not compute or write this field. No migration is needed. */
 	contentFp?: string;
+	/** Obsidian Sync's content fingerprint (obsidian wave, 2026-10-24):
+	 *  sha256 of the vault file's text, written by the Sync ONLY after a
+	 *  COMPLETED import. A matching fingerprint makes the next Sync skip
+	 *  the file; every import start (upsertSource) clears it, so a failed
+	 *  or partial import is retried. Manual imports never read it. */
+	vaultFp?: string;
 	/** The run's usage log — same append-only discipline as
 	 *  ChatRecord.extractions, idempotent per startedAt. */
 	extractions?: ExtractionRunUsage[];

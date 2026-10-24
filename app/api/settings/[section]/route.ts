@@ -30,7 +30,7 @@
  * lands here.
  */
 
-import type { AgentSettings, ChatSettings, EndpointsSettings, ModelsSettings } from "@/src/core";
+import type { AgentSettings, ChatSettings, EndpointsSettings, GraphSettings, ModelsSettings } from "@/src/core";
 import {
 	SETTINGS_SECTIONS,
 	allSegmentPaths,
@@ -42,6 +42,8 @@ import {
 	validateChatSettings,
 	validateEndpointsSettings,
 	validateModelsSettings,
+	isExistingDirectory,
+	scheduleObsidianExport,
 	writeSettingsRecord,
 	type SettingsBodyResult,
 } from "@/src/server";
@@ -89,6 +91,13 @@ export async function PUT(request: Request, ctx: { params: Promise<{ section: st
 		const verdict = validateEndpointsSettings(parsed.settings as EndpointsSettings);
 		if (!verdict.ok) return Response.json({ error: verdict.error }, { status: 400 });
 	}
+	// The Obsidian vault (2026-10-24): it must be an existing directory.
+	if (section === "graph") {
+		const vault = (parsed.settings as GraphSettings).obsidianVault;
+		if (vault && !isExistingDirectory(vault)) {
+			return Response.json({ error: `obsidianVault: no directory at ${vault}` }, { status: 400 });
+		}
+	}
 	if (section === "agent") {
 		// Orphan-heal (contract fix, interlude 2026-09-26): an ON switch
 		// whose override file is gone (or whose segment left the source
@@ -134,5 +143,6 @@ export async function PUT(request: Request, ctx: { params: Promise<{ section: st
 	const record = readSettingsRecord() ?? { version: 1 };
 	const next = { ...record, [section]: sectionOut };
 	writeSettingsRecord(next);
+	if (section === "graph") scheduleObsidianExport(); // a new vault gets its export right away
 	return Response.json({ settings: next });
 }

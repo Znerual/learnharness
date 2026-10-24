@@ -11,6 +11,7 @@ import {
 } from "../core/graph-deletion.ts";
 import { extractionStatuses } from "../agent/subagents/extraction.ts";
 import { stores } from "./stores.ts";
+import { scheduleObsidianExport } from "./obsidian.ts";
 
 /**
  * Server-side graph entry for the home view (GET /api/graph). A PURE READ:
@@ -115,6 +116,7 @@ export function deleteGraphNode(nodeId: string): NodeDeleteOutcome {
 	if (stats === null) {
 		return { ok: false, status: 404, code: "not_found", error: "No such node" };
 	}
+	scheduleObsidianExport(); // the vault export follows the graph (2026-10-24)
 	return { ok: true, stats, graphRevision: graphRevision() };
 }
 
