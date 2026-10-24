@@ -37,6 +37,15 @@ npx electron-builder --win --x64 --publish never
 npx electron-builder --linux --x64 --publish never
 ```
 
+## Fork releases (Znerual/learnharness)
+
+This fork's installed apps update from the fork's own GitHub releases, `Znerual/learnharness` (`electron-builder.yml` → `publish`), never from upstream. On 2026-10-24 the upstream 0.3.6 release reached a fork build through the auto-updater and replaced it, dropping the fork's features; `tests/fork-update-feed.test.ts` now pins the feed.
+
+- **Versions:** upstream version plus a fork counter in the patch: upstream 0.3.6 → fork 0.3.6001, 0.3.6002, …; after merging upstream 0.3.7 → 0.3.7001. Plain semver, always above the upstream base, so the updater never downgrades and never prefers upstream.
+- **Upstream changes:** `git fetch origin && git merge origin/main`, then bump to the new base's first fork number.
+- **Release (Linux):** commit the version bump on `main`, then `scripts/release-fork.sh`. It builds, smoke-tests, packages, checks the baked `app-update.yml` names the fork, pushes `main` and the tag to the `fork` remote, and publishes the GitHub release with `latest-linux.yml` as the Znerual account.
+- **Install:** keep the AppImage at a version-free name (`~/Applications/LearnHarness.AppImage`). electron-updater then replaces that file in place, and the desktop launcher keeps working; a versioned name is renamed on update and the launcher's path goes stale.
+
 ## CI vs release
 
 `.github/workflows/ci.yml` runs on main pushes and pull requests:
