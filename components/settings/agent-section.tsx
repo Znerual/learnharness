@@ -54,7 +54,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { MenuShell } from "@/components/menu-shell";
 import { useSettingsSaved } from "@/components/settings-signal";
-import { defaultOrderLevel, populateLevel } from "@/components/thinking-default";
+import { defaultOrderLevel, populateLevel, thinkingLabel } from "@/components/thinking-default";
 import type React from "react";
 import {
 	COMPACTION_THRESHOLD_FLOOR,
@@ -666,7 +666,10 @@ export function AgentSection({
 									// Legacy display (chunk 2 item 4): no stored level + a known
 									// model → the RESOLVED level (the ordering's first supported —
 									// what the engine build runs). Display-only until a pick writes.
-									value={thinking || (chosen ? defaultOrderLevel(levels) : "")}
+									value={(() => {
+										const level = thinking || (chosen ? defaultOrderLevel(levels) : "");
+										return level ? thinkingLabel(level, chosen) : "";
+									})()}
 									emptyLabel="—"
 									ariaLabel={`${SLOT_META[slot].label} thinking`}
 									testid={`slot-thinking-${slot}`}
@@ -713,6 +716,7 @@ export function AgentSection({
 											// The ✓ sits on the RESOLVED level for legacy unset records —
 											// the same one the trigger shows.
 											effectiveLevel={thinking || (chosen ? defaultOrderLevel(levels) : undefined)}
+											labelFor={(level) => thinkingLabel(level, chosen)}
 											onPick={(level) => {
 												onModelsChange(composeSlotModel(models, slot, provider, modelId, level));
 												setOpenMenu(null);

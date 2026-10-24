@@ -30,6 +30,14 @@ export const THINKING_LABEL: Record<string, string> = {
 	max: "max",
 };
 
+/** The label for one level of one model (custom-endpoints wave,
+ *  2026-10-24): a custom endpoint's thinking is on/off only, stored as
+ *  "high" — it reads "on". Every other level reads THINKING_LABEL. */
+export function thinkingLabel(level: string, model?: { custom?: boolean }): string {
+	if (model?.custom && level === "high") return "on";
+	return THINKING_LABEL[level] ?? level;
+}
+
 /** The level a fresh pick of `supported` populates with. Empty support
  *  (shouldn't happen — the catalog always reports at least ["off"])
  *  resolves "off", matching the server's fallback. */

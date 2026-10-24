@@ -152,10 +152,14 @@ export function ThinkingMenuList({
 	onPick,
 	empty,
 	footer,
+	labelFor,
 }: {
 	levels: string[];
 	effectiveLevel: string | undefined;
 	onPick: (level: string) => void;
+	/** The display label per level (default: the level string itself) —
+	 *  custom-endpoint models read "high" as "on". */
+	labelFor?: (level: string) => string;
 	/** Shown instead of the list when there are no levels. */
 	empty?: string;
 	footer?: string;
@@ -175,7 +179,7 @@ export function ThinkingMenuList({
 							level === effectiveLevel ? "bg-muted/60 text-card-foreground" : "text-card-foreground"
 						}`}
 					>
-						<span>{level}</span>
+						<span>{labelFor ? labelFor(level) : level}</span>
 						{level === effectiveLevel && <span aria-hidden>✓</span>}
 					</button>
 				))

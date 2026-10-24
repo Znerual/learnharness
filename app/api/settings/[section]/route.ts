@@ -5,7 +5,8 @@
  * discipline, same as the per-chat and defaults routes); sections are
  * independent, so partial writes can never clobber each other.
  *
- *   section ∈ general | chat | agent | appearance | graph | compaction
+ *   section ∈ general | chat | agent | appearance | graph | compaction |
+ *             models | endpoints
  *   Body: the complete desired section object. Parse + validate strictly
  *   (server/settings-body.ts): a bad shape/type is a 400 carrying the
  *   supported list where one exists. The chat and models sections
@@ -29,7 +30,7 @@
  * lands here.
  */
 
-import type { AgentSettings, ChatSettings, ModelsSettings } from "@/src/core";
+import type { AgentSettings, ChatSettings, EndpointsSettings, ModelsSettings } from "@/src/core";
 import {
 	SETTINGS_SECTIONS,
 	allSegmentPaths,
@@ -39,6 +40,7 @@ import {
 	promptOverrides,
 	readSettingsRecord,
 	validateChatSettings,
+	validateEndpointsSettings,
 	validateModelsSettings,
 	writeSettingsRecord,
 	type SettingsBodyResult,
@@ -81,6 +83,11 @@ export async function PUT(request: Request, ctx: { params: Promise<{ section: st
 		if (!verdict.ok) {
 			return Response.json({ error: verdict.error, supported: verdict.supported }, { status: 400 });
 		}
+	}
+	// Custom endpoints (2026-10-24): an id must not shadow a builtin provider.
+	if (section === "endpoints") {
+		const verdict = validateEndpointsSettings(parsed.settings as EndpointsSettings);
+		if (!verdict.ok) return Response.json({ error: verdict.error }, { status: 400 });
 	}
 	if (section === "agent") {
 		// Orphan-heal (contract fix, interlude 2026-09-26): an ON switch

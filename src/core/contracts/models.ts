@@ -24,6 +24,9 @@ export interface ModelCatalogEntry {
 	cost: { input: number; output: number; cacheRead: number; cacheWrite: number };
 	contextWindow: number;
 	maxTokens: number;
+	/** True for a custom-endpoint model (custom-endpoints wave, 2026-10-24):
+	 *  its thinking is on/off only — the pickers label "high" as "on". */
+	custom?: boolean;
 }
 
 /** The conversation agents' resolved default (BYOK, owner 2026-09-22): the
@@ -80,6 +83,9 @@ export interface CatalogProvider {
 	id: string;
 	/** The env var whose presence federates this provider in. */
 	envVar: string;
-	/** Whether that var is currently present (env or auth file). */
+	/** Whether that var is currently present (env or auth file). Always
+	 *  true for a custom endpoint — its key is optional. */
 	keyPresent: boolean;
+	/** True for a custom endpoint (custom-endpoints wave, 2026-10-24). */
+	custom?: boolean;
 }

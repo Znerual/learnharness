@@ -29,6 +29,7 @@
 
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { AUTH_PROVIDER_KEYS } from "./auth-keys.ts";
+import { sanitizeEndpoints, type EndpointsSettings } from "./endpoints.ts";
 import type { ModelRole } from "../../config.ts";
 import type { ChatSettings } from "./contracts/chat.ts";
 import type { SearchEngineId } from "./search.ts";
@@ -367,6 +368,9 @@ export interface UserSettings {
 	appearance?: AppearanceSettings;
 	graph?: GraphSettings;
 	compaction?: CompactionSettings;
+	/** User-added OpenAI-compatible endpoints (custom-endpoints wave,
+	 *  2026-10-24 — core/endpoints.ts owns the shape). */
+	endpoints?: EndpointsSettings;
 	[key: string]: unknown;
 }
 
@@ -624,6 +628,9 @@ export function sanitizeUserSettings(raw: unknown): UserSettings | null {
 	if (r.models !== null && typeof r.models === "object" && !Array.isArray(r.models)) {
 		const models = sanitizeModels(r.models as Record<string, unknown>);
 		if (Object.keys(models).length) out.models = models;
+	}
+	if (r.endpoints !== null && typeof r.endpoints === "object" && !Array.isArray(r.endpoints)) {
+		out.endpoints = sanitizeEndpoints(r.endpoints as Record<string, unknown>);
 	}
 	if (r.graph !== null && typeof r.graph === "object" && !Array.isArray(r.graph)) {
 		out.graph = sanitizeGraph(r.graph as Record<string, unknown>);
