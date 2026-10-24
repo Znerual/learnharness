@@ -35,6 +35,7 @@ import {
 	type EndpointsSettings,
 	type EndpointThinkingFormat,
 } from "../core/endpoints.ts";
+import { DICTATION_ENGINES, type DictationSettings } from "../core/dictation.ts";
 
 /** Parsed-or-rejected — `ok: false` carries the 400's error message. */
 export type SettingsBodyResult<T> =
@@ -481,6 +482,31 @@ export function parseEndpointsSettingsBody(body: unknown): SettingsBodyResult<En
 	return { ok: true, settings: list.length ? { list } : {} };
 }
 
+// ─── dictation (local-STT wave, 2026-10-24) ─────────────────────────────────
+
+/** dictation: { engine?, localUrl?, localModel? } — strict. */
+export function parseDictationSettingsBody(body: unknown): SettingsBodyResult<DictationSettings> {
+	const raw = asRecord(body);
+	if (!raw) return { ok: false, error: "Invalid JSON body" };
+	const settings: DictationSettings = {};
+	if (raw.engine !== undefined) {
+		if (!(DICTATION_ENGINES as readonly unknown[]).includes(raw.engine)) {
+			return { ok: false, error: `engine must be one of ${DICTATION_ENGINES.join(", ")}` };
+		}
+		settings.engine = raw.engine as DictationSettings["engine"];
+	}
+	if (raw.localUrl !== undefined && raw.localUrl !== "") {
+		const url = typeof raw.localUrl === "string" ? normalizeBaseUrl(raw.localUrl) : null;
+		if (!url) return { ok: false, error: "localUrl must be an http(s) URL without query or fragment" };
+		settings.localUrl = url;
+	}
+	if (raw.localModel !== undefined && raw.localModel !== "") {
+		if (typeof raw.localModel !== "string") return { ok: false, error: "localModel must be a string" };
+		settings.localModel = raw.localModel.trim();
+	}
+	return { ok: true, settings };
+}
+
 export const SETTINGS_SECTIONS = {
 	general: parseGeneralSettingsBody,
 	chat: parseSettingsBody,
@@ -490,6 +516,7 @@ export const SETTINGS_SECTIONS = {
 	compaction: parseCompactionSettingsBody,
 	models: parseModelsSettingsBody,
 	endpoints: parseEndpointsSettingsBody,
+	dictation: parseDictationSettingsBody,
 } as const;
 
 export type SettingsSectionName = keyof typeof SETTINGS_SECTIONS;

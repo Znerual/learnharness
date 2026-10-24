@@ -72,6 +72,8 @@ export * from "./auth-keys.ts";
 // OpenAI-compatible endpoint shapes, slug/key rules, and detection
 // parsers — pure, browser-safe (the Keys section's endpoint editor).
 export * from "./endpoints.ts";
+// dictation.ts (local-STT wave, 2026-10-24): the dictation engine choice.
+export * from "./dictation.ts";
 // keyboard.ts: the shortcut registry + binding normalization (pure, browser-safe).
 export * from "./keyboard.ts";
 export * from "./coverage.ts";

@@ -3,7 +3,19 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2Icon, MicIcon } from "lucide-react";
 import { useSettingsDialog } from "@/components/settings/settings-dialog";
+import { useSettingsSaved } from "@/components/settings-signal";
 import { Hint } from "@/components/ui/hint";
+
+/**
+ * LOCAL ENGINE (local-STT wave, owner 2026-10-24): the engine is an
+ * explicit setting (Settings → Keys → Tools & services), read from
+ * /api/stt/config. "local" keeps the same mic, worklet and meter, but
+ * collects the run's frames instead of streaming them; stop encodes one
+ * 16 kHz WAV and POSTs it to /api/stt/transcribe (the server forwards it
+ * to the OpenAI-compatible endpoint with the key), and the text joins the
+ * same deferred buffer — one insert at the end, exactly like Deepgram.
+ * Everything below about Deepgram applies to the "deepgram" engine only.
+ */
 
 /**
  * Voice dictation — the cloud engine (STT wave 1, 2026-09-17).
@@ -113,6 +125,55 @@ export const DEEPGRAM_KEY_ID = "DEEPGRAM_API_KEY";
  * instead. Exported for pins; the errored idle button's click recognizes
  * it and deep-links Settings → Keys → the Deepgram row. */
 export const DICTATION_KEYLESS = "Dictation needs a Deepgram key";
+
+/** The local engine's unconfigured line (2026-10-24): the click deep-links
+ *  Settings → Keys, where the Local speech-to-text row lives. */
+export const DICTATION_LOCAL_UNCONFIGURED = "Dictation needs a local speech-to-text URL";
+
+/** The engine choice as /api/stt/config reports it. Module-level cache:
+ *  refreshed at mount, after every run and on the dictation/keys
+ *  settings signals, so start() reads it synchronously (no added
+ *  latency before the mic). Unknown = deepgram, the default engine. */
+let sttConfig: { engine: "deepgram" | "local"; ready: boolean } = { engine: "deepgram", ready: true };
+
+function refreshSttConfig(): Promise<typeof sttConfig> {
+	return fetch("/api/stt/config")
+		.then((r) => r.json())
+		.then((c: typeof sttConfig) => {
+			if (c.engine === "deepgram" || c.engine === "local") sttConfig = c;
+			return sttConfig;
+		})
+		.catch(() => sttConfig);
+}
+
+/** Int16 PCM frames → one mono 16-bit WAV (the local engine's upload).
+ *  Pure — exported for tests. */
+export function encodeWav(frames: readonly Int16Array[], sampleRate = 16000): Blob {
+	const samples = frames.reduce((n, f) => n + f.length, 0);
+	const buffer = new ArrayBuffer(44 + samples * 2);
+	const view = new DataView(buffer);
+	const ascii = (offset: number, text: string) => {
+		for (let i = 0; i < text.length; i++) view.setUint8(offset + i, text.charCodeAt(i));
+	};
+	ascii(0, "RIFF");
+	view.setUint32(4, 36 + samples * 2, true);
+	ascii(8, "WAVE");
+	ascii(12, "fmt ");
+	view.setUint32(16, 16, true); // PCM chunk size
+	view.setUint16(20, 1, true); // PCM
+	view.setUint16(22, 1, true); // mono
+	view.setUint32(24, sampleRate, true);
+	view.setUint32(28, sampleRate * 2, true); // byte rate
+	view.setUint16(32, 2, true); // block align
+	view.setUint16(34, 16, true); // bits per sample
+	ascii(36, "data");
+	view.setUint32(40, samples * 2, true);
+	let offset = 44;
+	for (const frame of frames) {
+		for (let i = 0; i < frame.length; i++, offset += 2) view.setInt16(offset, frame[i]!, true);
+	}
+	return new Blob([buffer], { type: "audio/wav" });
+}
 
 /** Mint a fresh short-lived token (the route holds the real key
  *  server-side). Module-level: the start path's warm cache and the
@@ -315,6 +376,11 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 	/** Resolvers waiting for the run to fully end (finish(), owner
 	 *  2026-10-01): released by cleanup() — every terminal path runs it. */
 	const waitersRef = useRef<Array<() => void>>([]);
+	/** The engine this run started on (local-STT wave) — a settings change
+	 *  mid-run never switches a live run's engine. */
+	const engineRef = useRef<"deepgram" | "local">("deepgram");
+	/** The local engine's captured frames, uploaded once at stop. */
+	const framesRef = useRef<Int16Array[]>([]);
 
 	/** Flush the buffered transcript into the primary input — question claim
 	 *  first, composer fallback. Called exactly once per run, at cleanup; the
@@ -336,6 +402,7 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 			safetyRef.current = null;
 		}
 		pendingRef.current = [];
+		framesRef.current = [];
 		for (const track of streamRef.current?.getTracks() ?? []) track.stop();
 		streamRef.current = null;
 		sourceRef.current?.disconnect();
@@ -356,8 +423,10 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 		// target field with the dictated tail already in it.
 		for (const w of waitersRef.current.splice(0)) w();
 		// Pre-mint for the next run (mitigation D) — best-effort; a keyless
-		// page just doesn't warm.
-		warmTokens.refresh();
+		// page just doesn't warm. Only the Deepgram engine needs a token.
+		void refreshSttConfig().then((c) => {
+			if (c.engine === "deepgram") warmTokens.refresh();
+		});
 	}, []);
 
 	/** Open the Deepgram socket and wire its messages. `gen` guards staleness. */
@@ -432,7 +501,15 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 		reconnectsRef.current = 0;
 		bufferRef.current = []; // fresh run, fresh buffer (round 2)
 		pendingRef.current = []; // fresh run, fresh queue (mitigation A)
+		framesRef.current = [];
 		const gen = ++genRef.current;
+		const local = sttConfig.engine === "local";
+		engineRef.current = local ? "local" : "deepgram";
+		if (local && !sttConfig.ready) {
+			setError(DICTATION_LOCAL_UNCONFIGURED);
+			cleanup();
+			return;
+		}
 
 		// Mitigation D: the warm token (pre-minted at mount / after the last
 		// run) resolves ~instantly; a cold/keyless mint surfaces below. The
@@ -440,7 +517,8 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 		// the token runs concurrently with it. 127.0.0.1 is a secure
 		// context, so getUserMedia works without TLS; macOS TCC prompts on
 		// first use.
-		const tokenPromise = warmTokens.mint();
+		// The local engine needs no token — its upload goes through our server.
+		const tokenPromise = local ? Promise.resolve("") : warmTokens.mint();
 		tokenPromise.catch(() => {}); // surfaced below; no unhandled rejection
 		const micPromise = navigator.mediaDevices.getUserMedia({
 			audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
@@ -467,6 +545,8 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 				const msg = e.data as { type: string; rms?: number; buffer?: ArrayBuffer };
 				if (msg.type === "level") {
 					levelRef.current = msg.rms ?? 0; // never reset to zero (dictate pattern)
+				} else if (msg.type === "audio" && local) {
+					framesRef.current.push(msg.buffer as unknown as Int16Array); // uploaded once, at stop
 				} else if (msg.type === "audio") {
 					const ws = wsRef.current;
 					if (ws && ws.readyState === WebSocket.OPEN) ws.send(msg.buffer!);
@@ -497,6 +577,11 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 			return;
 		}
 		if (gen !== genRef.current) return;
+		if (local) {
+			// Capture is live — that IS recording for the local engine.
+			setPhase("recording");
+			return;
+		}
 		let token: string;
 		try {
 			token = await tokenPromise;
@@ -525,6 +610,31 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 		sourceRef.current = null;
 		workletRef.current?.disconnect();
 		workletRef.current = null;
+
+		if (engineRef.current === "local") {
+			const frames = framesRef.current;
+			framesRef.current = [];
+			if (frames.length === 0) {
+				cleanup();
+				return;
+			}
+			const form = new FormData();
+			form.append("file", encodeWav(frames), "dictation.wav");
+			fetch("/api/stt/transcribe", { method: "POST", body: form })
+				.then(async (res) => {
+					const data = (await res.json().catch(() => ({}))) as { text?: string; message?: string };
+					if (gen !== genRef.current) return; // cancelled while transcribing
+					if (res.ok && data.text) bufferRef.current.push(data.text);
+					else if (!res.ok) setError(data.message ?? `Local speech-to-text failed (${res.status})`);
+					cleanup();
+				})
+				.catch(() => {
+					if (gen !== genRef.current) return;
+					setError("Local speech-to-text unreachable");
+					cleanup();
+				});
+			return;
+		}
 
 		const ws = wsRef.current;
 		if (ws && ws.readyState === WebSocket.OPEN) {
@@ -585,8 +695,15 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 	// page owns ONE hook instance, and only the mounted page's listener is
 	// attached.
 	useEffect(() => {
-		warmTokens.refresh(); // pre-mint at mount (mitigation D) — silent if keyless
+		// Pre-mint at mount (mitigation D) — silent if keyless; the local
+		// engine needs no token.
+		void refreshSttConfig().then((c) => {
+			if (c.engine === "deepgram") warmTokens.refresh();
+		});
 	}, []);
+	useSettingsSaved((section) => {
+		if (section === "dictation" || section === "keys") void refreshSttConfig();
+	});
 	useEffect(() => {
 		window.addEventListener("lh:kbd-toggle-dictation", toggle);
 		return () => window.removeEventListener("lh:kbd-toggle-dictation", toggle);
@@ -629,6 +746,7 @@ export function DictationBar({ dictation }: { dictation: Dictation }) {
 	 *  the error — the surface is clean when the user returns. Any other
 	 *  error keeps the old behavior (click = retry, which clears). */
 	const keyless = error === DICTATION_KEYLESS;
+	const localUnconfigured = error === DICTATION_LOCAL_UNCONFIGURED;
 	const [levels, setLevels] = useState<number[]>(() => new Array(METER_CELLS).fill(0));
 	const recording = phase === "recording" || phase === "stopping";
 	/** Adaptive cell count (owner round 2): derived from the meter's
@@ -688,6 +806,9 @@ export function DictationBar({ dictation }: { dictation: Dictation }) {
 						if (keyless) {
 							clearError();
 							openSettings("keys", DEEPGRAM_KEY_ID);
+						} else if (localUnconfigured) {
+							clearError();
+							openSettings("keys");
 						} else {
 							toggle();
 						}

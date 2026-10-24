@@ -30,6 +30,7 @@ import { useEffect, useRef, useState } from "react";
 import { AUTH_KEYS, isEndpointKeyVar, type AuthKeyStatus } from "@/src/core";
 import { SettingsGroup } from "./controls.tsx";
 import { EndpointsGroup } from "./endpoints-group.tsx";
+import { DictationEngineRows } from "./dictation-engine.tsx";
 import { ProviderMenuList } from "./model-menu.tsx";
 import { MenuShell } from "@/components/menu-shell";
 import { notifySettingsSaved } from "@/components/settings-signal";
@@ -464,6 +465,9 @@ export function KeysSection({
 			/>
 
 			<SettingsGroup label="Tools & services" testid="group-tool-keys">
+				{/* The dictation engine (local-STT wave, 2026-10-24): Deepgram's
+				    key and LH_STT_KEY are rows below. */}
+				<DictationEngineRows />
 				{toolRows.map((status) => (
 					<KeyTableRow
 						key={status.id}
