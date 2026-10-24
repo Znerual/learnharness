@@ -326,6 +326,14 @@ export function parseGraphSettingsBody(body: unknown): SettingsBodyResult<GraphS
 		}
 		settings.extractionChunkTokens = floored;
 	}
+	// The Obsidian vault (2026-10-24): an absolute path or null; the
+	// route checks the directory exists (this parser sees shapes only).
+	if (raw.obsidianVault !== undefined) {
+		if (raw.obsidianVault === null || raw.obsidianVault === "") settings.obsidianVault = null;
+		else if (typeof raw.obsidianVault !== "string" || !/^(\/|[A-Za-z]:[\\/])/.test(raw.obsidianVault.trim())) {
+			return { ok: false, error: "obsidianVault must be an absolute path or null" };
+		} else settings.obsidianVault = raw.obsidianVault.trim();
+	}
 	return { ok: true, settings };
 }
 

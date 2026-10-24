@@ -76,6 +76,7 @@ import { MenuShell } from "@/components/menu-shell.tsx";
 import { DeleteNodeDialog } from "@/components/delete-node-dialog.tsx";
 import { ChainTableOverlay } from "@/components/chain-table.tsx";
 import { Hint } from "@/components/ui/hint";
+import { VaultSyncButton } from "@/components/vault-sync";
 import {
 	ARROW_LENGTH_LADDER,
 	CHARGE_RANGE,
@@ -902,7 +903,7 @@ export function GraphChromeRow({
 			)}
 			{/* Import notes — its own container (36px, header band); ALWAYS
 			    rendered (the empty-graph ruling above — the entry point). */}
-			<div className="shrink-0 rounded-xl border bg-card/85 px-1 py-[3px] shadow-lg backdrop-blur">
+			<div className="flex shrink-0 items-center rounded-xl border bg-card/85 px-1 py-[3px] shadow-lg backdrop-blur">
 				<input
 					ref={fileInputRef}
 					type="file"
@@ -932,6 +933,8 @@ export function GraphChromeRow({
 						{importing ? "Importing…" : "Import notes…"}
 					</button>
 				</Hint>
+				{/* Obsidian Sync (2026-10-24) — hidden while no vault is set. */}
+				<VaultSyncButton />
 			</div>
 			{!isEmpty && (
 				// Rendering settings — own component; the gear toggles it. The

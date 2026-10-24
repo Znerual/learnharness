@@ -337,6 +337,12 @@ export interface GraphSettings {
 	 *  delays extraction — the user's stated cost/thoroughness tradeoff,
 	 *  not a misconfiguration to police. */
 	extractionChunkTokens?: number;
+	/** OBSIDIAN VAULT (obsidian wave, owner 2026-10-24): the absolute path
+	 *  of the vault the graph syncs with — the export writes
+	 *  <vault>/LearnHarness/, the manual Sync imports the vault's notes.
+	 *  null (the factory default) = the integration is off. The PUT
+	 *  refuses a path that is not an existing directory. */
+	obsidianVault?: string | null;
 }
 
 /**
@@ -409,7 +415,7 @@ export const FACTORY_SETTINGS: FactorySettings = {
 		sessionNameSerif: true,
 		mdRendering: { headingWeight: 900, boldColor: null, italicColor: null },
 	},
-	graph: { enabled: true, rendering: true, extractionChunkTokens: 4096 },
+	graph: { enabled: true, rendering: true, extractionChunkTokens: 4096, obsidianVault: null },
 	compaction: { thresholdTokens: 150_000 },
 };
 
@@ -586,6 +592,8 @@ function sanitizeGraph(raw: Record<string, unknown>): GraphSettings {
 	if (typeof rawTokens === "number" && Number.isFinite(rawTokens) && rawTokens > 0) {
 		out.extractionChunkTokens = Math.max(EXTRACTION_CHUNK_TOKENS_FLOOR, Math.floor(rawTokens));
 	}
+	if (raw.obsidianVault === null) out.obsidianVault = null;
+	else if (typeof raw.obsidianVault === "string" && raw.obsidianVault.trim()) out.obsidianVault = raw.obsidianVault.trim();
 	return out;
 }
 

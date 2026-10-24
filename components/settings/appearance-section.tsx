@@ -423,6 +423,23 @@ export function GraphSection({
 					}}
 				/>
 			</SettingsRow>
+			{/* OBSIDIAN VAULT (owner, 2026-10-24): the vault the graph syncs
+			    with — the export writes <vault>/LearnHarness/ automatically,
+			    the graph view's Sync vault button imports its notes. Empty =
+			    off; the server refuses a path that is not a directory. */}
+			<SettingsRow
+				label="Obsidian vault"
+				hint="Exports to LearnHarness/ in it; empty = off"
+				testid="graph-row-obsidian-vault"
+			>
+				<CommitInput
+					value={graph?.obsidianVault ?? ""}
+					placeholder="/home/you/Notes"
+					ariaLabel="obsidian vault path"
+					testid="input-obsidian-vault"
+					onCommit={(v) => onSectionChange({ ...graph, obsidianVault: v.trim() ? v.trim() : null })}
+				/>
+			</SettingsRow>
 		</>
 	);
 }
