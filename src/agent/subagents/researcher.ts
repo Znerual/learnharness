@@ -1,5 +1,5 @@
-import type { AgentTool } from "@earendil-works/pi-agent-core";
-import type { Usage } from "@earendil-works/pi-ai";
+import type { AgentMessage, AgentTool } from "@earendil-works/pi-agent-core";
+import type { AssistantMessage, Usage } from "@earendil-works/pi-ai";
 import { createWebTools } from "../tools/web.ts";
 import { createPdfReadTools } from "../tools/pdf-read.ts";
 import type { SearchProvider } from "../../core/search.ts";
@@ -92,10 +92,27 @@ export interface ResearcherRunOptions {
  * the loop scripted.
  */
 /** The forced final turn's nudge: the loop hit maxTurns on a tool call, so
- *  the last assistant message carries no text — synthesize what was
- *  gathered instead of discarding the whole run. */
+ *  the last assistant message is no brief (empty, or narration beside the
+ *  call) — synthesize what was gathered instead of discarding the whole run. */
 const FINAL_TURN_MESSAGE =
 	"Your research turn budget is exhausted — do not call any more tools. Write your final brief now, in the required format, from what you have already gathered. Put anything you could not verify under ## Gaps.";
+
+/** True when the run's last assistant message still calls a tool: the loop
+ *  stopped on the turn cap, and any text beside the call is working
+ *  narration ("Next, I'll grab…"), never the brief. */
+function endsOnToolCall(messages: AgentMessage[]): boolean {
+	const last = messages.filter((m) => (m as { role?: string }).role === "assistant").at(-1) as
+		| AssistantMessage
+		| undefined;
+	return last?.content.some((c) => c.type === "toolCall") ?? false;
+}
+
+/** Drop narration before the brief's "## Summary" heading ("I now have
+ *  everything needed to synthesize…"); no heading → the text unchanged. */
+function trimToSummary(text: string): string {
+	const heading = /^## Summary\b/m.exec(text);
+	return heading ? text.slice(heading.index) : text;
+}
 
 export async function runResearcherAgent(prompt: string, opts: ResearcherRunOptions = {}): Promise<string> {
 	const tools = Object.values(createWebTools(opts.search ?? (() => null)));
@@ -110,16 +127,19 @@ export async function runResearcherAgent(prompt: string, opts: ResearcherRunOpti
 		chatId: opts.chatId,
 	};
 	const { text, newMessages } = await runSubagent(tools, { ...run, prompt, maxTurns: 12 });
-	if (text.trim()) return text;
+	if (text.trim() && !endsOnToolCall(newMessages)) return trimToSummary(text);
 	// Forced final turn (2026-10-24): one more call on the same transcript.
 	// Tools stay declared — some providers reject tool calls in a transcript
-	// that declares no tools; a model that still calls one yields no text.
+	// that declares no tools — but tool_choice "none" makes the model answer
+	// in text (2026-10-25). A model that still calls one yields no brief.
 	const final = await runSubagent(tools, {
 		...run,
 		messages: [...newMessages, { role: "user", content: FINAL_TURN_MESSAGE, timestamp: Date.now() }],
 		maxTurns: 1,
+		toolChoice: "none",
 	});
-	return final.text;
+	if (endsOnToolCall(final.newMessages)) return "";
+	return trimToSummary(final.text);
 }
 
 export type ResearcherAgent = ReturnType<typeof runResearcherAgent>;

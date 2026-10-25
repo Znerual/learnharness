@@ -1,5 +1,5 @@
 import { Agent, type AgentEvent, type AgentMessage, type AgentTool } from "@earendil-works/pi-agent-core";
-import type { AssistantMessage, ToolResultMessage, Usage } from "@earendil-works/pi-ai";
+import type { AssistantMessage, SimpleStreamOptions, ToolChoice, ToolResultMessage, Usage } from "@earendil-works/pi-ai";
 import { randomUUID } from "node:crypto";
 import { APP_IDENTITY, piEngineFor, type PiEngine } from "../models.ts";
 import { providerEventObserver } from "../provider-events.ts";
@@ -29,6 +29,9 @@ export interface SubagentRunOptions {
 	prompt?: string;
 	/** Max model calls (the old stepCountIs safety net). */
 	maxTurns: number;
+	/** Provider tool selection for every call of this run ("none" = the
+	 *  model must answer in text while tools stay declared). */
+	toolChoice?: ToolChoice;
 	/** Abort mid-model-call (the real-kill semantics). */
 	abortSignal?: AbortSignal;
 	/** Money channel: one call per model request. */
@@ -75,7 +78,12 @@ export async function runSubagent(tools: AgentTool<any, any>[], opts: SubagentRu
 			tools,
 			messages: opts.messages ?? [],
 		},
-		streamFn: engine.streamFn,
+		streamFn: opts.toolChoice
+			? (model, context, options) => {
+					const withChoice: SimpleStreamOptions = { ...options, toolChoice: opts.toolChoice };
+					return engine.streamFn(model, context, withChoice);
+				}
+			: engine.streamFn,
 		...(providerEvents ? { onProviderStreamEvent: providerEvents } : {}),
 		// 0.87.1: shouldStopAfterTurn → finishTurn (same call point; "end"
 		// exits before the steering poll, exactly the old boolean-true).

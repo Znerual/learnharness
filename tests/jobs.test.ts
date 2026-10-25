@@ -564,6 +564,30 @@ function researcherModel(): PiEngine {
 	]);
 }
 
+/** `count` researcher turns that each only call web_search. */
+function searchTurns(count: number): AssistantMessage[] {
+	return Array.from({ length: count }, (_, i) =>
+		fauxAssistantMessage([fauxToolCall("web_search", { query: `sigma ${i}` }, { id: `ws${i}` })], {
+			stopReason: "toolUse",
+		}),
+	);
+}
+
+/** The forced final turn's scripted reply, recording the tool choice its
+ *  model call was sent with. */
+function finalTurn(content: Parameters<typeof fauxAssistantMessage>[0]): {
+	step: FauxResponseStep;
+	toolChoices: unknown[];
+} {
+	const toolChoices: unknown[] = [];
+	const hasToolCall = Array.isArray(content) && content.some((c) => c.type === "toolCall");
+	const factory = (_context: unknown, options: { toolChoice?: unknown } | undefined) => {
+		toolChoices.push(options?.toolChoice);
+		return fauxAssistantMessage(content, hasToolCall ? { stopReason: "toolUse" } : undefined);
+	};
+	return { step: factory as unknown as FauxResponseStep, toolChoices };
+}
+
 /** A recording stub provider (search port wave, 2026-09-20): the runner's
  *  injected search seam — no network, queries captured for assertions. */
 function stubSearch(): SearchProvider & { queries: string[] } {
@@ -626,14 +650,8 @@ describe("research runner (async protocol §3)", () => {
 		const delivery = fakeDeliver();
 		const runner = createJobRunner({ chatStore, jobStore, deliver: delivery.deliver, searchProvider: () => stubSearch() });
 		// 12 tool-call turns hit maxTurns; the 13th call is the forced final turn.
-		researchModelOverride.current = fauxEngine([
-			...Array.from({ length: 12 }, (_, i) =>
-				fauxAssistantMessage([fauxToolCall("web_search", { query: `sigma ${i}` }, { id: `ws${i}` })], {
-					stopReason: "toolUse",
-				}),
-			),
-			fauxAssistantMessage([fauxText(BRIEF)]),
-		]);
+		const final = finalTurn([fauxText(BRIEF)]);
+		researchModelOverride.current = fauxEngine([...searchTurns(12), final.step]);
 		try {
 			await runner.runJob(job.id);
 		} finally {
@@ -644,6 +662,86 @@ describe("research runner (async protocol §3)", () => {
 		assert.equal(done.status, "done");
 		assert.equal((done.result as ResearchResult).brief, BRIEF);
 		assert.equal(done.usage?.steps, 13, "the forced final turn is billed like any step");
+		assert.deepEqual(final.toolChoices, ["none"], "the forced final turn forbids tool calls");
+	});
+
+	it("narration beside the capped turn's tool call is not the brief — the forced final turn still runs", async () => {
+		const chat = chatStore.createChat("Test: narration at the turn cap");
+		trackChat(chat.id);
+		chatStore.saveMessages(chat.id, nativeToolMessages("which sigma version?", "research", "call-cap2", RESEARCH_INPUT));
+
+		const job = jobStore.createJob({ kind: "research", chatId: chat.id, toolCallId: "call-cap2" });
+		trackJob(job.id);
+
+		const delivery = fakeDeliver();
+		const runner = createJobRunner({ chatStore, jobStore, deliver: delivery.deliver, searchProvider: () => stubSearch() });
+		// The 12th turn carries working narration AND a tool call (the
+		// 2026-10-25 Muon job shipped exactly this narration as its brief).
+		const final = finalTurn([fauxText(BRIEF)]);
+		researchModelOverride.current = fauxEngine([
+			...searchTurns(11),
+			fauxAssistantMessage(
+				[fauxText("This is a rich set of materials. Next, I'll grab the appendix."), fauxToolCall("web_search", { query: "sigma 11" }, { id: "ws11" })],
+				{ stopReason: "toolUse" },
+			),
+			final.step,
+		]);
+		try {
+			await runner.runJob(job.id);
+		} finally {
+			researchModelOverride.current = undefined;
+		}
+
+		const done = jobStore.getJob(job.id)!;
+		assert.equal(done.status, "done");
+		assert.equal((done.result as ResearchResult).brief, BRIEF);
+		assert.deepEqual(final.toolChoices, ["none"]);
+	});
+
+	it("a forced final turn that still calls a tool fails the job instead of shipping its narration", async () => {
+		const chat = chatStore.createChat("Test: final turn ignores tool_choice");
+		trackChat(chat.id);
+		chatStore.saveMessages(chat.id, nativeToolMessages("which sigma version?", "research", "call-cap3", RESEARCH_INPUT));
+
+		const job = jobStore.createJob({ kind: "research", chatId: chat.id, toolCallId: "call-cap3" });
+		trackJob(job.id);
+
+		const delivery = fakeDeliver();
+		const runner = createJobRunner({ chatStore, jobStore, deliver: delivery.deliver, searchProvider: () => stubSearch() });
+		const final = finalTurn([fauxText("One more search first."), fauxToolCall("web_search", { query: "sigma 12" }, { id: "ws12" })]);
+		researchModelOverride.current = fauxEngine([...searchTurns(12), final.step]);
+		try {
+			await runner.runJob(job.id);
+		} finally {
+			researchModelOverride.current = undefined;
+		}
+
+		const done = jobStore.getJob(job.id)!;
+		assert.equal(done.status, "error");
+		assert.match((done.result as ResearchResult).brief, /^Research failed: the researcher produced no brief/);
+	});
+
+	it("narration before the brief's ## Summary heading is trimmed", async () => {
+		const chat = chatStore.createChat("Test: brief preamble");
+		trackChat(chat.id);
+		chatStore.saveMessages(chat.id, nativeToolMessages("which sigma version?", "research", "call-pre1", RESEARCH_INPUT));
+
+		const job = jobStore.createJob({ kind: "research", chatId: chat.id, toolCallId: "call-pre1" });
+		trackJob(job.id);
+
+		const delivery = fakeDeliver();
+		const runner = createJobRunner({ chatStore, jobStore, deliver: delivery.deliver, searchProvider: () => stubSearch() });
+		researchModelOverride.current = fauxEngine([
+			...searchTurns(1),
+			fauxAssistantMessage([fauxText(`I now have everything needed to synthesize.\n\n${BRIEF}`)]),
+		]);
+		try {
+			await runner.runJob(job.id);
+		} finally {
+			researchModelOverride.current = undefined;
+		}
+
+		assert.equal((jobStore.getJob(job.id)!.result as ResearchResult).brief, BRIEF);
 	});
 
 	it("a keyless fetch-only researcher still completes and delivers a sourced job result", async () => {
