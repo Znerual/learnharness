@@ -337,9 +337,25 @@ for (const holdVerification of [false, true]) test(`invalid rotating replacement
 	} finally { f.service.close(); }
 });
 
-test("observed file write failure invalidates all work; status, consent and resume cannot reload stale credentials or repair authority", async () => {
+for (const holdVerification of [false, true]) test(`observed file write failure invalidates all work; status, consent and resume cannot reload stale credentials or repair authority${holdVerification ? " (held JWKS regression)" : ""}`, { timeout: 10000 }, async () => {
 	let lost = false, reads = 0; const pushes: any[] = [];
-	const f = await loggedIn({ read: () => { reads++; }, write: async () => { if (lost) throw Object.assign(new Error("storage"), { code: "storage" }); }, change: (push) => pushes.push(push) });
+	const reconnectComplete = deferred<any>();
+	const verificationEntered = deferred(), verificationRelease = deferred();
+	let reconnectArmed = false, sawPending = false, completed = false;
+	const f = await loggedIn({ read: () => { reads++; }, write: async () => { if (lost) throw Object.assign(new Error("storage"), { code: "storage" }); },
+		change: (push) => {
+			pushes.push(push);
+			if (!reconnectArmed) return;
+			if (push.status.pending) sawPending = true;
+			else if (sawPending) { completed = true; reconnectComplete.resolve(push.status); }
+		},
+		provider: async (url) => {
+			if (holdVerification && reconnectArmed && url.endsWith("jwks.json")) {
+				verificationEntered.resolve(); await verificationRelease.promise;
+			}
+			return undefined;
+		},
+	});
 	try {
 		await f.service.lease(false); const epoch = f.service.stamp().epoch;
 		lost = true;
@@ -351,10 +367,26 @@ test("observed file write failure invalidates all work; status, consent and resu
 		await assert.rejects(f.service.lease(false));
 		assert.equal((await f.service.status()).accounts[0].connected, false);
 		assert.equal(reads, 1, "a recovered disk never causes a stale credential reload");
-		await f.service.login(f.saved.activeId); await f.callback();
-		for (let i = 0; i < 100 && (await f.service.status()).pending; i++) await new Promise((resolve) => setImmediate(resolve));
-		assert.equal((await f.service.status()).accounts[0].connected, true, "verified login plus durable save can explicitly reconnect");
-	} finally { f.service.close(); }
+		const writesBeforeReconnect = f.writeCount;
+		// The initial login already settled fixture.changed; observe this attempt instead.
+		reconnectArmed = true;
+		await f.service.login(f.saved.activeId); assert.equal(sawPending, true); await f.callback();
+		if (holdVerification) {
+			await verificationEntered.promise;
+			assert.equal(completed, false, "HTTP acknowledgement cannot complete a pending identity verification");
+			const held = await f.service.status();
+			assert.equal(held.pending, true); assert.equal(held.error, null);
+			assert.equal(held.accounts[0].connected, false);
+			assert.equal(f.writeCount, writesBeforeReconnect, "unverified recovery cannot persist credentials");
+		}
+		verificationRelease.resolve();
+		const terminal = await reconnectComplete.promise;
+		assert.equal(terminal.pending, false); assert.equal(terminal.error, null);
+		assert.equal(terminal.accounts[0].connected, true, "verified login plus durable save can explicitly reconnect");
+		assert.equal(f.writeCount, writesBeforeReconnect + 1, "recovery requires a new durable credential write");
+		assert.equal(f.saved.activeId, terminal.activeId);
+		assert.equal(reads, 1, "explicit recovery still never reloads stale credentials");
+	} finally { verificationRelease.resolve(); f.service.close(); }
 });
 
 test("strict JSON schema rejects malformed marker/duplicates/token/active identity without changing original bytes", async () => {
@@ -413,20 +445,50 @@ test("scope-disabled credentials remain revocable and unconfirmed revoke never c
 	} finally { f.service.close(); }
 });
 
-test("repeated real verified sign-in creates one visible account while preserving separately bound registrations until explicit forgetting", async () => {
-	const f = await loggedIn();
+for (const holdVerification of [false, true]) test(`repeated real verified sign-in creates one visible account while preserving separately bound registrations until explicit forgetting${holdVerification ? " (held JWKS regression)" : ""}`, { timeout: 10000 }, async () => {
+	const repeatComplete = deferred<any>();
+	const verificationEntered = deferred(), verificationRelease = deferred();
+	let repeatArmed = false, sawPending = false, completed = false;
+	const f = await loggedIn({
+		change: (push) => {
+			if (!repeatArmed) return;
+			if (push.status.pending) sawPending = true;
+			else if (sawPending) { completed = true; repeatComplete.resolve(push.status); }
+		},
+		provider: async (url) => {
+			if (holdVerification && repeatArmed && url.endsWith("jwks.json")) {
+				verificationEntered.resolve(); await verificationRelease.promise;
+			}
+			return undefined;
+		},
+	});
 	try {
 		const original = f.saved.registrations[0];
-		await f.service.login(); await f.callback({ client_id: "oaiapp_repeat" });
-		for (let i = 0; i < 100 && (await f.service.status()).pending; i++) await new Promise((r) => setImmediate(r));
-		const status = await f.service.status();
+		const writesBeforeRepeat = f.writeCount;
+		// Initial login already settled fixture.changed; arm for this attempt's terminal notification.
+		repeatArmed = true;
+		await f.service.login(); assert.equal(sawPending, true);
+		assert.equal((await f.callback({ client_id: "oaiapp_repeat" })).status, 200);
+		if (holdVerification) {
+			await verificationEntered.promise;
+			assert.equal(completed, false, "HTTP acknowledgement cannot complete pending identity verification");
+			const held = await f.service.status();
+			assert.equal(held.pending, true); assert.equal(held.error, null);
+			assert.equal(held.activeId, original.id); assert.equal(held.accounts.length, 1);
+			assert.deepEqual(f.saved.registrations, [original]);
+			assert.equal(f.writeCount, writesBeforeRepeat, "unverified repeat sign-in cannot persist credentials");
+		}
+		verificationRelease.resolve();
+		const status = await repeatComplete.promise;
+		assert.equal(status.pending, false); assert.equal(status.error, null);
+		assert.equal(f.writeCount, writesBeforeRepeat + 1, "repeat sign-in completes after durable credential persistence");
 		assert.equal(f.saved.registrations.length, 2); assert.equal(status.accounts.length, 1);
 		assert.equal(status.activeId, status.accounts[0].id); assert.notEqual(status.activeId, original.id);
 		assert.equal(f.saved.registrations[0].clientId, original.clientId); assert.equal(f.saved.registrations[1].clientId, "oaiapp_repeat");
 		await f.service.disconnect(status.activeId);
 		assert.deepEqual(f.saved.registrations, []); assert.equal((await f.service.status()).accounts.length, 0);
 		assert.equal(f.requests.filter((r) => r.form?.has("token_type_hint")).length, 2);
-	} finally { f.service.close(); }
+	} finally { verificationRelease.resolve(); f.service.close(); }
 });
 
 test("verified identity grouping hides legacy duplicate registrations without merging client credentials or matching emails", async () => {

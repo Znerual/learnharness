@@ -5,11 +5,12 @@ import { ArrowDownIcon, ChevronRightIcon, PlayIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { finishDictation, isDictationActive, joinDictation, useDictationTarget } from "@/components/dictation";
 import { useEnterSubmits } from "@/components/enter-submits";
-import { MessageResponse } from "@/components/ai-elements/message";
+import { ToolContentResponse } from "@/components/ai-elements/message";
 import { offerQuestion } from "@/components/read-aloud";
 import { cn } from "@/lib/utils";
 import {
 	buildAnswer,
+	repairMathForDisplay,
 	normalizeQuizType,
 	CONFIDENCE_STOPS,
 	DEFAULT_CONFIDENCE_INDEX,
@@ -30,6 +31,7 @@ import {
 	type DockSelection,
 	type ExplainToolInput,
 	type QuestionAnswerData,
+	type QuestionFormDraft,
 	type QuestionData,
 	type QuestionMode,
 	type QuizToolInput,
@@ -73,6 +75,9 @@ export interface QuestionDockProps {
 	reveal?: boolean;
 	onExpand: () => void;
 	onSubmit: (output: QuestionAnswerData) => void;
+	/** Restore only this call's unconfirmed submission after recovery. */
+	initialDraft?: QuestionFormDraft;
+	onSaveDraft?: (draft: QuestionFormDraft) => void;
 	/** Escape in a question field stops dictation (STT wave) — threaded
 	 *  from the page that owns the dictation hook. */
 	onEscape?: () => void;
@@ -102,6 +107,8 @@ export function QuestionDock({
 	reveal = false,
 	onExpand,
 	onSubmit,
+	initialDraft,
+	onSaveDraft,
 	onEscape,
 	phase = "probe",
 	dictationClaim = true,
@@ -163,6 +170,8 @@ export function QuestionDock({
 					phase={phase}
 					active={expanded}
 					onSubmit={onSubmit}
+					initialDraft={initialDraft}
+					onSaveDraft={onSaveDraft}
 					onEscape={onEscape}
 					dictationClaim={dictationClaim}
 					compactionRunning={compactionRunning}
@@ -174,7 +183,7 @@ export function QuestionDock({
 
 /** A plain-text teaser of a question for the collapsed bar: unwrap math, flatten common LaTeX. */
 function teaserText(q: string): string {
-	return q
+	return repairMathForDisplay(q)
 		.replace(/\\\(([\s\S]*?)\\\)/g, "$1") // \(...\) inline math
 		.replace(/\\\[([\s\S]*?)\\\]/g, "$1") // \[...\] display math
 		.replace(/\$\$?([^$]*)\$\$?/g, "$1") // standard $...$/$$...$$ math
@@ -258,6 +267,8 @@ function QuestionDockForm({
 	phase = "probe",
 	active,
 	onSubmit,
+	initialDraft,
+	onSaveDraft,
 	onEscape,
 	dictationClaim = true,
 	compactionRunning = false,
@@ -319,22 +330,22 @@ function QuestionDockForm({
 	// single-select displaces, multi-select coexists — picking the ask
 	// "Other…" row in a multi-select must never clear already-picked
 	// options, and picking an option must never clear a typed custom answer.
-	const [sel, setSel] = useState<DockSelection>(emptyDockSelection());
+	const [sel, setSel] = useState<DockSelection>(() => initialDraft?.selection ?? emptyDockSelection());
 	// The learner's transfer channel — thinking, never "a note".
-	const [thinking, setThinking] = useState("");
-	const [other, setOther] = useState("");
-	const [text, setText] = useState("");
+	const [thinking, setThinking] = useState(initialDraft?.thinking ?? "");
+	const [other, setOther] = useState(initialDraft?.other ?? "");
+	const [text, setText] = useState(initialDraft?.text ?? "");
 	/* Refs MIRROR the two dictation-target fields ("nothing gets lost"
 	 * round, owner 2026-10-01): the run's flush lands via setState, which
 	 * a closure waiting through `await finishDictation()` cannot observe
 	 * in time — submit reads these, kept current at every write site. */
-	const thinkingTextRef = useRef("");
-	const answerTextRef = useRef("");
+	const thinkingTextRef = useRef(initialDraft?.thinking ?? "");
+	const answerTextRef = useRef(initialDraft?.text ?? "");
 	// Confidence (owner, 2026-10-01): an index into CONFIDENCE_STOPS,
 	// resting at 50 — a real coin flip by definition, untouched or
 	// deliberate (the same number, the same meaning). The dock unmounts
 	// between questions, so each question starts fresh at 50.
-	const [confIdx, setConfIdx] = useState<number>(DEFAULT_CONFIDENCE_INDEX);
+	const [confIdx, setConfIdx] = useState<number>(initialDraft?.confidenceIndex ?? DEFAULT_CONFIDENCE_INDEX);
 	const selectMode: SelectMode = qd.mode === "multi-select" ? "multi-select" : "single-select";
 
 	// The PRIMARY dictation input (owner, STT round 1): while a question
@@ -398,6 +409,15 @@ function QuestionDockForm({
 			// "untouched"); buildAnswer drops it on "I don't know".
 			confidence: kind === "quiz" ? CONFIDENCE_STOPS[confIdx] : undefined,
 		};
+		// Snapshot before optimistic submission unmounts the form. Ref values
+		// include the dictation finals that just landed, unlike stale closures.
+		onSaveDraft?.({
+			selection: { ...sel, selected: new Set(sel.selected) },
+			thinking: thinkingTextRef.current,
+			other,
+			text: answerTextRef.current,
+			confidenceIndex: confIdx,
+		});
 		onSubmit(buildAnswer(qd, req, toolName));
 	};
 
@@ -568,11 +588,11 @@ function QuestionDockForm({
 					{qd.mode === "multi-select" && " · select all that apply"}
 				</div>
 				<div className="mb-3 font-medium">
-					<MessageResponse>{qd.question}</MessageResponse>
+					<ToolContentResponse>{qd.question}</ToolContentResponse>
 				</div>
 				{qd.context && (
 					<div className="mb-3 text-sm text-muted-foreground">
-						<MessageResponse>{qd.context}</MessageResponse>
+						<ToolContentResponse>{qd.context}</ToolContentResponse>
 					</div>
 				)}
 
@@ -608,7 +628,7 @@ function QuestionDockForm({
 										)}
 									</span>
 									<span>
-										<MessageResponse>{opt.label}</MessageResponse>
+										<ToolContentResponse>{opt.label}</ToolContentResponse>
 										{kind !== "quiz" && opt.description && (
 											// Option subtext renders in Source Sans 3 (owner's mockup);
 											// the "I don't know" copy stays JetBrains Mono. QUIZ options render
@@ -617,9 +637,9 @@ function QuestionDockForm({
 											// records must not leak either. Same MessageResponse path as the
 											// label (owner, 2026-10-12): descriptions are full markdown —
 											// LaTeX included — not plain text.
-											<MessageResponse className="lh-prose block text-xs text-muted-foreground">
+											<ToolContentResponse className="lh-prose block text-xs text-muted-foreground">
 												{opt.description}
-											</MessageResponse>
+											</ToolContentResponse>
 										)}
 									</span>
 								</button>

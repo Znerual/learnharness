@@ -32,7 +32,7 @@ import { SettingsGroup } from "./controls.tsx";
 import { EndpointsGroup } from "./endpoints-group.tsx";
 import { DictationEngineRows } from "./dictation-engine.tsx";
 import { SpeechRows } from "./speech-rows.tsx";
-import { ChatGPTConnection } from "./chatgpt-connection.tsx";
+import { SubscriptionConnections } from "./subscription-connections.tsx";
 import { ProviderMenuList } from "./model-menu.tsx";
 import { MenuShell } from "@/components/menu-shell";
 import { notifySettingsSaved } from "@/components/settings-signal";
@@ -480,7 +480,7 @@ export function KeysSection({
 			</SettingsGroup>
 
 			<SettingsGroup label="Subscriptions" testid="group-subscriptions">
-				<div data-testid="group-chatgpt"><ChatGPTConnection /></div>
+				<SubscriptionConnections />
 			</SettingsGroup>
 
 			<EndpointsGroup

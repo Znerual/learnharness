@@ -47,4 +47,5 @@ export * from "./endpoints.ts";
 export * from "./obsidian.ts";
 export * from "./stt.ts";
 export * from "./tts.ts";
+export { subscriptionControlsResponse, subscriptionBrowserResponse } from "./web-subscription-http.ts";
 export { sessionCost } from "./pricing.ts";

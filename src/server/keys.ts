@@ -64,7 +64,7 @@ export function customEndpointIds(): string[] {
 function isCustomEndpointId(provider: string): boolean {
 	return customEndpointIds().includes(provider);
 }
-import { chatGPTConnected } from "../agent/chatgpt-bridge.ts";
+import { isSubscriptionProvider, subscriptionConnected } from "../agent/subscription-connections.ts";
 
 // The once-per-process boot record — globalThis anchor (HMR re-imports the
 // module; the snapshot must not re-run and misread fill-gapped vars as real
@@ -224,7 +224,7 @@ export function providerKeyPresent(provider: string): boolean {
 	// Custom endpoints take an OPTIONAL key (owner, 2026-10-24): a keyless
 	// one is configured, and a builtin id never names one (the write gate).
 	if (isCustomEndpointId(provider)) return true;
-	if (provider === "chatgpt") return chatGPTConnected();
+	if (isSubscriptionProvider(provider)) return subscriptionConnected(provider);
 	const info = AUTH_PROVIDER_KEYS.find((p) => p.id === provider);
 	return info ? keyValue(info.envVar) !== undefined : true;
 }
