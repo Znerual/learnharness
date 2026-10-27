@@ -36,9 +36,12 @@ export interface EffectiveSpeech {
 /** The env/auth.json var of the endpoint's optional key. */
 export const SPEECH_KEY_ID = "LH_TTS_KEY";
 
-/** OpenAI's audio/speech speed range (Kokoro accepts the same). */
-export const SPEECH_SPEED_MIN = 0.25;
-export const SPEECH_SPEED_MAX = 4;
+/** The owner's speed range (speed slider, owner 2026-10-24) — inside
+ *  OpenAI's audio/speech 0.25–4, which Kokoro accepts too. */
+export const SPEECH_SPEED_MIN = 0.5;
+export const SPEECH_SPEED_MAX = 3;
+/** The composer slider's and the Settings field's step. */
+export const SPEECH_SPEED_STEP = 0.1;
 
 export function isSpeechSpeed(value: unknown): value is number {
 	return typeof value === "number" && Number.isFinite(value) && value >= SPEECH_SPEED_MIN && value <= SPEECH_SPEED_MAX;

@@ -26,7 +26,11 @@ import { useEffect, useRef, useSyncExternalStore } from "react";
 import { SquareIcon, Volume2Icon, VolumeXIcon } from "lucide-react";
 import {
 	closedMarkdown,
+	isSpeechSpeed,
 	speechBlocks,
+	SPEECH_SPEED_MAX,
+	SPEECH_SPEED_MIN,
+	SPEECH_SPEED_STEP,
 	type LhViewMessage,
 	type SpeechBlock,
 	type SpeechSettings,
@@ -46,9 +50,11 @@ export interface ReadAloudState {
 	/** A text-to-speech URL is configured. */
 	ready: boolean;
 	autoRead: boolean;
+	/** The synthesis speed (`speech.speed`), shown and set by the composer slider. */
+	speed: number;
 }
 
-let state: ReadAloudState = { owner: null, error: null, ready: false, autoRead: false };
+let state: ReadAloudState = { owner: null, error: null, ready: false, autoRead: false, speed: 1 };
 const listeners = new Set<() => void>();
 
 function set(patch: Partial<ReadAloudState>): void {
@@ -229,8 +235,10 @@ let configRequested = false;
 async function refreshConfig(): Promise<void> {
 	try {
 		const res = await fetch("/api/tts/config");
-		const body = (await res.json()) as { ready?: boolean; autoRead?: boolean };
-		set({ ready: body.ready === true, autoRead: body.autoRead === true });
+		const body = (await res.json()) as { ready?: boolean; autoRead?: boolean; speed?: number };
+		savedSpeed = isSpeechSpeed(body.speed) ? body.speed : 1;
+		// A drag in flight keeps its thumb; the save that ends it reports back.
+		set({ ready: body.ready === true, autoRead: body.autoRead === true, ...(speedSave ? {} : { speed: savedSpeed }) });
 	} catch {
 		// Offline server: keep what we had.
 	}
@@ -245,24 +253,57 @@ function ensureConfig(): void {
 	});
 }
 
-/** The composer toggle's write: the whole `speech` section, autoRead flipped. */
+/** The composer controls' write: the whole `speech` section with one field changed. */
+async function saveSpeechSection(change: (section: SpeechSettings) => SpeechSettings): Promise<void> {
+	const current = (await fetch("/api/settings").then((r) => r.json())) as { settings: UserSettings | null };
+	const res = await fetch("/api/settings/speech", {
+		method: "PUT",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify(change({ ...(current.settings?.speech ?? {}) })),
+	});
+	if (!res.ok) throw new Error(`Save failed (${res.status})`);
+	notifySettingsSaved("speech");
+}
+
+/** The composer toggle's write: autoRead flipped. */
 export async function setAutoRead(on: boolean): Promise<void> {
 	const before = state.autoRead;
 	set({ autoRead: on, error: null });
 	if (!on) stopReadAloud();
 	try {
-		const current = (await fetch("/api/settings").then((r) => r.json())) as { settings: UserSettings | null };
-		const section: SpeechSettings = { ...(current.settings?.speech ?? {}), autoRead: on };
-		const res = await fetch("/api/settings/speech", {
-			method: "PUT",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify(section),
-		});
-		if (!res.ok) throw new Error(`Save failed (${res.status})`);
-		notifySettingsSaved("speech");
+		await saveSpeechSection((section) => ({ ...section, autoRead: on }));
 	} catch (error) {
 		set({ autoRead: before, error: error instanceof Error ? error.message : "Save failed" });
 	}
+}
+
+const SPEED_SAVE_DELAY_MS = 300;
+let speedSave: ReturnType<typeof setTimeout> | null = null;
+/** The speed last saved (or read), restored when a save fails. */
+let savedSpeed = 1;
+
+/** The composer slider's write (speed slider, owner 2026-10-24): the label
+ *  follows the thumb at once, the save waits for the drag to settle. The
+ *  server reads the speed per block, so the change is heard from the next
+ *  block fetched — the one already prefetched keeps its speed (owner ruling). */
+export function setSpeed(speed: number): void {
+	set({ speed, error: null });
+	if (speedSave) clearTimeout(speedSave);
+	speedSave = setTimeout(() => {
+		speedSave = null;
+		void saveSpeechSection((section) => {
+			// Like the Settings field: the default is the key's absence.
+			const next = { ...section };
+			delete next.speed;
+			if (speed !== 1) next.speed = speed;
+			return next;
+		}).then(
+			() => {
+				savedSpeed = speed;
+			},
+			(error: unknown) => set({ speed: savedSpeed, error: error instanceof Error ? error.message : "Save failed" }),
+		);
+	}, SPEED_SAVE_DELAY_MS);
 }
 
 export function useReadAloud(): ReadAloudState {
@@ -389,6 +430,36 @@ export function ReadAloudToggle() {
 			>
 				{autoRead ? <Volume2Icon className="size-3.5" /> : <VolumeXIcon className="size-3.5" />}
 			</button>
+		</Hint>
+	);
+}
+
+/** The composer's speed slider, right of the auto-read toggle (speed
+ *  slider, owner 2026-10-24): 0.5×–3× in 0.1 steps, the same `speech.speed`
+ *  as the Settings field. Hidden until read-aloud has a URL. */
+export function ReadAloudSpeed() {
+	const { ready, speed } = useReadAloud();
+	if (!ready) return null;
+	const label = `${speed.toFixed(1)}×`;
+	return (
+		<Hint label="Reading speed" side="top">
+			<div className="flex h-7 shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
+				<input
+					type="range"
+					min={SPEECH_SPEED_MIN}
+					max={SPEECH_SPEED_MAX}
+					step={SPEECH_SPEED_STEP}
+					value={speed}
+					onChange={(e) => setSpeed(Math.round(Number(e.target.value) * 10) / 10)}
+					aria-label="Reading speed"
+					aria-valuetext={`${speed.toFixed(1)} times`}
+					data-testid="read-aloud-speed"
+					className="w-20 accent-foreground"
+				/>
+				<span className="w-8 tabular-nums" data-testid="read-aloud-speed-label">
+					{label}
+				</span>
+			</div>
 		</Hint>
 	);
 }

@@ -8,61 +8,25 @@
  * reaches the renderer (the dictation routes' rule). The audio streams
  * back untouched.
  *
- * MATH (owner ruling): deterministic, offline — KaTeX renders the LaTeX
- * to MathML, Speech Rule Engine (the MathJax accessibility engine) reads
- * the MathML in its ClearSpeak style: "\frac{a}{b} + x^2" → "a over b
- * plus x squared". English only, like the Kokoro voices.
+ * MATH (owner ruling): deterministic, offline — server/math-speech.ts
+ * reads each formula in words: "\frac{a}{b} + x^2" → "a over b plus x
+ * squared". English only, like the Kokoro voices.
  */
 
-import katex from "katex";
 import { resolveSpeech, SPEECH_KEY_ID, type EffectiveSpeech } from "../core/speech.ts";
 import type { SpeechSegment } from "../core/speech-script.ts";
 import { keyValue } from "./keys.ts";
+import { speakMath } from "./math-speech.ts";
 import { settingsStore } from "../store/settings.ts";
 
 const SPEAK_TIMEOUT_MS = 60_000;
 const VOICES_TIMEOUT_MS = 5_000;
 /** OpenAI's audio/speech input cap. */
 export const SPEECH_INPUT_MAX = 4096;
-/** Spoken when KaTeX cannot parse a formula. */
-const UNREADABLE_MATH = "a formula";
 
 /** The resolved read-aloud choice, read fresh. */
 export function speechConfig(): EffectiveSpeech {
 	return resolveSpeech(settingsStore.readSettings()?.speech);
-}
-
-// ─── math → words ────────────────────────────────────────────────────────────
-
-type Sre = typeof import("speech-rule-engine").default;
-let sreReady: Promise<Sre> | null = null;
-
-/** Speech Rule Engine, set up once per process (it is a global singleton). */
-function mathEngine(): Promise<Sre> {
-	sreReady ??= (async () => {
-		// A CommonJS package: plain Node hands the exports over as `default`,
-		// tsx's loader spreads them onto the namespace instead.
-		const mod = (await import("speech-rule-engine")) as { default?: Sre } & Partial<Sre>;
-		const sre = mod.default ?? (mod as Sre);
-		await sre.setupEngine({ locale: "en", domain: "clearspeak", modality: "speech" });
-		await sre.engineReady();
-		return sre;
-	})().catch((error: unknown) => {
-		sreReady = null;
-		throw error;
-	});
-	return sreReady;
-}
-
-/** One formula, read in words. */
-export async function speakMath(latex: string): Promise<string> {
-	const html = katex.renderToString(latex, { output: "mathml", throwOnError: false });
-	const mathml = /<math[\s\S]*<\/math>/.exec(html)?.[0];
-	// KaTeX renders a parse error as a red span, without <math>.
-	if (!mathml || html.includes("katex-error")) return UNREADABLE_MATH;
-	const sre = await mathEngine();
-	const words = sre.toSpeech(mathml.replace(/<annotation[\s\S]*?<\/annotation>/g, "")).trim();
-	return words || UNREADABLE_MATH;
 }
 
 /** One block's segments → the text the voice reads. */

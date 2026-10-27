@@ -28,7 +28,7 @@ import { blurAfterPointerClick } from "@/components/focus-hygiene";
 import { dockStateKey } from "@/components/dock-state-key";
 import { QueuedSteersBody, type QueuedSteerLine } from "@/components/queued-steers";
 import { DictationBar, finishDictation, joinDictation, useDictation } from "@/components/dictation";
-import { ReadAloudButton, ReadAloudToggle, stopReadAloud, useAutoRead } from "@/components/read-aloud";
+import { ReadAloudButton, ReadAloudSpeed, ReadAloudToggle, stopReadAloud, useAutoRead } from "@/components/read-aloud";
 import { useFieldCycle } from "@/components/field-cycle";
 import { JobsContext } from "@/components/jobs-context";
 import { StatsBar } from "@/components/stats-bar";
@@ -1620,9 +1620,10 @@ export function Chat({
 					pricing={pricing}
 					onReserve={setDockReserve}
 					dictationSlot={
-						// The auto-read toggle rides beside the mic (read-aloud, owner 2026-10-24).
+						// The auto-read toggle and speed slider ride beside the mic (read-aloud, owner 2026-10-24).
 						<div className="flex w-full min-w-0 items-center gap-2">
 							<ReadAloudToggle />
+							<ReadAloudSpeed />
 							<div className="flex min-w-0 flex-1 items-center justify-center">
 								<DictationBar dictation={dictation} />
 							</div>

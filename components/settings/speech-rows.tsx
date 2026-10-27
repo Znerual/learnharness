@@ -15,6 +15,7 @@ import {
 	resolveSpeech,
 	SPEECH_SPEED_MAX,
 	SPEECH_SPEED_MIN,
+	SPEECH_SPEED_STEP,
 	type SpeechSettings,
 	type UserSettings,
 } from "@/src/core";
@@ -163,7 +164,7 @@ export function SpeechRows() {
 							value={speed}
 							min={SPEECH_SPEED_MIN}
 							max={SPEECH_SPEED_MAX}
-							step={0.05}
+							step={SPEECH_SPEED_STEP}
 							onChange={(e) => setSpeed(e.target.value)}
 							onKeyDown={onEnter}
 							aria-label="Speed"

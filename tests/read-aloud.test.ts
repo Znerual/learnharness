@@ -2,7 +2,9 @@
  * Read-aloud (read-aloud wave, owner 2026-10-24). Pinned: the spoken
  * script (blocks, cues, callouts, math kept as LaTeX), the streaming
  * prefix (closedMarkdown — only final blocks are spoken), math in words
- * through Speech Rule Engine, the `speech` settings (resolve, sanitize,
+ * through Speech Rule Engine with the owner's readings (math-speech
+ * wave: plain subscripts, worded brackets, implied times, comma pauses
+ * after compound groups), the `speech` settings (resolve, sanitize,
  * strict parse), the curated LH_TTS_KEY, and the forward to an
  * OpenAI-compatible /audio/speech endpoint over a fake fetch.
  *
@@ -12,6 +14,7 @@
 
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
+import { createRequire } from "node:module";
 import * as os from "node:os";
 import * as path from "node:path";
 import { after, describe, it } from "node:test";
@@ -29,9 +32,10 @@ const { parseSpeechSettingsBody } = await import("../src/server/settings-body.ts
 const { validateKeyShape, AUTH_KEYS } = await import("../src/core/auth-keys.ts");
 const { writeSettings } = await import("../src/store/settings.ts");
 const { saveKey, deleteKey } = await import("../src/server/keys.ts");
-const { listSpeechVoices, parseSpeechSegments, speakMath, speechConfig, speechText, synthesizeSpeech } = await import(
+const { listSpeechVoices, parseSpeechSegments, speechConfig, speechText, synthesizeSpeech } = await import(
 	"../src/server/tts.ts"
 );
+const { patchLocale, speakMath } = await import("../src/server/math-speech.ts");
 
 after(() => fs.rmSync(TMP, { recursive: true, force: true }));
 
@@ -119,6 +123,69 @@ describe("math in words", () => {
 		assert.equal(await speakMath("\\frac{a}{b} + x^2"), "a over b plus x squared");
 		assert.equal(await speakMath("\\sum_{i=1}^{n} i^2"), "the sum from i equals 1 to n of i squared");
 	});
+	it("reads formulas the owner's way", async () => {
+		const readings: [string, string][] = [
+			["m_t", "m t"],
+			["\\beta_1", "beta 1"],
+			["m_{t-1} + 1", "m t minus 1, plus 1"],
+			["x_{ij}", "x i j"],
+			["(1-\\beta_1) g_t", "parenthesis 1 minus beta 1, times g t"],
+			["[a,b]", "bracket a comma b"],
+			["\\{a+b\\} c", "brace a plus b, times c"],
+			["2(x+1)", "2 times parenthesis x plus 1"],
+			["f(x+1)", "f of x plus 1"],
+			["\\max(a,b)", "max of a comma b"],
+			["ab", "a times b"],
+			["w_i x_i", "w i times x i"],
+			["2x", "2 x"],
+			["3ab", "3 a times b"],
+			["\\frac{dy}{dx}", "d y over d x"],
+			["\\sigma(Wx+b)", "sigma times parenthesis W times x plus b"],
+			["\\frac{a+1}{b}", "fraction a plus 1, over b"],
+			["\\frac{a}{b}", "a over b"],
+			["e^{-x^2}", "e to the negative x squared"],
+			["x^{n+1} + 1", "x to the n plus 1, plus 1"],
+			["x^2", "x squared"],
+			["x^n", "x to the n-th power"],
+			["\\infty", "infinity"],
+			["\\mathrm{ReLU}(x)", "ReLU of x"],
+			["\\bar x", "x bar"],
+			["\\vec v", "vector v"],
+			["\\|w\\|", "the norm of w"],
+			["\\|w\\|_2", "the norm of w, 2"],
+			["\\ln x", "natural log of x"],
+			["\\lim_{n\\to\\infty} a_n", "the limit as n approaches infinity of a n"],
+			["x \\to 0", "x approaches 0"],
+			["f: X \\to Y", "f colon X to Y"],
+			["A^T", "A transpose"],
+			["A^\\top", "A transpose"],
+			["\\mathbb{E}[X]", "the expected value of X"],
+			["\\mathbb{E}_{x \\sim p}[f(x)]", "the expected value over x distributed as p, of f of x"],
+			["X \\sim \\mathcal{N}(0,1)", "X is distributed as script N of 0 comma 1"],
+			["\\partial f", "partial f"],
+			["\\nabla f", "the gradient of f"],
+			["\\nabla_\\theta L", "the gradient with respect to theta of L"],
+			["x_1, \\dots, x_n", "x 1 comma and so on comma x n"],
+			["x \\in \\mathbb{R}^n", "x is in R n"],
+			["\\mathbb{R}^{m \\times n}", "R m by n"],
+			["\\binom{n}{k}", "n choose k"],
+			["\\arg\\min_x f(x)", "the arg min over x of f of x"],
+			["p(y|x)", "p of y given x"],
+			["\\{1,2,3\\}", "the set 1 comma 2 comma 3"],
+			["A \\succeq 0", "A is greater than or equal to 0"],
+			["a ⪰ b", "a is greater than or equal to b"],
+			["A \\preceq B", "A is less than or equal to B"],
+		];
+		for (const [latex, words] of readings) assert.equal(await speakMath(latex), words, latex);
+	});
+	it("fails loudly when the engine lacks an overridden rule", async () => {
+		const mathmaps = path.join(path.dirname(createRequire(import.meta.url).resolve("speech-rule-engine")), "mathmaps");
+		const en = fs.readFileSync(path.join(mathmaps, "en.json"), "utf8");
+		const base = fs.readFileSync(path.join(mathmaps, "base.json"), "utf8");
+		assert.doesNotThrow(() => patchLocale(en, base));
+		// fences-open-close lives in the base rules only.
+		assert.throws(() => patchLocale(en, "{}"), /fences-open-close/);
+	});
 	it("says 'a formula' for LaTeX KaTeX cannot parse", async () => {
 		assert.equal(await speakMath("\\frac{x"), "a formula");
 	});
@@ -154,6 +221,10 @@ describe("speech settings", () => {
 		assert.deepEqual(parseSpeechSettingsBody({ url: "", voice: "" }), { ok: true, settings: {} });
 		assert.ok(!parseSpeechSettingsBody({ url: "nope" }).ok);
 		assert.ok(!parseSpeechSettingsBody({ speed: 5 }).ok);
+		// The owner's slider range, 0.5–3 (speed slider, 2026-10-24).
+		assert.ok(parseSpeechSettingsBody({ speed: 3 }).ok);
+		assert.ok(!parseSpeechSettingsBody({ speed: 0.25 }).ok);
+		assert.ok(!parseSpeechSettingsBody({ speed: 3.5 }).ok);
 		assert.ok(!parseSpeechSettingsBody({ autoRead: 1 }).ok);
 	});
 	it("the status line names host, voice and a non-default speed", () => {
