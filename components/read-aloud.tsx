@@ -7,13 +7,16 @@
  * in order, the next block fetched while the current one plays.
  *
  * Owner rulings:
- * - Two triggers: the per-reply speaker button (any reply, on demand) and
+ * - Two triggers: the per-turn speaker button (any turn, on demand) and
  *   AUTO-READ (the composer toggle, ⌘⇧S, persisted globally in the
  *   `speech` settings section) — every LIVE reply is spoken block by block
  *   while it streams; reopened history is never read by itself.
  * - Auto-read also reads the question dock's question, context and
  *   options, after the prose; a check behind the reveal is read when the
  *   learner reveals it.
+ * - Per turn (owner 2026-10-27): a reply group runs on across dock
+ *   answers, so speech is owned by its TURN (core replyTurns) — each turn
+ *   has its own button, and a stop silences only the turn it cut.
  * - Playback stops on Esc (after dictation in the chain), when dictation
  *   starts, when the learner sends, and when another reply is played.
  *
@@ -27,11 +30,13 @@ import { SquareIcon, Volume2Icon, VolumeXIcon } from "lucide-react";
 import {
 	closedMarkdown,
 	isSpeechSpeed,
+	replyTurns,
 	speechBlocks,
 	SPEECH_SPEED_MAX,
 	SPEECH_SPEED_MIN,
 	SPEECH_SPEED_STEP,
 	type LhViewMessage,
+	type ReplyTurn,
 	type SpeechBlock,
 	type SpeechSettings,
 	type UserSettings,
@@ -43,7 +48,7 @@ import { useSettingsDialog } from "@/components/settings/settings-dialog.tsx";
 // ─── state ───────────────────────────────────────────────────────────────────
 
 export interface ReadAloudState {
-	/** Whose speech is queued or playing (a message id), null when silent. */
+	/** Whose speech is queued or playing (a ReplyTurn key), null when silent. */
 	owner: string | null;
 	/** The last failure, shown on the composer toggle until the next click. */
 	error: string | null;
@@ -81,7 +86,7 @@ let generation = 0;
 let pumpingGeneration = -1;
 let controller = new AbortController();
 let endCurrent: (() => void) | null = null;
-/** Owners the learner silenced: later blocks of the same reply stay quiet. */
+/** Turns the learner silenced: later blocks of the same turn stay quiet. */
 const muted = new Set<string>();
 
 async function fetchAudio(block: SpeechBlock, signal: AbortSignal): Promise<string> {
@@ -154,7 +159,7 @@ async function pump(): Promise<void> {
 	}
 }
 
-/** Stop everything: the playing block, the queue, the fetches. The reply
+/** Stop everything: the playing block, the queue, the fetches. The turn
  *  that was speaking stays muted for the rest of its stream. */
 export function stopReadAloud(): void {
 	generation += 1;
@@ -173,7 +178,7 @@ export function isReadAloudActive(): boolean {
 	return state.owner !== null;
 }
 
-/** Play one reply from its start, replacing whatever was playing. */
+/** Play one turn from its start, replacing whatever was playing. */
 export function speakReply(owner: string, blocks: SpeechBlock[]): void {
 	stopReadAloud();
 	muted.delete(owner);
@@ -183,8 +188,8 @@ export function speakReply(owner: string, blocks: SpeechBlock[]): void {
 	void pump();
 }
 
-/** Queue more of a reply (auto-read). A different reply's speech stops;
- *  a reply the learner silenced stays silent. */
+/** Queue more of a turn (auto-read). A different turn's speech stops;
+ *  a turn the learner silenced stays silent. */
 function appendReply(owner: string, blocks: SpeechBlock[]): void {
 	if (blocks.length === 0 || muted.has(owner)) return;
 	if (state.owner !== null && state.owner !== owner) stopReadAloud();
@@ -195,7 +200,7 @@ function appendReply(owner: string, blocks: SpeechBlock[]): void {
 
 // ─── questions (auto-read) ───────────────────────────────────────────────────
 
-/** Question calls that arrived live, with the reply they belong to. The
+/** Question calls that arrived live, with the turn they belong to. The
  *  auto-read hook marks a call AFTER the prose before it is queued; the
  *  dock offers its question when it is shown. Either may come first —
  *  whichever is second queues the question, so it always follows the
@@ -315,29 +320,18 @@ export function useReadAloud(): ReadAloudState {
 
 const QUESTION_PART_TYPES = new Set(["tool-quiz", "tool-probe", "tool-ask_user_question", "tool-explain", "tool-recall"]);
 
-function replyText(message: LhViewMessage): string {
-	return message.parts
-		.filter((part) => part.type === "text" && typeof part.text === "string")
-		.map((part) => part.text as string)
-		.join("\n\n");
-}
-
-/** The spoken blocks of a whole reply (the per-reply button). */
-export function replyBlocks(message: LhViewMessage): SpeechBlock[] {
-	return speechBlocks(replyText(message));
-}
-
 /**
  * Auto-read for the session: every assistant message that streams while
- * this page watches is LIVE; its blocks are queued as closedMarkdown
- * releases them, and the rest when the stream ends. A message that was
- * already on screen and gets continued is spoken from where it stood.
+ * this page watches is LIVE; its blocks are queued, turn by turn, as
+ * closedMarkdown releases them, and the rest when the stream ends. A
+ * message that was already on screen and gets continued is spoken from
+ * where it stood — a new turn from its own start.
  */
 export function useAutoRead(messages: LhViewMessage[], status: string): void {
 	const { autoRead } = useReadAloud();
-	/** Blocks already handed over (or skipped), per message. */
+	/** Blocks already handed over (or skipped), per turn. */
 	const spoken = useRef(new Map<string, number>());
-	/** The closed text last parsed, per message — parse only when it moves. */
+	/** The closed text last parsed, per turn — parse only when it moves. */
 	const parsed = useRef(new Map<string, string>());
 	const live = useRef(new Set<string>());
 
@@ -346,25 +340,28 @@ export function useAutoRead(messages: LhViewMessage[], status: string): void {
 		const last = messages.at(-1);
 		if (last?.role === "assistant" && !live.current.has(last.id)) {
 			if (streaming) live.current.add(last.id);
-			else spoken.current.set(last.id, replyBlocks(last).length); // the baseline a continuation starts from
+			// The baseline a continuation starts from: every turn on screen.
+			else for (const turn of replyTurns(last)) spoken.current.set(turn.key, speechBlocks(turn.text).length);
 		}
 		for (const message of messages) {
 			if (!live.current.has(message.id)) continue;
 			const done = !streaming || message !== last;
-			const text = replyText(message);
-			const lastPart = message.parts.at(-1);
-			const closed = done || lastPart?.type !== "text" ? text : closedMarkdown(text);
-			if (parsed.current.get(message.id) !== closed) {
-				parsed.current.set(message.id, closed);
-				const blocks = speechBlocks(closed);
-				const from = spoken.current.get(message.id) ?? 0;
-				if (blocks.length > from) {
-					if (autoRead) appendReply(message.id, blocks.slice(from));
-					spoken.current.set(message.id, blocks.length);
+			for (const turn of replyTurns(message)) {
+				// Only the newest turn can still be growing a text part.
+				const open = !done && turn.end === message.parts.length && message.parts.at(-1)?.type === "text";
+				const closed = open ? closedMarkdown(turn.text) : turn.text;
+				if (parsed.current.get(turn.key) !== closed) {
+					parsed.current.set(turn.key, closed);
+					const blocks = speechBlocks(closed);
+					const from = spoken.current.get(turn.key) ?? 0;
+					if (blocks.length > from) {
+						if (autoRead) appendReply(turn.key, blocks.slice(from));
+						spoken.current.set(turn.key, blocks.length);
+					}
 				}
-			}
-			for (const part of message.parts) {
-				if (QUESTION_PART_TYPES.has(part.type) && part.toolCallId) markLiveQuestion(part.toolCallId, message.id);
+				for (const part of message.parts.slice(turn.start, turn.end)) {
+					if (QUESTION_PART_TYPES.has(part.type) && part.toolCallId) markLiveQuestion(part.toolCallId, turn.key);
+				}
 			}
 			if (done) live.current.delete(message.id);
 		}
@@ -464,15 +461,16 @@ export function ReadAloudSpeed() {
 	);
 }
 
-/** The per-reply speaker: on hover under a reply with prose; stays shown
- *  while that reply speaks (click again stops). */
-export function ReadAloudButton({ message }: { message: LhViewMessage }) {
+/** The per-turn speaker: below a turn with prose, on hover over that turn
+ *  (its wrapper carries `group/turn`); stays shown while that turn speaks
+ *  (click again stops). */
+export function ReadAloudButton({ turn }: { turn: ReplyTurn }) {
 	const { owner, ready } = useReadAloud();
 	const { open: openSettings } = useSettingsDialog();
-	if (!replyText(message).trim()) return null;
-	const playing = owner === message.id;
+	if (!turn.text.trim()) return null;
+	const playing = owner === turn.key;
 	return (
-		<div className={`flex ${playing ? "" : "opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"}`}>
+		<div className={`flex ${playing ? "" : "opacity-0 transition-opacity group-hover/turn:opacity-100 focus-within:opacity-100"}`}>
 			<Hint label={playing ? "Stop reading" : ready ? "Read aloud" : "Read aloud: set a text-to-speech URL in Settings"} side="top">
 				<button
 					type="button"
@@ -481,7 +479,7 @@ export function ReadAloudButton({ message }: { message: LhViewMessage }) {
 					onClick={() => {
 						if (playing) stopReadAloud();
 						else if (!ready) openSettings("keys");
-						else speakReply(message.id, replyBlocks(message));
+						else speakReply(turn.key, speechBlocks(turn.text));
 					}}
 					className="flex size-6 items-center justify-center rounded-sm text-muted-foreground/70 transition-colors hover:bg-accent hover:text-foreground"
 				>

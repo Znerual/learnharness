@@ -26,8 +26,9 @@ import { mathFromMarkdown } from "mdast-util-math";
 import { gfm } from "micromark-extension-gfm";
 import { math } from "micromark-extension-math";
 import { transformMathDelimiters } from "./math-delims.ts";
-import { toolQuestionKind } from "./pending.ts";
+import { QUESTION_TOOLS, toolQuestionKind } from "./pending.ts";
 import { normalizeOptions, seededRandom, shuffleOptions, type QuizOption } from "./question-core.ts";
+import type { LhViewMessage, LhViewPart } from "./view.ts";
 
 export type SpeechSegment = { kind: "text"; text: string } | { kind: "math"; latex: string };
 
@@ -60,6 +61,49 @@ export function speechBlocks(markdown: string): SpeechBlock[] {
 	const blocks: SpeechBlock[] = [];
 	for (const node of tree.children) collectBlocks(node, blocks);
 	return blocks.map(tidyBlock).filter((block) => block.length > 0);
+}
+
+/** One turn of an assistant view message (per-turn read-aloud, owner
+ *  2026-10-27). A view message is a GROUP that keeps running across dock
+ *  answers (an answer is a toolResult, not a user message), so a group
+ *  can hold several turns: each ends at an answered question. */
+export interface ReplyTurn {
+	/** `${message id}:${index}` — the read-aloud owner; stable as turns append. */
+	key: string;
+	/** The turn's parts: `parts.slice(start, end)` of its message. */
+	start: number;
+	end: number;
+	/** The turn's prose, its text parts joined. */
+	text: string;
+}
+
+function isAnsweredQuestion(part: LhViewPart): boolean {
+	return (
+		part.type.startsWith("tool-") &&
+		(QUESTION_TOOLS as readonly string[]).includes(part.type.slice("tool-".length)) &&
+		part.state === "output-available"
+	);
+}
+
+/** A message's turns, split after each answered question. An unanswered
+ *  question stays inside its turn; a message always has at least one. */
+export function replyTurns(message: LhViewMessage): ReplyTurn[] {
+	const turns: ReplyTurn[] = [];
+	let start = 0;
+	const close = (end: number) => {
+		const text = message.parts
+			.slice(start, end)
+			.filter((part) => part.type === "text" && typeof part.text === "string")
+			.map((part) => part.text as string)
+			.join("\n\n");
+		turns.push({ key: `${message.id}:${turns.length}`, start, end, text });
+		start = end;
+	};
+	message.parts.forEach((part, i) => {
+		if (isAnsweredQuestion(part)) close(i + 1);
+	});
+	if (start < message.parts.length || turns.length === 0) close(message.parts.length);
+	return turns;
 }
 
 /** A block whose segments start with a lead-in ("Option 1:", "Key idea:"). */

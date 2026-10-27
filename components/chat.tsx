@@ -60,6 +60,7 @@ import { GraphContextCard, type GraphContextData } from "@/components/graph-cont
 import { TopBar } from "@/components/top-bar";
 import type { ArtifactPartProps, JobRecord, Phase3, QuestionAnswerData, TurnUsage, SessionPricing } from "@/src/core";
 import type { LhViewMessage } from "@/src/core";
+import { replyTurns } from "@/src/core";
 import { PhaseChip, PhaseDivider } from "@/components/phase-divider";
 import {
 	CompactionCutDivider,
@@ -1448,7 +1449,14 @@ export function Chat({
 									) : (
 									<Message from="assistant" className="max-w-full">
 									<MessageContent className="w-full">
-											{m.parts.map((part, pi) => {
+											{/* One hover zone per TURN (per-turn read-aloud, owner
+											    2026-10-27): a group runs on across dock answers, and
+											    each turn ends with its own speaker, below its answered
+											    card. pi stays the part's index in the whole group. */}
+											{replyTurns(m).map((turn) => (
+											<div key={turn.key} className="group/turn flex min-w-0 flex-col gap-2">
+											{m.parts.slice(turn.start, turn.end).map((part, j) => {
+												const pi = turn.start + j;
 												const isLastPart = mi === messages.length - 1 && pi === m.parts.length - 1;
 												// The step boundary where teaching begins (round 8): when
 												// the teach flip happens in a LATER step, its PhaseDivider
@@ -1542,8 +1550,10 @@ export function Chat({
 													}
 												}
 											})}
+											<ReadAloudButton turn={turn} />
+											</div>
+											))}
 										</MessageContent>
-										<ReadAloudButton message={m} />
 									</Message>
 									)}
 								</Fragment>

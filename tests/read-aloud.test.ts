@@ -24,7 +24,9 @@ process.env.LH_DATA_DIR = TMP;
 process.env.LH_AUTH_FILE = path.join(TMP, "auth.json");
 delete process.env.LH_TTS_KEY;
 
-const { closedMarkdown, questionSpeechBlocks, speechBlocks, withLead, SPEECH_CUES } = await import("../src/core/speech-script.ts");
+const { closedMarkdown, questionSpeechBlocks, replyTurns, speechBlocks, withLead, SPEECH_CUES } = await import(
+	"../src/core/speech-script.ts"
+);
 const { seededRandom, shuffleOptions, normalizeOptions } = await import("../src/core/question-core.ts");
 const { speechStatusLine } = await import("../components/settings/speech-rows.tsx");
 const { resolveSpeech, sanitizeSpeech } = await import("../src/core/speech.ts");
@@ -115,6 +117,34 @@ describe("closedMarkdown (streaming)", () => {
 			assert.deepEqual(blocks, speechBlocks(full).slice(0, blocks.length), `unstable at ${i}`);
 			before = blocks.length;
 		}
+	});
+});
+
+describe("replyTurns (per-turn read-aloud)", () => {
+	const textPart = (t: string) => ({ type: "text", text: t });
+	const quiz = (state: string) => ({ type: "tool-quiz", toolCallId: "q1", state });
+	const group = (...parts: Array<Record<string, unknown>>) => ({ id: "a1", role: "assistant" as const, parts: parts as never });
+
+	it("splits a group after each answered question", () => {
+		const turns = replyTurns(group({ type: "step-start" }, textPart("Intro."), quiz("output-available"), { type: "step-start" }, textPart("Feedback.")));
+		assert.deepEqual(turns, [
+			{ key: "a1:0", start: 0, end: 3, text: "Intro." },
+			{ key: "a1:1", start: 3, end: 5, text: "Feedback." },
+		]);
+	});
+	it("keeps an unanswered question inside its turn", () => {
+		const turns = replyTurns(group({ type: "step-start" }, textPart("Intro."), quiz("input-available")));
+		assert.deepEqual(turns, [{ key: "a1:0", start: 0, end: 3, text: "Intro." }]);
+	});
+	it("adds no empty turn after a closing answer, and keeps keys as turns append", () => {
+		const before = replyTurns(group(textPart("Intro."), quiz("output-available")));
+		const after = replyTurns(group(textPart("Intro."), quiz("output-available"), textPart("Next.")));
+		assert.deepEqual(before.map((t) => t.key), ["a1:0"]);
+		assert.deepEqual(after.map((t) => t.key), ["a1:0", "a1:1"]);
+		assert.equal(after[1]!.text, "Next.");
+	});
+	it("gives a message with no parts one empty turn", () => {
+		assert.deepEqual(replyTurns(group()), [{ key: "a1:0", start: 0, end: 0, text: "" }]);
 	});
 });
 
