@@ -166,6 +166,21 @@ export function parseProviderKeyRefusal(message: string | undefined): boolean {
 	}
 }
 
+/** The handoff model refusal's transport seam (multi-device): the 503
+ *  model_unavailable body rides the thrown error message verbatim, like the
+ *  two refusals above. Exported pure for tests. */
+export function parseModelUnavailable(message: string | undefined): { provider: string; id: string } | null {
+	if (!message) return null;
+	try {
+		const body = JSON.parse(message) as { code?: unknown; provider?: unknown; id?: unknown };
+		return body.code === "model_unavailable" && typeof body.provider === "string" && typeof body.id === "string"
+			? { provider: body.provider, id: body.id }
+			: null;
+	} catch {
+		return null;
+	}
+}
+
 /** useLayoutEffect that is silent during SSR (client components still render on the server in Next). */
 const useIsoLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
 
@@ -210,6 +225,7 @@ export function Chat({
 	initialOwnedElsewhere = null,
 	initialConflicts = [],
 	initialUpdatedAt = "",
+	initialModelUnavailable = null,
 	kind = "teach",
 }: {
 	chatId: string;
@@ -241,6 +257,8 @@ export function Chat({
 	 *  updatedAt, for the pick-a-version banner. */
 	initialConflicts?: ChatConflict[];
 	initialUpdatedAt?: string;
+	/** The session's stamped model when this device lacks it (multi-device). */
+	initialModelUnavailable?: { provider: string; id: string } | null;
 }) {
 	const [ownedElsewhere, setOwnedElsewhere] = useState<OwnedElsewhere | null>(initialOwnedElsewhere);
 	// Reattach plumbing (background-turn runner wave): the hook holds the
@@ -594,6 +612,14 @@ export function Chat({
 			.catch(() => {});
 	});
 	const [setupOpen, setSetupOpen] = useState(false);
+	/** The session's own model is not set up on this device (multi-device
+	 *  handoff): a banner asks the learner to pick one; a pick clears it. */
+	const [modelMissing, setModelMissing] = useState<{ provider: string; id: string } | null>(initialModelUnavailable);
+	useEffect(() => {
+		const onSaved = () => setModelMissing(null);
+		window.addEventListener("lh:session-model-saved", onSaved);
+		return () => window.removeEventListener("lh:session-model-saved", onSaved);
+	}, []);
 	/** The last explicitly-sent draft (composer send): the
 	 *  refusal flow restores it into the composer, where it waits for the
 	 *  learner to re-send (Save never auto-sends, owner 2026-10-09).
@@ -617,7 +643,11 @@ export function Chat({
 		// provider key is gone gets the SAME treatment — revert-draft and
 		// open setup (the dialog derives to its first-key stage on its own).
 		const keyRefused = parseProviderKeyRefusal(error.message);
-		if (!missing && !keyRefused) return; // a real error keeps the honest banner
+		// The handoff twin (multi-device): the session's own model is not set
+		// up on this device — same revert-draft flow, but the learner picks a
+		// model for this session instead of setting up slots.
+		const modelGone = parseModelUnavailable(error.message);
+		if (!missing && !keyRefused && !modelGone) return; // a real error keeps the honest banner
 		// ORDER MATTERS: clearError() flips this effect's own dep (`error`)
 		// and would cancel the in-flight work below — so the banner dismiss,
 		// the draft restore, and the dialog open all land TOGETHER after the
@@ -635,7 +665,10 @@ export function Chat({
 				draftRef.current = null;
 			}
 			clearError();
-			setSetupOpen(true);
+			if (modelGone) {
+				setModelMissing(modelGone);
+				window.dispatchEvent(new Event("lh:kbd-open-model-picker"));
+			} else setSetupOpen(true);
 		})();
 		return () => {
 			cancelled = true;
@@ -1662,6 +1695,20 @@ export function Chat({
 					queuedSteers={visibleQueuedSteers(steerQueue, nativeMessages)}
 					setupCta={
 						<>
+						{modelMissing && (
+							<div data-testid="model-missing" className="pointer-events-auto mb-2 flex flex-wrap items-center justify-center gap-2 rounded-sm border border-border bg-card px-3 py-2 font-ui text-xs text-foreground">
+								<span>
+									This session uses {modelMissing.provider} / {modelMissing.id}, which is not set up on this device.
+								</span>
+								<button
+									type="button"
+									onClick={() => window.dispatchEvent(new Event("lh:kbd-open-model-picker"))}
+									className="rounded-sm border border-border px-2 py-0.5 hover:bg-accent cursor-pointer"
+								>
+									Pick a model
+								</button>
+							</div>
+						)}
 						{initialConflicts.length > 0 && (
 							<SessionConflicts
 								chatId={chatId}

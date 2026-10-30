@@ -36,7 +36,8 @@ function connectionModel(provider: string, id: string): Model<Api> | undefined {
 function connectionProviderIds(): string[] { return [...piModels().getProviders().map((p) => p.id), "chatgpt", ...NATIVE_SUBSCRIPTIONS.map((p) => p.logicalId)]; }
 import { settingsStore } from "../store/settings.ts";
 import { effectiveSettings } from "./stores.ts";
-import { keyValue } from "./keys.ts";
+import { keyValue, providerKeyPresent } from "./keys.ts";
+import { isSubscriptionProvider } from "../agent/subscription-connections.ts";
 import type { ChatSettings } from "../core/contracts/chat.ts";
 import type {
 	CatalogDefaults,
@@ -261,6 +262,19 @@ export function validateChatSettings(settings: ChatSettings): SettingsValidation
 	// level with no model anywhere rides unchecked and clamps against
 	// whatever the chain later holds at engine build.
 	return { ok: true };
+}
+
+/** The session's own stamped model when THIS device cannot run it
+ *  (multi-device: model setup is device-local, a handed-off session may
+ *  name a provider or model set up only elsewhere); null when it can, or
+ *  when the session stamps no model (the strong slot decides). Subscriptions
+ *  pass: their catalogs refresh at the turn, which owns their refusals. */
+export function unavailableSessionModel(settings: ChatSettings | undefined): { provider: string; id: string } | null {
+	const model = settings?.model;
+	if (!model) return null;
+	// A missing key is the key gate's refusal (it opens Keys, not the picker).
+	if (isSubscriptionProvider(model.provider) || !providerKeyPresent(model.provider)) return null;
+	return validateChatSettings({ model }).ok ? null : model;
 }
 
 /** The endpoints section's catalog gate (custom-endpoints wave,

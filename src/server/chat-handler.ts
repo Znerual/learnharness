@@ -39,7 +39,7 @@ import {
 	resolveConversationSpec,
 	resolveRoleSpec,
 } from "../core/settings-resolution.ts";
-import { modelsNotConfigured, providerKeyMissing as providerKeyMissingEnvelope, type ProviderKeyMissing } from "../core/settings.ts";
+import { modelUnavailable, modelsNotConfigured, providerKeyMissing as providerKeyMissingEnvelope, type ProviderKeyMissing } from "../core/settings.ts";
 import { beginTurn, endTurn } from "./turn-liveness.ts";
 import { applyParkedDismissal } from "./dismissal-park.ts";
 import { registerTurn, rememberTurnFailure, unregisterTurn } from "./turn-runs.ts";
@@ -47,7 +47,7 @@ import { persistTurn, triggerExtraction, TurnPersistenceError } from "./turn-ser
 import { hasProbeDone, danglingQuestionOf } from "../core/native-messages.ts";
 import { composeInstructions } from "../agent/teacher-agent.ts";
 import { ensureCompacted, kickCompaction, effectiveThresholdTokens } from "./compaction.ts";
-import { catalogContextLimits, refreshConnectionCatalog } from "./model-catalog.ts";
+import { catalogContextLimits, refreshConnectionCatalog, unavailableSessionModel } from "./model-catalog.ts";
 import { emit } from "../core/events.ts";
 import { settledTurnResponse } from "./turn-runs.ts";
 import { asAgentMessages } from "../core/native-messages.ts";
@@ -215,6 +215,15 @@ export async function handleChatInput(
 	const conversation = resolveConversationSpec(record.settings, effective.models.strong);
 	if (!conversation) {
 		const envelope = modelsNotConfigured(["strong"]);
+		console.info(`[chat ${chatId}] turn refused — ${JSON.stringify(envelope)}`);
+		return Response.json(envelope, { status: 503 });
+	}
+	// THE HANDOFF MODEL GATE (multi-device): model setup is device-local, so
+	// a session stamped on another device may name a model this device
+	// lacks — the learner picks one; nothing switches silently.
+	const missingModel = unavailableSessionModel(record.settings);
+	if (missingModel) {
+		const envelope = modelUnavailable(missingModel.provider, missingModel.id);
 		console.info(`[chat ${chatId}] turn refused — ${JSON.stringify(envelope)}`);
 		return Response.json(envelope, { status: 503 });
 	}

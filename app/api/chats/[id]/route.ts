@@ -1,4 +1,4 @@
-import { compactionInFlight, deleteChatSession, foreignOwner, getChat, isTurnRunning, sessionCoverage, sessionCost, stores, turnFailure, type ChatDeleteMode } from "@/src/server";
+import { compactionInFlight, deleteChatSession, foreignOwner, unavailableSessionModel, getChat, isTurnRunning, sessionCoverage, sessionCost, stores, turnFailure, type ChatDeleteMode } from "@/src/server";
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
 	const { id } = await params;
@@ -28,6 +28,9 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 		ownedElsewhere: foreignOwner(id),
 		// Multi-device: versions a sync tool kept beside this session.
 		conflicts: stores.chatStore.listConflicts(id),
+		// Multi-device: false when the session's own model is not set up on
+		// this device — the view asks the learner to pick one.
+		modelAvailable: unavailableSessionModel(chat.settings) === null,
 	});
 }
 

@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { Chat } from "@/components/chat";
 import { slotsConfigured } from "@/src/core";
-import { compactionInFlight, foreignOwner, getChat, isTurnRunning, readSettingsRecord, stores, turnFailure } from "@/src/server";
+import { compactionInFlight, foreignOwner, getChat, isTurnRunning, readSettingsRecord, stores, turnFailure, unavailableSessionModel } from "@/src/server";
 
 export const dynamic = "force-dynamic";
 
@@ -54,6 +54,8 @@ export default async function ChatPage({
 			// Multi-device: versions a sync tool kept beside this session.
 			initialConflicts={stores.chatStore.listConflicts(chat.id)}
 			initialUpdatedAt={chat.updatedAt}
+			// Multi-device: the session's own model is not set up here.
+			initialModelUnavailable={unavailableSessionModel(chat.settings)}
 		/>
 	);
 }

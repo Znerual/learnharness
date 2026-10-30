@@ -238,6 +238,8 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 				const stored = (await res.json().catch(() => null)) as { settings?: ChatSettings } | null;
 				setSession(stored?.settings ?? next);
 				setOpen(null);
+				// The session view's handoff banner (multi-device) clears on a pick.
+				window.dispatchEvent(new Event("lh:session-model-saved"));
 			} catch {
 				setError("Could not reach the server — try again.");
 			}
@@ -334,6 +336,8 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 				className="flex items-center gap-1.5 rounded-full border bg-card/85 px-2.5 py-1 shadow-lg backdrop-blur transition-colors hover:border-border hover:bg-muted"
 			>
 				<span className="text-card-foreground">{effectiveId ? prettyModel(effectiveId) : "—"}</span>
+				{/* Multi-device: a handed-off session's model this device lacks. */}
+				{catalog && effectiveId && !entry && <span className="text-xs text-muted-foreground">(not on this device)</span>}
 				<span aria-hidden className="text-xs text-muted-foreground">▾</span>
 			</button>
 			</Hint>

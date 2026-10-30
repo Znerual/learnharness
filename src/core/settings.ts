@@ -118,6 +118,27 @@ export function modelsNotConfigured(missing: ModelSlotName[]): ModelsNotConfigur
 	};
 }
 
+/** THE HANDOFF MODEL REFUSAL (multi-device, ADR 0002): model setup is
+ *  device-local, so a session stamped on another device may name a model
+ *  this device lacks. The turn refuses with this 503 envelope and the
+ *  client asks the learner to pick a model — never a silent switch. */
+export const MODEL_UNAVAILABLE_CODE = "model_unavailable" as const;
+export interface ModelUnavailable {
+	/** Human-readable — safe to render as-is. */
+	error: string;
+	code: typeof MODEL_UNAVAILABLE_CODE;
+	provider: string;
+	id: string;
+}
+export function modelUnavailable(provider: string, id: string): ModelUnavailable {
+	return {
+		error: `This session uses ${provider} / ${id}, which is not set up on this device — pick a model for it`,
+		code: MODEL_UNAVAILABLE_CODE,
+		provider,
+		id,
+	};
+}
+
 /** The refusal error text (BYOK, 2026-09-22): job/turn surfaces compose the
  *  record wording around this prefix; UI consumers detect refused work by
  *  it (info tone, not scary-error) — the envelope's home module owns the
