@@ -12,7 +12,9 @@
  * --depth regenerates the ledger WITH inference-depth anchoring (the
  * playground mode baked into the rest state); omit it for the free layout.
  */
-import { graphStore } from "../src/store/graph.ts";
+import { stores } from "../src/server/stores.ts";
+
+const { graphStore } = stores;
 // --depth=vertical|radial: bake the playground depth mode into the ledger.
 const depthArg = process.argv.find((a) => a.startsWith("--depth="));
 const depthMode: "off" | "vertical" | "radial" =

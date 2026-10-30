@@ -10,7 +10,7 @@
 
 import { stores } from "./stores.ts";
 import { deliverJobResult } from "./jobs.ts";
-import { buildAbortSteer } from "../core/contracts.ts";
+import { buildAbortSteer, ownedByOtherDevice } from "../core/contracts.ts";
 
 export interface ForeignOwner {
 	deviceId: string;
@@ -29,7 +29,7 @@ export function foreignOwner(chatId: string): ForeignOwner | null {
 	}
 	const job = stores.jobStore
 		.listJobs(chatId)
-		.find((j) => j.status === "running" && !j.result && j.deviceId !== undefined && j.deviceId !== self);
+		.find((j) => j.status === "running" && !j.result && ownedByOtherDevice(j, self));
 	if (job) {
 		return { deviceId: job.deviceId!, deviceName: job.deviceName ?? "another device", since: job.createdAt, kind: "job" };
 	}
@@ -68,7 +68,7 @@ export function takeOver(chatId: string): { jobsStopped: number } {
 	if (record?.activeTurn && record.activeTurn.deviceId !== device.id) stores.chatStore.setActiveTurn(chatId, null);
 	let jobsStopped = 0;
 	for (const job of stores.jobStore.listJobs(chatId)) {
-		if (job.status !== "running" || job.result || job.deviceId === undefined || job.deviceId === device.id) continue;
+		if (job.status !== "running" || job.result || !ownedByOtherDevice(job, device.id)) continue;
 		const stopped = stores.jobStore.updateJob(job.id, {
 			status: "error",
 			error: `Taken over on ${device.name}`,

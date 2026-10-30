@@ -13,9 +13,8 @@ import * as path from "node:path";
 import { PATHS } from "../../config.ts";
 import { emit } from "../core/events.ts";
 import type { JobStore } from "../core/ports.ts";
-import type { CreateJobInit, JobPatch } from "../core/ports.ts";
+import type { CreateJobInit, DeviceRef, JobPatch } from "../core/ports.ts";
 import type { JobRecord } from "../core/contracts.ts";
-import { deviceStore } from "./device.ts";
 
 /** Background jobs (data/jobs). Not in config.ts PATHS (orchestrator-owned). */
 const JOBS_DIR = path.join(PATHS.data, "jobs");
@@ -29,9 +28,9 @@ function jobFile(id: string): string {
  *  notify-after-write law, beginTurn precedent) — jobs-changed is what
  *  retires the view's interval poll (push S4, 2026-10-02): dispatch cards,
  *  progress lines, settles, and aborts all surface as one fetch. */
-function createJob(init: CreateJobInit): JobRecord {
+function createJob(init: CreateJobInit, owner?: () => DeviceRef): JobRecord {
 	const now = new Date().toISOString();
-	const device = deviceStore.getDevice();
+	const device = owner?.();
 	const record: JobRecord = {
 		id: `job_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 8)}`,
 		kind: init.kind,
@@ -40,8 +39,7 @@ function createJob(init: CreateJobInit): JobRecord {
 		...(init.input !== undefined ? { input: init.input } : {}),
 		status: "running",
 		// The owning device (multi-device): only it re-runs or delivers this job.
-		deviceId: device.id,
-		deviceName: device.name,
+		...(device ? { deviceId: device.id, deviceName: device.name } : {}),
 		activity: init.activity ?? "starting",
 		createdAt: now,
 		updatedAt: now,
@@ -115,11 +113,19 @@ function deleteJobsForChat(chatId: string): number {
 	return removed;
 }
 
-export const jobStore: JobStore = {
-	createJob,
-	getJob,
-	updateJob,
-	listJobs,
-	findJobByToolCallId,
-	deleteJobsForChat,
-};
+/** The job store; `owner` names the device that runs the jobs it creates
+ *  (multi-device: the composition root passes this device). */
+export function createJobStore(owner?: () => DeviceRef): JobStore {
+	return {
+		createJob: (init) => createJob(init, owner),
+		getJob,
+		updateJob,
+		listJobs,
+		findJobByToolCallId,
+		deleteJobsForChat,
+	};
+}
+
+/** An unowned job store — records without a device read as this device's.
+ *  Production wires createJobStore in src/server/stores.ts. */
+export const jobStore: JobStore = createJobStore();

@@ -8,15 +8,15 @@
  * configured. Progress shows in the status chips like any notes import,
  * and GET returns the Sync's own counters.
  */
-import { extraction, obsidianVault, startVaultSync, vaultSyncStatus } from "@/src/server";
+import { extraction, obsidianVault, startVaultSync, vaultSyncStatus, refuseNewerGraph } from "@/src/server";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export const GET = refuseNewerGraph(async function get() {
 	return Response.json({ status: vaultSyncStatus(), vault: obsidianVault() });
-}
+});
 
-export async function POST() {
+export const POST = refuseNewerGraph(async function post() {
 	const vault = obsidianVault();
 	if (!vault) {
 		return Response.json({ error: "No Obsidian vault configured — set one in Settings → Graph" }, { status: 400 });
@@ -24,4 +24,4 @@ export async function POST() {
 	const started = startVaultSync(vault, (input) => extraction.importNotes(input));
 	if (!started) return Response.json({ error: "A vault sync is already running", status: vaultSyncStatus() }, { status: 409 });
 	return Response.json({ status: started.status }, { status: 202 });
-}
+});

@@ -22,7 +22,7 @@ const TMP_DATA = fs.mkdtempSync(path.join(os.tmpdir(), "lh-stamps-"));
 process.env.LH_DATA_DIR = TMP_DATA;
 
 const { chatStore } = await import("../src/store/chats.ts");
-const { graphStore } = await import("../src/store/graph.ts");
+const { graphStore } = (await import("../src/server/stores.ts")).stores;
 const { readRenderSettings, writeRenderSettings } = await import("../src/store/render-settings.ts");
 const { GRAPH_FORMAT_FILE } = await import("../config.ts");
 

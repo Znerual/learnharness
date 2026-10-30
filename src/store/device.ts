@@ -8,14 +8,11 @@
  */
 
 import * as fs from "node:fs";
-import * as path from "node:path";
 import { DEVICE_FILE } from "../../config.ts";
+import { writeFileAtomic } from "./fs-files.ts";
+import type { DeviceRef, DeviceStore } from "../core/ports.ts";
 
-export interface Device {
-	/** "dev_" + 8 lowercase alphanumerics; never changes once created. */
-	id: string;
-	name: string;
-}
+type Device = DeviceRef;
 
 const ID_RE = /^dev_[a-z0-9]{8}$/;
 
@@ -26,10 +23,7 @@ function newId(): string {
 }
 
 function write(device: Device): void {
-	fs.mkdirSync(path.dirname(DEVICE_FILE), { recursive: true });
-	const tmp = `${DEVICE_FILE}.tmp-${crypto.randomUUID().slice(0, 8)}`;
-	fs.writeFileSync(tmp, JSON.stringify(device, null, "\t"), "utf-8");
-	fs.renameSync(tmp, DEVICE_FILE);
+	writeFileAtomic(DEVICE_FILE, JSON.stringify(device, null, "\t"));
 }
 
 function read(): Device | null {
@@ -62,4 +56,4 @@ function renameDevice(name: string): Device {
 	return device;
 }
 
-export const deviceStore = { getDevice, renameDevice };
+export const deviceStore: DeviceStore = { getDevice, renameDevice };

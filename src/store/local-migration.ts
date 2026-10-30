@@ -12,7 +12,7 @@
  */
 
 import * as fs from "node:fs";
-import * as path from "node:path";
+import { moveFile } from "./fs-files.ts";
 import { LEGACY_DEVICE_LOCAL, PATHS, POSITIONS_FILE, RENDER_SETTINGS_FILE, SETTINGS_FILE } from "../../config.ts";
 
 const MOVES: ReadonlyArray<readonly [from: string, to: string]> = [
@@ -25,15 +25,6 @@ const MOVES: ReadonlyArray<readonly [from: string, to: string]> = [
 export function migrateDeviceLocalData(): void {
 	for (const [from, to] of MOVES) {
 		if (!fs.existsSync(from) || fs.existsSync(to)) continue;
-		fs.mkdirSync(path.dirname(to), { recursive: true });
-		try {
-			fs.renameSync(from, to);
-		} catch (err) {
-			// The two folders may sit on different filesystems (Android: shared
-			// storage vs app-private storage) — copy, then remove the source.
-			if ((err as NodeJS.ErrnoException).code !== "EXDEV") throw err;
-			fs.cpSync(from, to, { recursive: true });
-			fs.rmSync(from, { recursive: true, force: true });
-		}
+		moveFile(from, to);
 	}
 }

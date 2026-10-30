@@ -150,14 +150,17 @@ src/
                                 prices, tool-parts — all pure: storage
                                 arrives as parameters
   store/                        fs adapters implementing the ports: chats · graph
-                                ledgers · jobs (+ render-settings, default-settings)
+                                ledgers · jobs · device (+ render-settings, settings)
 electron/                       desktop launcher + security guard (spawns the standalone
                                 server; 1 IPC channel; LH_DATA_DIR + BYOK env)
 scripts/                        build-server.mjs (packaging guards), import-notes,
                                 backfill-graph, replay-layout
-data/                           chats/ · graph/ (nodes/chains/sessions/coverage
-                                ledgers + positions/sources/render-settings maps) ·
-                                jobs/ · settings.json — runtime state, git-ignored
+data/                           the SYNCED data folder: chats/ · graph/ (legacy
+                                ledgers + <ledger>.<deviceId>.jsonl + deletions,
+                                sources.json, format.json) · jobs/ · prompts/
+local/                          device-local (LH_LOCAL_DIR): settings.json ·
+                                positions.json · render-settings.json · debug/ ·
+                                conflicts/ · device.json — both git-ignored
 ```
 
 ## Key mechanisms
@@ -194,6 +197,6 @@ The teaching methodology comes from an Obsidian-based POC (its `knowledge graph 
 
 ## Data
 
-Nothing under `data/` is ever tracked by git. Chats, graph ledgers, jobs, positions, and the settings records are plain files (JSON/JSONL) — inspect them freely; they are the canonical records. The desktop app relocates the whole directory via `LH_DATA_DIR`.
+Nothing under `data/` or `local/` is ever tracked by git. Chats, graph ledgers, jobs, positions, and the settings records are plain files (JSON/JSONL) — inspect them freely; they are the canonical records. The desktop app relocates them via `LH_DATA_DIR` (the synced data folder) and `LH_LOCAL_DIR` (device-local records; see architecture §8.2).
 
-**Schema stamps (2026-10-10):** chat records carry `version` (stamped at the store's write choke point; absence reads as v1 — lazy migration, no mass rewrite), and the graph family (ledgers, sources, render-settings) shares one sidecar `graph/format.json`, created on the family's first write. `positions.json` is deliberately unstamped (rebuildable). A record stamped NEWER than the running build is refused on read — honest refusal for the downgrade scenario: a read-modify-write store never rewrites what it doesn't understand.
+**Schema stamps (2026-10-10):** chat records carry `version` (stamped at the store's write choke point; absence reads as v1 — lazy migration, no mass rewrite), and the graph family (ledgers, sources) shares one sidecar `graph/format.json`, created on the family's first write (v2 since the per-device ledgers). `positions.json` and `render-settings.json` are device-local and unstamped. A record stamped NEWER than the running build is refused on read — honest refusal for the downgrade scenario: a read-modify-write store never rewrites what it doesn't understand.

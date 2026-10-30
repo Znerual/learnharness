@@ -61,6 +61,7 @@ import {
 	buildAbortSteer,
 	buildSubagentSteer,
 	isSubagentFailure,
+	ownedByOtherDevice,
 	steerDelivered,
 	type JobRecord,
 	type SteerMessage,
@@ -743,7 +744,7 @@ export function recoverStaleJobs(): void {
 				if (isJobLive(job.id)) continue; // never re-run beside live computation
 				// Another device's job (multi-device): only its owning device
 				// re-runs or delivers it — a takeover makes it this device's.
-				if (job.deviceId !== undefined && job.deviceId !== self) continue;
+				if (ownedByOtherDevice(job, self)) continue;
 				if (!stores.chatStore.getChat(job.chatId)) continue;
 				if (isTurnRunning(job.chatId)) continue;
 				const recovered = normalizeLegacyResult(job);

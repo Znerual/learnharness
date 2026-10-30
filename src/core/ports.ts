@@ -134,6 +134,46 @@ export interface GraphStore {
 	readDeletions(): GraphDeletion[];
 }
 
+/** The raw lines of every graph ledger (multi-device, ADR 0003): the
+ *  legacy shared base and every device's file, in read order. Nothing
+ *  derived — core/graph-ledgers.ts builds the effective GraphStore view. */
+export interface GraphLedgerLines {
+	/** Node lines kept apart by origin: in the legacy base file order
+	 *  decides which line defines a node; in device files the `link` marker
+	 *  does. */
+	nodes: { legacy: GraphNode[]; devices: GraphNode[] };
+	chains: GraphChain[];
+	coverage: CoverageEntry[];
+	checkpoints: SessionCheckpoint[];
+	deletions: GraphDeletion[];
+}
+
+/** The fs adapter beneath the GraphStore (src/store/graph.ts): appends go to
+ *  this device's own files, reads return raw lines. The composition root
+ *  wraps it with core/graph-ledgers.ts effectiveGraphStore. */
+export type GraphLedgerStore = Omit<GraphStore, "readNodes" | "readChains" | "readCheckpoints" | "readCoverage" | "readDeletions"> & {
+	readLines(): GraphLedgerLines;
+	/** Changes whenever any ledger file changes — the derived view's cache key. */
+	revision(): string;
+};
+
+// ─── DeviceStore — this installation's identity (local/device.json) ─────────
+
+/** A device as other devices see it (multi-device, GLOSSARY "Device"). */
+export interface DeviceRef {
+	/** "dev_" + 8 lowercase alphanumerics; never changes once created. */
+	id: string;
+	/** Learner-editable; what "running on …" shows. */
+	name: string;
+}
+
+export interface DeviceStore {
+	/** This device — created on first call. */
+	getDevice(): DeviceRef;
+	/** Rename this device; an empty name is refused. */
+	renameDevice(name: string): DeviceRef;
+}
+
 // ─── JobStore — background sub-agent jobs (data/jobs) ─────────────────────────
 
 export interface CreateJobInit {

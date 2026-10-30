@@ -15,6 +15,12 @@ import { newHandoffMessage } from "../native-messages.ts";
 export type JobKind = "research" | "demo" | "visual" | "pdf";
 export type JobStatus = "running" | "done" | "error";
 
+/** Another device runs this job (multi-device, GLOSSARY "Owning device").
+ *  A record without a device predates multi-device and reads as this one's. */
+export function ownedByOtherDevice(job: Pick<JobRecord, "deviceId">, selfId: string): boolean {
+	return job.deviceId !== undefined && job.deviceId !== selfId;
+}
+
 export interface JobRecord {
 	id: string;
 	kind: JobKind;

@@ -61,10 +61,11 @@ import { steerDelivered } from "../core/contracts.ts";
 import type {CallUsage} from "../core/contracts.ts";
 import { claimTurn, foreignOwner, ownedElsewhereResponse, releaseTurn } from "./ownership.ts";
 
-/** Clear this device's turn marker beside endTurn — a failed write must
- *  never break the settle (the marker is then this device's own leftover,
- *  which this device ignores). */
-function safeReleaseTurn(chatId: string): void {
+/** endTurn plus clearing this device's turn marker (multi-device) — every
+ *  settle path goes through here. A failed marker write never breaks the
+ *  settle: the marker is then this device's own leftover, which it ignores. */
+function finishTurn(chatId: string): void {
+	endTurn(chatId);
 	try {
 		releaseTurn(chatId);
 	} catch (err) {
@@ -355,8 +356,7 @@ export async function handleChatInput(
 		if (!stagedAutomatic) stores.chatStore.saveMessages(chatId, merged);
 	} catch (err) {
 		console.error(`[chat ${chatId}] write-ahead persist failed:`, err);
-		endTurn(chatId);
-		safeReleaseTurn(chatId);
+		finishTurn(chatId);
 		return new Response("Your input could not be saved. Please try again.", { status: 500 });
 	}
 	// Visibility bookkeeping is not the canonical save. Its failure must
@@ -550,8 +550,7 @@ export async function handleChatInput(
 				// POST only acknowledges acceptance; the submitter may attach
 				// after this turn has already failed and left the registry.
 				rememberTurnFailure(chatId, reportedErrorText ?? settlementErrorText(error));
-				endTurn(chatId);
-				safeReleaseTurn(chatId);
+				finishTurn(chatId);
 				unregisterTurn(chatId);
 				unregisterLiveAgent(chatId);
 				// The canonical save may have succeeded before later bookkeeping
@@ -599,8 +598,7 @@ export async function handleChatInput(
 				applyParkedDismissal(stores.chatStore, chatId);
 				// LAST: a poller that sees not-in-flight must read an already-persisted
 				// record — endTurn only after persistTurn has done its job.
-				endTurn(chatId);
-				safeReleaseTurn(chatId);
+				finishTurn(chatId);
 				// And only then does the turn stop being a running object
 				// (background-turn wave, 2026-09-25): a reattach that finds
 				// nothing must find the persisted record current — the same
@@ -671,8 +669,7 @@ export async function handleChatInput(
 	} catch (err) {
 		// The stream never started, so no onFinish will fire — clear the registry
 		// or a malformed request would lock the chat until the TTL eviction.
-		endTurn(chatId);
-		safeReleaseTurn(chatId);
+		finishTurn(chatId);
 		// Wave C: the live-agent registration (if it happened) dies with the
 		// turn here too - nothing was handed (the loop never ticked).
 		unregisterLiveAgent(chatId);

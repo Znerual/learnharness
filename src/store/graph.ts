@@ -25,16 +25,16 @@
  * like a chat file. The format-agnostic front door (2026-09-13).
  *
  * MULTI-DEVICE (ADR 0003): every ledger exists once per device —
- * nodes.<deviceId>.jsonl, chains.<deviceId>.jsonl, … — and a device only
- * ever appends to its OWN files, so files that sync between devices never
- * conflict. The pre-split files at config.LEDGER_FILES stay as a read-only
- * shared base. Reads return the EFFECTIVE lines: the legacy base, then
- * every device's file (by name), each node's defining line first (link
- * lines carry `link: true`), with every device's deletion records
- * (deletions.<deviceId>.jsonl) applied and redundant chains simplified
- * away — so every consumer sees the same graph on every device.
+ * nodes.<deviceId>.jsonl, chains.<deviceId>.jsonl, deletions.<deviceId>.jsonl
+ * — and a device only ever appends to its OWN files, so files that sync
+ * between devices never conflict. The pre-split files at
+ * config.LEDGER_FILES stay as a read-only shared base. This adapter only
+ * moves lines: reads return the raw lines of the legacy base and every
+ * device's file (by name). The EFFECTIVE graph — defining line first,
+ * deletion records applied, chains simplified — is derived in core
+ * (core/graph-ledgers.ts), which the composition root wraps around this.
  *
- * Implements core/ports.ts GraphStore. data/graph/* is exclusively this
+ * Implements core/ports.ts GraphLedgerStore. data/graph/* is exclusively this
  * adapter's. Reads are strict against the contracts.ts shapes (the 2026-09-02
  * graph redesign): corrupt lines are skipped, never guessed at — the ledgers
  * are the source of truth and everything else is derived (core/graph.ts,
@@ -44,11 +44,8 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { LEDGER_FILES, PATHS, POSITIONS_FILE, SOURCES_FILE } from "../../config.ts";
+import { GRAPH_FORMAT_FILE, LEDGER_FILES, PATHS, POSITIONS_FILE, SOURCES_FILE } from "../../config.ts";
 import { assertGraphFormat, ensureGraphFormat } from "./graph-format.ts";
-import { applyDeletions } from "../core/graph-deletion.ts";
-import { simplifyChains } from "../core/graph.ts";
-import { deviceStore } from "./device.ts";
 import type {
 	GraphChain,
 	GraphDeletion,
@@ -60,7 +57,7 @@ import type {
 	CoverageEntry,
 	SessionCheckpoint,
 } from "../core/contracts.ts";
-import type { GraphStore } from "../core/ports.ts";
+import type { GraphLedgerStore } from "../core/ports.ts";
 
 // ─── JSONL primitives ────────────────────────────────────────────────────────
 
@@ -139,7 +136,8 @@ const isDeletion = (v: unknown): v is GraphDeletion =>
 	isRecord(v) &&
 	isString(v.at) &&
 	((v.type === "session" && isString(v.chatId) && (v.mode === "preserve-graph" || v.mode === "delete-nodes")) ||
-		((v.type === "node" || v.type === "chain") && isString(v.id)));
+		(v.type === "node" && isString(v.id)) ||
+		(v.type === "chain" && isString(v.id) && Array.isArray(v.premises) && v.premises.every(isString) && isString(v.conclusion)));
 
 // ─── per-device ledger files ────────────────────────────────────────────────
 
@@ -171,121 +169,56 @@ export function ledgerFiles(): string[] {
 	return [...Object.values(LEDGER_FILES), ...kinds.flatMap(deviceFiles)];
 }
 
-/** One ledger across the legacy base and every device, in read order. */
-function readAll<T>(legacy: string | null, kind: LedgerKind, isValid: (v: unknown) => v is T): T[] {
+/** One ledger across every device's file, in read order. */
+function readDevices<T>(kind: LedgerKind, isValid: (v: unknown) => v is T): T[] {
 	assertGraphFormat(); // honest refusal on a newer-stamped data dir
-	const files = [...(legacy ? [legacy] : []), ...deviceFiles(kind)];
-	return files.flatMap((file) => readRawLines(file).filter(isValid));
+	return deviceFiles(kind).flatMap((file) => readRawLines(file).filter(isValid));
 }
 
-/**
- * Node lines in DEFINING order: each node's create line before its link
- * lines, whichever file holds which (the legacy base keeps file order: its
- * first line per id defines). A link line whose node has no create line
- * left is dropped. The marker is stripped — consumers see plain GraphNodes.
- */
-function orderNodeLines(legacy: GraphNode[], devices: GraphNode[]): GraphNode[] {
-	const defined = new Set<string>();
-	for (const line of legacy) defined.add(line.id);
-	for (const line of devices) if (!line.link) defined.add(line.id);
-	const out: GraphNode[] = [];
-	const emitted = new Set<string>();
-	const waiting = new Map<string, GraphNode[]>();
-	const emit = (line: GraphNode) => {
-		const { link: _marker, ...plain } = line;
-		out.push(plain);
-	};
-	for (const line of legacy) {
-		emit(line);
-		emitted.add(line.id);
-	}
-	for (const line of devices) {
-		if (!line.link) {
-			if (emitted.has(line.id)) continue; // a second create line for one id: the first stands
-			emit(line);
-			emitted.add(line.id);
-			for (const held of waiting.get(line.id) ?? []) emit(held);
-			waiting.delete(line.id);
-		} else if (emitted.has(line.id)) emit(line);
-		else if (defined.has(line.id)) waiting.set(line.id, [...(waiting.get(line.id) ?? []), line]);
-		// else: an orphaned link line (its node is gone) — dropped
-	}
-	return out;
+/** One legacy-base ledger file. */
+function readLegacy<T>(file: string, isValid: (v: unknown) => v is T): T[] {
+	assertGraphFormat(); // honest refusal on a newer-stamped data dir
+	return readRawLines(file).filter(isValid);
 }
 
 // ─── the port implementation ────────────────────────────────────────────────
 
 /**
- * The fs GraphStore for one device. `deviceId` is read per write, so the
- * production store follows local/device.json; tests make two devices share
+ * The fs ledger store for one device. `deviceId` is read per write, so the
+ * composition root follows local/device.json; tests make two devices share
  * one data folder.
  */
-export function createGraphStore(deviceId: () => string): GraphStore {
+export function createGraphLedgerStore(deviceId: () => string): GraphLedgerStore {
 	const append = (kind: LedgerKind, record: unknown) => appendLine(deviceFile(kind, deviceId()), record);
-
-	/** The four ledgers with every device's deletion records applied. */
-	const effective = () => {
-		assertGraphFormat(); // honest refusal on a newer-stamped data dir
-		const nodes = orderNodeLines(
-			readRawLines(LEDGER_FILES.nodes).filter(isGraphNode),
-			deviceFiles("nodes").flatMap((file) => readRawLines(file).filter(isGraphNode)),
-		);
-		return applyDeletions(
-			{
-				nodes,
-				chains: readAll(LEDGER_FILES.chains, "chains", isGraphChain),
-				coverage: readAll(LEDGER_FILES.coverage, "coverage", isCoverageEntry),
-				checkpoints: readAll(LEDGER_FILES.sessions, "sessions", isCheckpoint),
-			},
-			readAll(null, "deletions", isDeletion),
-		);
-	};
-
 	return {
 		/** Appends to THIS device's ledger. A line re-encountering an existing
 		 *  node must carry `link: true` (the merger sets it). */
-		appendNode(node: GraphNode): void {
-			append("nodes", node);
-		},
-		/** Effective node lines, defining line first per id. A node id may
-		 *  appear on more than one line (a later session's LINK-append:
-		 *  phrasings + provenance); the derivation (core/graph.ts getGraph)
-		 *  merges lines by id. */
-		readNodes(): GraphNode[] {
-			return effective().nodes;
-		},
+		appendNode: (node) => append("nodes", node),
+		appendChain: (assertion) => append("chains", assertion),
+		appendCheckpoint: (checkpoint) => append("sessions", checkpoint),
+		appendCoverage: (entry) => append("coverage", entry),
+		appendDeletion: (record) => append("deletions", record),
 
-		/** Append one chain ASSERTION; readers merge lines by (premises,
-		 *  conclusion). */
-		appendChain(assertion: GraphChain): void {
-			append("chains", assertion);
-		},
-		/** Effective chain lines, redundant derivations simplified away on
-		 *  read (core/graph.ts simplifyChains) — they stay on disk. */
-		readChains(): GraphChain[] {
-			return simplifyChains(effective().chains);
-		},
-
-		appendCheckpoint(checkpoint: SessionCheckpoint): void {
-			append("sessions", checkpoint);
-		},
-		readCheckpoints(): SessionCheckpoint[] {
-			return effective().checkpoints;
-		},
-
-		appendCoverage(entry: CoverageEntry): void {
-			append("coverage", entry);
-		},
-		readCoverage(): CoverageEntry[] {
-			return effective().coverage;
-		},
-
-		appendDeletion(record: GraphDeletion): void {
-			append("deletions", record);
-		},
-		readDeletions(): GraphDeletion[] {
-			return readAll(null, "deletions", isDeletion);
-		},
+		readLines: () => ({
+			nodes: { legacy: readLegacy(LEDGER_FILES.nodes, isGraphNode), devices: readDevices("nodes", isGraphNode) },
+			chains: [...readLegacy(LEDGER_FILES.chains, isGraphChain), ...readDevices("chains", isGraphChain)],
+			coverage: [...readLegacy(LEDGER_FILES.coverage, isCoverageEntry), ...readDevices("coverage", isCoverageEntry)],
+			checkpoints: [...readLegacy(LEDGER_FILES.sessions, isCheckpoint), ...readDevices("sessions", isCheckpoint)],
+			deletions: readDevices("deletions", isDeletion),
+		}),
+		/** Changes whenever any ledger file or the format stamp changes —
+		 *  the derived view's cache key (core/graph-ledgers.ts). */
+		revision: () =>
+			[...ledgerFiles(), GRAPH_FORMAT_FILE]
+				.map((file) => {
+					try {
+						const st = fs.statSync(file);
+						return `${file}:${st.mtimeMs}:${st.size}`;
+					} catch {
+						return `${file}:-`;
+					}
+				})
+				.join("|"),
 
 		// ── imported-notes bookkeeping (config.SOURCES_FILE — a JSON map) ──
 
@@ -320,9 +253,6 @@ export function createGraphStore(deviceId: () => string): GraphStore {
 	};
 }
 
-/** The production store: this device's identity from local/device.json. */
-export const graphStore: GraphStore = createGraphStore(() => deviceStore.getDevice().id);
-
 /** positions.json — { positions, updatedAt }. Read-modify-write, NOT
  *  append-only: the settle is a full-graph computation, so it replaces the
  *  whole map. The updatedAt stamp exists for future live-physics conflict
@@ -350,9 +280,8 @@ function readPositionMap(): Record<string, Position> {
 
 function writePositionMap(positions: Record<string, Position>): void {
 	fs.mkdirSync(path.dirname(POSITIONS_FILE), { recursive: true });
-	// Tmp + rename — the same crash-safety rewriteLedgers uses two blocks
-	// up (a9339b3 UI flag): a torn write must never replace the ledger
-	// with a half-written file the reader parses as empty.
+	// Tmp + rename (a9339b3 UI flag): a torn write must never replace the
+	// ledger with a half-written file the reader parses as empty.
 	const tmp = `${POSITIONS_FILE}.tmp-${crypto.randomUUID().slice(0, 8)}`;
 	try {
 		fs.writeFileSync(tmp, JSON.stringify({ positions, updatedAt: new Date().toISOString() }, null, "\t"), "utf-8");

@@ -42,7 +42,7 @@ fs.cpSync(GOLDEN_LOCAL, TMP_LOCAL, { recursive: true });
 process.env.LH_LOCAL_DIR = TMP_LOCAL;
 
 const { chatStore } = await import("../src/store/chats.ts");
-const { graphStore } = await import("../src/store/graph.ts");
+const { graphStore } = (await import("../src/server/stores.ts")).stores;
 const { jobStore } = await import("../src/store/jobs.ts");
 const { settingsStore } = await import("../src/store/settings.ts");
 const { readRenderSettings } = await import("../src/store/render-settings.ts");

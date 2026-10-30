@@ -8,8 +8,8 @@
  */
 
 import fs from "node:fs";
-import path from "node:path";
 import { PROMPT_SWITCHES_FILE } from "../../config.ts";
+import { writeFileAtomic } from "./fs-files.ts";
 
 export function readPromptSwitches(): Record<string, boolean> | null {
 	let parsed: unknown;
@@ -25,8 +25,5 @@ export function readPromptSwitches(): Record<string, boolean> | null {
 }
 
 export function writePromptSwitches(switches: Record<string, boolean>): void {
-	fs.mkdirSync(path.dirname(PROMPT_SWITCHES_FILE), { recursive: true });
-	const tmp = `${PROMPT_SWITCHES_FILE}.tmp-${crypto.randomUUID().slice(0, 8)}`;
-	fs.writeFileSync(tmp, JSON.stringify(switches, null, "\t"), "utf-8");
-	fs.renameSync(tmp, PROMPT_SWITCHES_FILE);
+	writeFileAtomic(PROMPT_SWITCHES_FILE, JSON.stringify(switches, null, "\t"));
 }

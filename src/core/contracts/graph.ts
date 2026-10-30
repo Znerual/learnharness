@@ -134,11 +134,14 @@ export const CURRENT_GRAPH_FORMAT_VERSION = 2;
  *  a RECORD every device applies on read, never an edit of a ledger —
  *  devices only ever write their own files. A session deletion covers the
  *  lines written up to `at` (a session continued on another device after
- *  the deletion contributes again); node and chain deletions are permanent. */
+ *  the deletion contributes again); node and chain deletions are permanent.
+ *  A chain deletion names the argument's premises and conclusion too: it
+ *  removes every assertion of that argument, whichever device minted which
+ *  arg_ id for it (owner Q50). */
 export type GraphDeletion =
 	| { type: "session"; chatId: string; mode: "preserve-graph" | "delete-nodes"; at: string }
 	| { type: "node"; id: string; at: string }
-	| { type: "chain"; id: string; at: string };
+	| { type: "chain"; id: string; premises: string[]; conclusion: string; at: string };
 
 
 export interface GraphNode {

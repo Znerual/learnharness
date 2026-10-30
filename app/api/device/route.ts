@@ -7,12 +7,12 @@
  *   PUT {name} → 200 {device} | 400 {error} for a missing or empty name
  */
 
-import { deviceStore } from "@/src/server";
+import { stores } from "@/src/server";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-	return Response.json({ device: deviceStore.getDevice() });
+	return Response.json({ device: stores.deviceStore.getDevice() });
 }
 
 export async function PUT(request: Request) {
@@ -20,5 +20,5 @@ export async function PUT(request: Request) {
 	if (typeof body?.name !== "string" || !body.name.trim()) {
 		return Response.json({ error: "Device name must be a non-empty string" }, { status: 400 });
 	}
-	return Response.json({ device: deviceStore.renameDevice(body.name) });
+	return Response.json({ device: stores.deviceStore.renameDevice(body.name) });
 }

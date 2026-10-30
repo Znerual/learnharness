@@ -1,4 +1,4 @@
-import { graphView, GraphFormatNewerError } from "@/src/server";
+import { graphView, refuseNewerGraph } from "@/src/server";
 
 /**
  * The home graph view's data endpoint (W4; vision §1 "Home page") — thin
@@ -12,13 +12,6 @@ import { graphView, GraphFormatNewerError } from "@/src/server";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
-	try {
-		return Response.json(graphView());
-	} catch (err) {
-		if (err instanceof GraphFormatNewerError) {
-			return Response.json({ error: "Your knowledge graph was saved by a newer LearnHarness. Update this app to see it.", code: err.code }, { status: 409 });
-		}
-		throw err;
-	}
-}
+export const GET = refuseNewerGraph(async function get() {
+	return Response.json(graphView());
+});

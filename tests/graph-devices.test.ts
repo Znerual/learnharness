@@ -17,7 +17,9 @@ const DIR = fs.mkdtempSync(path.join(os.tmpdir(), "lh-graph-devices-"));
 process.env.LH_DATA_DIR = path.join(DIR, "data");
 process.env.LH_LOCAL_DIR = path.join(DIR, "local");
 
-const { createGraphStore } = await import("../src/store/graph.ts");
+const { createGraphLedgerStore } = await import("../src/store/graph.ts");
+const { effectiveGraphStore } = await import("../src/core/graph-ledgers.ts");
+const createGraphStore = (deviceId: () => string) => effectiveGraphStore(createGraphLedgerStore(deviceId));
 const { chatStore } = await import("../src/store/chats.ts");
 const { getGraph, mergeFindings } = await import("../src/core/graph.ts");
 const { deleteChatTraces, deleteNodeTraces } = await import("../src/core/graph-deletion.ts");
@@ -116,13 +118,12 @@ describe("deletion records", () => {
 
 		const stats = deleteChatTraces(b, chat, "delete-nodes");
 		assert.equal(stats.nodesRemoved, 1);
-		assert.equal(stats.coverageRemoved, 1);
 		assert.deepEqual(fs.readFileSync(file(`nodes.${A}.jsonl`)), nodesBefore, "A's file is untouched");
 		const [record] = lines(`deletions.${B}.jsonl`).map((l) => JSON.parse(l));
 		assert.deepEqual({ ...record, at: "" }, { type: "session", chatId: chat, mode: "delete-nodes", at: "" });
 		for (const store of [a, b]) {
 			assert.equal(getGraph(store).nodes.length, 0);
-			assert.equal(store.readCoverage().length, 0);
+			assert.equal(store.readCoverage().length, 1, "the coverage stays: a returning session does not re-extract (owner Q48)");
 		}
 	});
 
@@ -151,6 +152,22 @@ describe("deletion records", () => {
 			assert.equal(graph.chains.length, 0);
 		}
 		void depsB;
+	});
+});
+
+describe("argument deletion across devices", () => {
+	it("deleting an argument removes its twin that another device asserted under a different id (owner Q50)", () => {
+		const { a, b } = freshFolder();
+		const node = (id: string): GraphNode => ({ id, name: id, statement: `statement ${id}`, aliases: [], createdAt: "2026-09-30T00:00:00.000Z", provenance: [{ chatId: "chat_t", messageId: "" }] });
+		for (const id of ["n_p", "n_q"]) a.appendNode(node(id));
+		a.appendChain({ id: "arg_on_a", premises: ["n_p"], conclusion: "n_q", createdAt: "2026-09-30T01:00:00.000Z", provenance: [{ chatId: "chat_t", messageId: "" }] });
+		b.appendChain({ id: "arg_on_b", premises: ["n_p"], conclusion: "n_q", createdAt: "2026-09-30T02:00:00.000Z", provenance: [{ chatId: "chat_u", messageId: "" }] });
+		assert.equal(getGraph(a).chains.length, 1, "the view merges the twins into one argument");
+
+		assert.deepEqual(deleteNodeTraces(a, getGraph(a).chains[0]!.id), { chainsRemoved: 2 });
+		const [record] = lines(`deletions.${A}.jsonl`).map((l) => JSON.parse(l));
+		assert.deepEqual({ ...record, at: "" }, { type: "chain", id: "arg_on_a", premises: ["n_p"], conclusion: "n_q", at: "" });
+		for (const store of [a, b]) assert.equal(getGraph(store).chains.length, 0);
 	});
 });
 

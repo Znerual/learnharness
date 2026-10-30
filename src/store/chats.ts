@@ -10,6 +10,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { CONFLICTS_DIR, PATHS } from "../../config.ts";
+import { moveFile } from "./fs-files.ts";
 import { emit } from "../core/events.ts";
 import type { ChatStore } from "../core/ports.ts";
 import type { ActiveTurn, ChatConflict, ChatRecord, ChatSettings, ChatSummary, ExtractionRunUsage, PlanTree, TurnUsage } from "../core/contracts.ts";
@@ -223,6 +224,12 @@ function renameChat(id: string, title: string): ChatRecord {
 function deleteChat(id: string): boolean {
 	try {
 		fs.unlinkSync(chatFile(id));
+		// Its conflict copies go with it — set aside, never deleted (owner Q53).
+		try {
+			for (const copy of listConflicts(id)) setAside(path.join(PATHS.chats, copy.file), copy.file);
+		} catch (err) {
+			console.error(`[chat ${id}] could not set its conflict copies aside:`, err);
+		}
 		emit("chats-changed", {}); // only a real removal — the present-entry law
 		return true;
 	} catch {
@@ -270,15 +277,7 @@ function listConflicts(id: string): ChatConflict[] {
 
 /** Move a file into the device-local conflicts folder (never deleted). */
 function setAside(from: string, name: string): void {
-	fs.mkdirSync(CONFLICTS_DIR, { recursive: true });
-	const to = path.join(CONFLICTS_DIR, name);
-	try {
-		fs.renameSync(from, to);
-	} catch (err) {
-		if ((err as NodeJS.ErrnoException).code !== "EXDEV") throw err;
-		fs.copyFileSync(from, to);
-		fs.unlinkSync(from);
-	}
+	moveFile(from, path.join(CONFLICTS_DIR, name));
 }
 
 /**

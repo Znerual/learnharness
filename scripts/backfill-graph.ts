@@ -6,10 +6,11 @@
  *   npx tsx --env-file=.env.local scripts/backfill-graph.ts
  */
 import { chatStore } from "../src/store/chats.ts";
-import { graphStore } from "../src/store/graph.ts";
 import { createExtractionPipeline } from "../src/agent/subagents/extraction.ts";
 import { getGraph } from "../src/core/graph.ts";
-import { effectiveSettings } from "../src/server/stores.ts";
+import { effectiveSettings, stores } from "../src/server/stores.ts";
+
+const { graphStore } = stores;
 
 async function main() {
 	const only = process.argv[2]; // optional: extract just one chat id

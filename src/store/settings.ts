@@ -57,13 +57,17 @@ export function writeSettings(raw: unknown): UserSettings {
 }
 
 /** One-time split (multi-device, ADR 0002): a record that still carries
- *  agent.prompts hands them to prompts/switches.json — unless that file
- *  already exists (another device's switches won the sync) — and drops them. */
+ *  agent.prompts hands them to prompts/switches.json and drops them. When
+ *  another device's switches already arrived, the two merge — a switch on
+ *  in either stays on (owner Q52), so no choice is lost. */
 export function migratePromptSwitches(): void {
 	const record = readStoredSettings();
 	const prompts = record?.agent?.prompts;
 	if (!record || !prompts) return;
-	if (!readPromptSwitches()) writePromptSwitches(prompts);
+	const synced = readPromptSwitches() ?? {};
+	const merged = { ...synced };
+	for (const [segment, on] of Object.entries(prompts)) merged[segment] = (synced[segment] ?? false) || on;
+	writePromptSwitches(merged);
 	writeStoredSettings(record);
 }
 

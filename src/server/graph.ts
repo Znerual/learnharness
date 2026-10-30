@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import { POSITIONS_FILE } from "../../config.ts";
 import { ledgerFiles } from "../store/graph.ts";
+import { GraphFormatNewerError } from "../store/graph-format.ts";
 import type { GraphSnapshot } from "../core/contracts.ts";
 import type { GraphCostSummary } from "../core/cost-summary.ts";
 import { graphCostSummary } from "../core/cost-summary.ts";
@@ -116,3 +117,22 @@ export function deleteGraphNode(nodeId: string): NodeDeleteOutcome {
 	return { ok: true, stats, graphRevision: graphRevision() };
 }
 
+
+/** Graph routes answer a graph saved by a NEWER app (multi-device: devices
+ *  update at different times) with 409 {error, code: "graph_format_newer"},
+ *  never an uncoded 500. Wraps one route handler. */
+export function refuseNewerGraph<A extends unknown[]>(handler: (...args: A) => Promise<Response> | Response) {
+	return async (...args: A): Promise<Response> => {
+		try {
+			return await handler(...args);
+		} catch (err) {
+			if (err instanceof GraphFormatNewerError) {
+				return Response.json(
+					{ error: "Your knowledge graph was saved by a newer LearnHarness. Update this app to see it.", code: err.code },
+					{ status: 409 },
+				);
+			}
+			throw err;
+		}
+	};
+}

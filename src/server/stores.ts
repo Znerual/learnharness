@@ -7,8 +7,9 @@
  */
 
 import { chatStore } from "../store/chats.ts";
-import { graphStore } from "../store/graph.ts";
-import { jobStore } from "../store/jobs.ts";
+import { createGraphLedgerStore } from "../store/graph.ts";
+import { effectiveGraphStore } from "../core/graph-ledgers.ts";
+import { createJobStore } from "../store/jobs.ts";
 import { migratePromptSwitches, settingsStore } from "../store/settings.ts";
 import { resolveSettings, type EffectiveSettings } from "../core/settings-resolution.ts";
 import { setCustomEndpointSource } from "../agent/models.ts";
@@ -20,11 +21,13 @@ import { deviceStore } from "../store/device.ts";
 migrateDeviceLocalData();
 migratePromptSwitches();
 
-/** The wired adapters. Satisfies core/graph.ts's GraphDeps structurally. */
+/** The wired adapters. Satisfies core/graph.ts's GraphDeps structurally.
+ *  The graph store is this device's raw ledger adapter behind the derived
+ *  effective view (multi-device, ADR 0003). */
 export const stores = {
 	chatStore,
-	graphStore,
-	jobStore,
+	graphStore: effectiveGraphStore(createGraphLedgerStore(() => deviceStore.getDevice().id)),
+	jobStore: createJobStore(() => deviceStore.getDevice()),
 	settingsStore,
 	deviceStore,
 };

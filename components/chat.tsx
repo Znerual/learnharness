@@ -168,7 +168,7 @@ export function parseProviderKeyRefusal(message: string | undefined): boolean {
 
 /** The handoff model refusal's transport seam (multi-device): the 503
  *  model_unavailable body rides the thrown error message verbatim, like the
- *  two refusals above. Exported pure for tests. */
+ *  two refusals above. */
 export function parseModelUnavailable(message: string | undefined): { provider: string; id: string } | null {
 	if (!message) return null;
 	try {
@@ -176,6 +176,18 @@ export function parseModelUnavailable(message: string | undefined): { provider: 
 		return body.code === "model_unavailable" && typeof body.provider === "string" && typeof body.id === "string"
 			? { provider: body.provider, id: body.id }
 			: null;
+	} catch {
+		return null;
+	}
+}
+
+/** The owning-device refusal's transport seam (multi-device): another
+ *  device started a turn or job here after this view loaded. */
+export function parseOwnedElsewhere(message: string | undefined): OwnedElsewhere | null {
+	if (!message) return null;
+	try {
+		const body = JSON.parse(message) as { code?: unknown; owner?: OwnedElsewhere };
+		return body.code === "owned_elsewhere" && typeof body.owner?.deviceName === "string" ? body.owner : null;
 	} catch {
 		return null;
 	}
@@ -615,6 +627,14 @@ export function Chat({
 	/** The session's own model is not set up on this device (multi-device
 	 *  handoff): a banner asks the learner to pick one; a pick clears it. */
 	const [modelMissing, setModelMissing] = useState<{ provider: string; id: string } | null>(initialModelUnavailable);
+	// The banner alone is easy to miss: open the picker once on load too
+	// (after the stats bar's ModelControl has mounted its listener).
+	useEffect(() => {
+		if (!initialModelUnavailable) return;
+		const timer = setTimeout(() => window.dispatchEvent(new Event("lh:kbd-open-model-picker")), 0);
+		return () => clearTimeout(timer);
+		// mount-only by design: the initial availability, read once
+	}, []);
 	useEffect(() => {
 		const onSaved = () => setModelMissing(null);
 		window.addEventListener("lh:session-model-saved", onSaved);
@@ -647,7 +667,10 @@ export function Chat({
 		// up on this device — same revert-draft flow, but the learner picks a
 		// model for this session instead of setting up slots.
 		const modelGone = parseModelUnavailable(error.message);
-		if (!missing && !keyRefused && !modelGone) return; // a real error keeps the honest banner
+		// Another device took the session after this view loaded: the
+		// composer gives way to the read-only banner, the draft comes back.
+		const owner = parseOwnedElsewhere(error.message);
+		if (!missing && !keyRefused && !modelGone && !owner) return; // a real error keeps the honest banner
 		// ORDER MATTERS: clearError() flips this effect's own dep (`error`)
 		// and would cancel the in-flight work below — so the banner dismiss,
 		// the draft restore, and the dialog open all land TOGETHER after the
@@ -665,7 +688,8 @@ export function Chat({
 				draftRef.current = null;
 			}
 			clearError();
-			if (modelGone) {
+			if (owner) setOwnedElsewhere(owner);
+			else if (modelGone) {
 				setModelMissing(modelGone);
 				window.dispatchEvent(new Event("lh:kbd-open-model-picker"));
 			} else setSetupOpen(true);

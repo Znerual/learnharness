@@ -88,7 +88,7 @@ function newGraphChainId(): string {
 
 /** A chain's merge key: sorted premises + conclusion — the identity an
  *  assertion re-stating the same argument merges under. */
-function chainKey(premises: ReadonlyArray<string>, conclusion: string): string {
+export function chainKey(premises: ReadonlyArray<string>, conclusion: string): string {
 	return `${[...premises].sort().join("+")}>${conclusion}`;
 }
 

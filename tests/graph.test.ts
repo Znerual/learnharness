@@ -25,11 +25,12 @@ import type { LhMessage } from "../src/core/native-messages.ts";
 import { projectView as projectNative } from "../src/core/view.ts";
 import { deriveView, getGraph, graphSnapshot, mergeFindings, type GraphDeps } from "../src/core/graph.ts";
 import { coverageSlots } from "../src/core/coverage.ts";
-import { graphStore } from "../src/store/graph.ts";
+import { stores } from "../src/server/stores.ts";
 import { chatStore } from "../src/store/chats.ts";
 import { LEDGER_FILES, PATHS, SOURCES_FILE } from "../config.ts";
 
 /** The wired fs adapters, exactly what src/server/stores.ts passes in production. */
+const { graphStore } = stores;
 const graphDeps = { chatStore, graphStore } as const satisfies GraphDeps;
 
 /** The session merge source for a chat — what the pipeline passes: the
@@ -734,9 +735,10 @@ describe("session deletion (deleteChatTraces + deleteChatSession, wave 6)", () =
 		assert.deepEqual(stats, {
 			nodesRemoved: 1,
 			chainsRemoved: 1,
-			coverageRemoved: 2,
-			checkpointsRemoved: 1,
 		} satisfies ChatDeletionStats);
+		// The extraction bookkeeping stays (owner Q48): a session continued on
+		// another device must not re-extract what this deletion removed.
+		assert.equal(graphStore.readCoverage().filter((row) => row.chatId === dA.id).length, 2);
 
 		const graph = getGraph(graphStore);
 		// X survives: identity (name/statement/createdAt from the create
@@ -774,10 +776,10 @@ describe("session deletion (deleteChatTraces + deleteChatSession, wave 6)", () =
 		graphStore.appendNode({ id: "n_del_append_probe", name: "Probe", statement: "Probe statement", aliases: [], createdAt: "2026-09-23T00:04:00.000Z", provenance: [{ chatId: "chat_foreign_probe", messageId: "" }] });
 		assert.equal(graphStore.readNodes().length, nodesBefore + 1);
 		// Idempotent: a second run finds nothing.
-		assert.deepEqual(deleteChatTraces(graphStore, dA.id, "delete-nodes"), { ...stats, nodesRemoved: 0, chainsRemoved: 0, coverageRemoved: 0, checkpointsRemoved: 0 } satisfies ChatDeletionStats);
+		assert.deepEqual(deleteChatTraces(graphStore, dA.id, "delete-nodes"), { nodesRemoved: 0, chainsRemoved: 0 } satisfies ChatDeletionStats);
 	});
 
-	it("preserve-graph: only the extraction bookkeeping dies — the graph ledgers are byte-identical", () => {
+	it("preserve-graph: the ledgers keep everything — graph and extraction bookkeeping alike (owner Q48)", () => {
 		const { dA, dB, xId, yId, zId } = buildTwoSessionScenario();
 		const before = {
 			nodes: graphStore.readNodes(),
@@ -788,13 +790,11 @@ describe("session deletion (deleteChatTraces + deleteChatSession, wave 6)", () =
 		assert.deepEqual(stats, {
 			nodesRemoved: 0,
 			chainsRemoved: 0,
-			coverageRemoved: 2,
-			checkpointsRemoved: 1,
 		} satisfies ChatDeletionStats);
 		assert.deepEqual(graphStore.readNodes(), before.nodes);
 		assert.deepEqual(graphStore.readChains(), before.chains);
 		assert.deepEqual(graphStore.readPositions(), before.positions);
-		assert.equal(graphStore.readCoverage().some((row) => row.chatId === dA.id), false);
+		assert.equal(graphStore.readCoverage().some((row) => row.chatId === dA.id), true);
 		assert.equal(graphStore.readCoverage().some((row) => row.chatId === dB.id), true);
 		void xId; void yId; void zId;
 	});
