@@ -445,6 +445,21 @@ For ordinary Next web/dev, `src/server/web-subscriptions.ts` composes these same
 
 `subscription-request-cycle.ts` is the shared admission/automatic-input recovery state machine; the old ChatGPT module is its compatibility export. Background consent is independent per provider, default ON, with foreground-preserving cancellation and queue ownership retained on no-dispatch. Native usage rejected before dispatch is transiently excluded from helper usage collectors, without adding persisted provenance fields. Catalogs and read-time pricing preserve the selected connection: subscription use displays compact provider labels, API dollars remain dollars, and mixed usage joins both without estimating subscription dollars or claiming detected tiers/allowances.
 
+### 8.2 Several devices, one data folder (multi-device)
+
+The desktop app and the Android app (`learnharness-android`, which runs this same standalone server under `nodejs-mobile`, ADR 0001) share one learner's records by replicating the data folder with Syncthing (ADR 0002). The rules that keep that safe:
+
+- **Device-local data lives outside the data folder.** `LH_LOCAL_DIR` (Electron: `userData/local`; default `<repo>/local`, or `<data folder>-local` for any other `LH_DATA_DIR`) holds `settings.json`, `positions.json`, `render-settings.json`, `debug/`, `conflicts/` and `device.json` (the device's stable id and editable name). `src/store/local-migration.ts` moves legacy files out once per process.
+- **Prompt switches sync with their files** (`prompts/switches.json`); the settings store presents them as `agent.prompts`.
+- **Graph ledgers are one file per device** (`<ledger>.<deviceId>.jsonl`, ADR 0003). The pre-split files stay a read-only shared base. Link lines carry `link: true`; deletions are records (`deletions.<deviceId>.jsonl`) replayed on every read through the pure rules in `core/graph-deletion.ts`; chain simplification runs on read. No device ever rewrites a ledger.
+- **The owning device.** A running turn names its device in `ChatRecord.activeTurn`; a job names it in `JobRecord.deviceId`. Other devices refuse turns and deletion (409 `owned_elsewhere`), never re-run or deliver foreign jobs, and show a read-only banner with a confirmed Takeover (`src/server/ownership.ts`).
+- **Conflict copies** of sessions (`*.sync-conflict-*.json`) are ignored by the session list and offered to the learner, who keeps one version; the rest move to `local/conflicts/`.
+- **Newer records** (a schema version this build does not know) show as "update this app" placeholders, never vanish; a newer graph answers 409 `graph_format_newer`.
+- **A handed-off session's model** missing on this device answers 503 `model_unavailable`, and the view opens the model picker.
+- **The Android WebView** carries the per-launch API secret as the HttpOnly `lh_desktop` cookie instead of the header (`src/server/desktop-access.ts`).
+
+Known limit: the server does not watch the data folder, so a view that is already open shows another device's changes after its next fetch or a reload.
+
 ## 9. The foundational invariants — what ALWAYS holds
 
 ### Tier A — machine-enforced (`eslint.config.mjs`; lint fails the build)
