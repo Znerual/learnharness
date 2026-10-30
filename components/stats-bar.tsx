@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { subscriptionLabels, subscriptionLabel, type SessionPricing, type TurnUsage } from "@/src/core";
 import { formatTokens, formatUsd, planCostLabel, prettyModel } from "@/components/usage-format";
 import { ModelControl, catalogLimits, useModelCatalog } from "@/components/model-picker";
@@ -79,18 +79,15 @@ export function StatsBar({
 			document.removeEventListener("keydown", onKeyDown);
 		};
 	}, [open]);
-	// Catalog-only denominator; the picker reports its effective selection.
-	// Missing/pending catalog means usage-only, never a hardcoded maximum.
-	const { catalog } = useModelCatalog();
-	const limits = useMemo(() => (catalog ? catalogLimits(catalog) : undefined), [catalog]);
-	const limit = selectedModel ? limits?.get(selectedModel) ?? null : null;
-	const contextLabel = formatContextMeasurement(contextTokens, limit);
-	const { cost = 0, unpriced = turns.length, subscription = 0 } = pricing ?? {};
-	// Honest cost: show dollars only when at least one turn priced;
-	// otherwise "—" (never a fake $0.0000).
-	const pricedCount = turns.length - unpriced - subscription;
-	const providers = pricing?.subscriptionProviders ?? subscriptionLabels(turns.map((turn) => turn.model));
-	const costLabel = planCostLabel(pricedCount > 0 ? cost : null, providers);
+	const labels = useStatsLabels(turns, contextTokens, pricing, selectedModel);
+	const { contextLabel, costLabel } = labels;
+	// The Android app shows these in Settings → This session (owner Q65):
+	// the in-session bar publishes what it knows for that section.
+	useEffect(() => {
+		if (!chatId) return;
+		publishSessionStats({ chatId, turns, contextTokens, pricing, selectedModel });
+		return () => publishSessionStats(null);
+	}, [chatId, turns, contextTokens, pricing, selectedModel]);
 
 	return (
 		<div
@@ -113,7 +110,8 @@ export function StatsBar({
 			{/* The left side: the session-data summary — only once a session
 			    exists (turns). Pre-chat renders nothing (see the header). */}
 			{(chatId || turns.length > 0) && (
-			<div ref={barRef} className="relative">
+			// The Android app shows context and cost in Settings → This session (owner Q65).
+			<div ref={barRef} className="relative android:hidden">
 				{/* No tooltip — the numbers describe themselves and the popover
 			    speaks on click (owner, subtlety round 2026-09-25). */}
 			<button
@@ -137,6 +135,48 @@ export function StatsBar({
 						<div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
 							Session stats
 						</div>
+						<StatsDetail turns={turns} pricing={pricing} labels={labels} />
+					</div>
+				)}
+			</div>
+			)}
+			{/* The middle slot: dictation (owner, 2026-09-17). flex-1 lets the
+			    meter expand into the row's free width; justify-center keeps the
+			    lone idle mic button visually centered. */}
+			{dictationSlot && (
+				<div className="flex min-w-0 flex-1 items-center justify-center">{dictationSlot}</div>
+			)}
+			{/* The model + thinking control — one controller for the conversation
+			    agents (prober/teacher); the record's `turns` above still folds
+			    the ACTUAL models billed, regardless of what the picker says. */}
+			<ModelControl chatId={chatId} onModelChange={setSelectedModel} />
+		</div>
+	);
+}
+
+/** The labels the bar and its detail share. */
+function useStatsLabels(turns: TurnUsage[], contextTokens: number | null, pricing: SessionPricing | undefined, selectedModel: string | undefined) {
+	// Catalog-only denominator; the picker reports its effective selection.
+	// Missing/pending catalog means usage-only, never a hardcoded maximum.
+	const { catalog } = useModelCatalog();
+	const limits = useMemo(() => (catalog ? catalogLimits(catalog) : undefined), [catalog]);
+	const limit = selectedModel ? limits?.get(selectedModel) ?? null : null;
+	const contextLabel = formatContextMeasurement(contextTokens, limit);
+	const { cost = 0, unpriced = turns.length, subscription = 0 } = pricing ?? {};
+	// Honest cost: show dollars only when at least one turn priced;
+	// otherwise "—" (never a fake $0.0000).
+	const pricedCount = turns.length - unpriced - subscription;
+	const providers = pricing?.subscriptionProviders ?? subscriptionLabels(turns.map((turn) => turn.model));
+	const costLabel = planCostLabel(pricedCount > 0 ? cost : null, providers);
+	return { contextLabel, costLabel, providers, unpriced, subscription };
+}
+
+/** The session's context, cost and per-turn spend — the bar's popover, and
+ *  Settings → This session in the Android app. */
+function StatsDetail({ turns, pricing, labels }: { turns: TurnUsage[]; pricing?: SessionPricing; labels: ReturnType<typeof useStatsLabels> }) {
+	const { contextLabel, costLabel, providers, unpriced, subscription } = labels;
+	return (
+		<>
 						<div className="flex flex-col gap-1 text-muted-foreground">
 							<div className="flex justify-between gap-2">
 								<span>Context (last call)</span>
@@ -179,20 +219,54 @@ export function StatsBar({
 								</ul>
 							</>
 						)}
-					</div>
-				)}
+		</>
+	);
+}
+
+/** What the in-session bar knows, for Settings → This session. */
+export interface SessionStats {
+	chatId: string;
+	turns: TurnUsage[];
+	contextTokens: number | null;
+	pricing?: SessionPricing;
+	selectedModel?: string;
+}
+
+let sessionStats: SessionStats | null = null;
+const statsListeners = new Set<() => void>();
+function publishSessionStats(next: SessionStats | null): void {
+	sessionStats = next;
+	for (const listener of statsListeners) listener();
+}
+
+/** The open session's stats right now (non-reactive). */
+export function sessionStatsNow(): SessionStats | null {
+	return sessionStats;
+}
+
+/** The open session's stats, or null outside a session. */
+export function useSessionStats(): SessionStats | null {
+	return useSyncExternalStore(
+		(listener) => {
+			statsListeners.add(listener);
+			return () => statsListeners.delete(listener);
+		},
+		() => sessionStats,
+		() => null,
+	);
+}
+
+/** Settings → This session (Android app, owner Q65): context, cost, the
+ *  per-turn spend, and the session's thinking level. */
+export function SessionStatsSection({ stats }: { stats: SessionStats }) {
+	const labels = useStatsLabels(stats.turns, stats.contextTokens, stats.pricing, stats.selectedModel);
+	return (
+		<div className="flex flex-col gap-3 text-xs text-muted-foreground" data-testid="session-stats-section">
+			<StatsDetail turns={stats.turns} pricing={stats.pricing} labels={labels} />
+			<div className="flex items-center justify-between gap-2">
+				<span>Thinking</span>
+				<ModelControl chatId={stats.chatId} part="thinking" />
 			</div>
-			)}
-			{/* The middle slot: dictation (owner, 2026-09-17). flex-1 lets the
-			    meter expand into the row's free width; justify-center keeps the
-			    lone idle mic button visually centered. */}
-			{dictationSlot && (
-				<div className="flex min-w-0 flex-1 items-center justify-center">{dictationSlot}</div>
-			)}
-			{/* The model + thinking control — one controller for the conversation
-			    agents (prober/teacher); the record's `turns` above still folds
-			    the ACTUAL models billed, regardless of what the picker says. */}
-			<ModelControl chatId={chatId} onModelChange={setSelectedModel} />
 		</div>
 	);
 }

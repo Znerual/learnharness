@@ -3,6 +3,8 @@
 import { ArrowRightIcon, CornerDownLeftIcon, SquareIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Hint } from "@/components/ui/hint";
+import { useAndroidShell } from "@/components/android-shell";
+import { isCoarsePointer } from "@/components/touch";
 
 /**
  * The chat composer — content row ONLY (the persistent rounded shell lives in
@@ -75,6 +77,7 @@ export function Composer({
 	 *  empty-Enter share it. */
 	onNext?: () => void;
 }) {
+	const android = useAndroidShell();
 	const act = () => {
 		const action = enterAction({ busy, canSend, nextProblem });
 		if (action === "stop") onStop();
@@ -108,13 +111,16 @@ export function Composer({
 					// Chat convention: Enter sends, Shift+Enter is a newline.
 					// ⌘/Ctrl+Enter also sends — the universal submit shortcut
 					// across every input in the app (thinking field, answers).
-					if (e.key === "Enter" && (e.metaKey || e.ctrlKey || !e.shiftKey)) {
+					// In the Android app a soft keyboard has no Shift+Enter:
+					// Enter is a newline there and the button sends (owner Q60).
+					if (e.key === "Enter" && (e.metaKey || e.ctrlKey || (!e.shiftKey && !android))) {
 						e.preventDefault();
 						act();
 					}
 				}}
 				placeholder={placeholder}
-				autoFocus={autoFocus}
+				// No keyboard popping up on load on a touch device (owner Q64).
+				autoFocus={autoFocus && !isCoarsePointer()}
 				rows={1}
 				className="field-sizing-content lh-input max-h-48 min-h-10 flex-1 resize-none bg-transparent px-2.5 py-2 outline-none placeholder:text-muted-foreground"
 			/>

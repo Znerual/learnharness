@@ -53,7 +53,7 @@ export function TopBar({
 	return (
 		<header
 			onMouseDown={onMouseDown}
-			className={`${drag ? "lh-drag " : ""}lh-wco-gutter flex h-15 select-none items-center gap-3 border-b border-border px-3`}
+			className={`${drag ? "lh-drag " : ""}lh-wco-gutter flex h-15 select-none items-center gap-3 border-b border-border px-3 android:h-auto android:min-h-12 android:flex-wrap android:gap-x-2 android:gap-y-1 android:py-1.5`}
 		>
 			<SidebarToggle />
 			{children}

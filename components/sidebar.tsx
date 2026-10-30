@@ -22,6 +22,7 @@ import { useServerEvent, useServerResync } from "@/components/server-events";
 import type { ChatListItem } from "@/src/core";
 import { kbdEventForAction } from "@/src/core";
 import { notifySettingsSaved } from "@/components/settings-signal";
+import { useAndroidShell } from "@/components/android-shell";
 
 /**
  * Toggleable sidebar — NOT a modal drawer: no backdrop, no focus theft. It
@@ -81,9 +82,15 @@ declare global {
 	}
 }
 
-const SidebarContext = createContext<{ open: boolean; toggle: () => void }>({
+/** Android drawer gestures (owner Q57): a swipe opens from this close to
+ *  the left edge, and counts once it travels this far sideways. */
+const EDGE_SWIPE_PX = 24;
+const SWIPE_PX = 50;
+
+const SidebarContext = createContext<{ open: boolean; toggle: () => void; close: () => void }>({
 	open: false,
 	toggle: () => {},
+	close: () => {},
 });
 
 export function useSidebar() {
@@ -101,6 +108,7 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 	// Start closed so server and client first-render agree (no hydration
 	// mismatch); the stored value is applied after mount.
 	const [open, setOpen] = useState(false);
+	const android = useAndroidShell();
 	const [narrow, setNarrow] = useState(false);
 	const [mounted, setMounted] = useState(false);
 
@@ -126,8 +134,9 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 		void window.lh?.getZoom?.().then(setZoomVar);
 
 		const stored = localStorage.getItem(STORAGE_KEY);
-		// Default: open (first run introduces the sidebar).
-		setOpen(stored === null ? true : stored === "1");
+		// Default: open (first run introduces the sidebar). The Android app's
+		// drawer always starts closed (owner Q57).
+		setOpen(android ? false : stored === null ? true : stored === "1");
 		setMounted(true);
 		return () => off?.();
 	}, []);
@@ -157,10 +166,52 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 			return;
 		}
 		setOpen((v) => {
-			localStorage.setItem(STORAGE_KEY, v ? "0" : "1");
+			if (!android) localStorage.setItem(STORAGE_KEY, v ? "0" : "1");
 			return !v;
 		});
-	}, [narrow, open]);
+	}, [narrow, open, android]);
+	const close = useCallback(() => setOpen(false), []);
+
+	// THE ANDROID DRAWER (owner Q57): ☰ opens it; a swipe right from the
+	// left edge opens it, a swipe left closes it; the backdrop, the back
+	// button (the shell asks window.lhAndroidBack first) and any navigation
+	// close it.
+	const pathname = usePathname();
+	useEffect(() => {
+		if (android) setOpen(false);
+	}, [android, pathname]);
+	useEffect(() => {
+		if (!android) return;
+		const w = window as typeof window & { lhAndroidBack?: () => boolean };
+		w.lhAndroidBack = () => {
+			if (!openRef.current) return false;
+			setOpen(false);
+			return true;
+		};
+		let start: { x: number; y: number } | null = null;
+		const onStart = (e: TouchEvent) => {
+			const t = e.touches[0];
+			start = t && (openRef.current || t.clientX < EDGE_SWIPE_PX) ? { x: t.clientX, y: t.clientY } : null;
+		};
+		const onMove = (e: TouchEvent) => {
+			const t = e.touches[0];
+			if (!start || !t) return;
+			const dx = t.clientX - start.x;
+			if (Math.abs(dx) < SWIPE_PX || Math.abs(dx) < Math.abs(t.clientY - start.y)) return;
+			if (dx > 0 && !openRef.current) setOpen(true);
+			if (dx < 0 && openRef.current) setOpen(false);
+			start = null;
+		};
+		window.addEventListener("touchstart", onStart, { passive: true });
+		window.addEventListener("touchmove", onMove, { passive: true });
+		return () => {
+			delete w.lhAndroidBack;
+			window.removeEventListener("touchstart", onStart);
+			window.removeEventListener("touchmove", onMove);
+		};
+	}, [android]);
+	const openRef = useRef(open);
+	openRef.current = open;
 
 	// ⌘B: the global shortcut dispatches kbdEventForAction("toggle-sidebar")
 	// and the context answers on exactly that name — the shared spelling
@@ -176,7 +227,7 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 	}, [toggle]);
 
 	return (
-		<SidebarContext.Provider value={{ open: open && !narrow, toggle }}>
+		<SidebarContext.Provider value={{ open: open && !narrow, toggle, close }}>
 			{/* transitions gated on mount: no slide-in flash on page load */}
 			<div className={cn("flex h-dvh", mounted && "[&_.sidebar-motion]:transition-[width,margin,opacity]")}>{children}</div>
 		</SidebarContext.Provider>
@@ -196,7 +247,10 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
  *  The icon fades with the slot and is clipped by it as it collapses —
  *  no popping in either direction. */
 export function SidebarToggle() {
-	const { open, toggle } = useSidebar();
+	const sidebar = useSidebar();
+	const { toggle } = sidebar;
+	// The Android drawer overlays the page, so its ☰ always stays (owner Q57).
+	const open = sidebar.open && !useAndroidShell();
 	return (
 		<span
 			className={cn(
@@ -388,7 +442,8 @@ export type SessionKindFilter = "teach" | "all" | "practice";
 const KIND_FILTER_KEY = "lh:session-kind-filter";
 
 function SessionsSidebar() {
-	const { open, toggle } = useSidebar();
+	const { open, toggle, close } = useSidebar();
+	const android = useAndroidShell();
 	const [chats, setChats] = useState<ChatListItem[] | null>(null);
 	const [query, setQuery] = useState("");
 	const [kindFilter, setKindFilter] = useState<SessionKindFilter>("all");
@@ -645,10 +700,16 @@ function SessionsSidebar() {
 
 	return (
 		<aside
-			className={cn("sidebar-motion shrink-0 overflow-hidden duration-200", open ? "w-72" : "w-0")}
+			className={cn(
+				"sidebar-motion shrink-0 overflow-hidden duration-200",
+				open ? "w-72" : "w-0",
+				// The Android drawer (owner Q57): over the page, not beside it.
+				"android:fixed android:inset-y-0 android:left-0 android:z-50 android:w-72 android:max-w-[85vw] android:transition-transform",
+				open ? "android:translate-x-0" : "android:-translate-x-full",
+			)}
 			aria-hidden={!open}
 		>
-			<div className="flex h-full w-72 flex-col border-r bg-background">
+			<div className="flex h-full w-72 flex-col border-r bg-background android:w-full">
 				{/* LH wordmark — the owner's header; close toggle sits at the edge.
 				    Merged chrome (2026-09-17): in Electron this band is the
 				    window's drag surface and starts after the traffic lights
@@ -851,7 +912,10 @@ function SessionsSidebar() {
 						<Hint label="Settings" action="open-settings" side="right">
 							<button
 								type="button"
-								onClick={() => openSettings()}
+								onClick={() => {
+									if (android) close(); // the drawer gives way to the dialog
+									openSettings();
+								}}
 								data-testid="settings-entry"
 								className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs uppercase tracking-wider text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 							>
@@ -942,14 +1006,18 @@ function SessionsSidebar() {
 
 /** The app frame: sidebar inline + content. Rendered once in the root layout. */
 export function AppShell({ children }: { children: React.ReactNode }) {
+	const { open, close } = useSidebar();
+	const android = useAndroidShell();
 	return (
 		<SettingsDialogProvider>
 			<SessionsSidebar />
+			{android && open && <div data-testid="drawer-backdrop" className="fixed inset-0 z-40 bg-black/50" onClick={close} />}
 			<main className="min-w-0 flex-1">{children}</main>
 			{/* The single document-level keydown listener (keyboard wave A) —
 			    after the content in the tree, but it's window-level so order only
-			    matters for the events it dispatches, never for DOM priority. */}
-			<KeyboardShortcuts />
+			    matters for the events it dispatches, never for DOM priority.
+			    The Android app has no shortcuts and no cheat sheet (owner Q59). */}
+			{!android && <KeyboardShortcuts />}
 		</SettingsDialogProvider>
 	);
 }

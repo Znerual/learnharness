@@ -61,6 +61,12 @@ export function endTurn(chatId: string): void {
 	if (inFlight.delete(chatId)) emit("turn-settled", { chatId });
 }
 
+/** True while any chat's turn is in flight in this process (the Android
+ *  shell's busy probe — its foreground service runs while work does). */
+export function anyTurnRunning(): boolean {
+	return [...inFlight.keys()].some((chatId) => isTurnRunning(chatId));
+}
+
 /** True while the chat's turn is in flight; lazily evicts stale entries.
  * The eviction path is DELIBERATELY event-free: it is a leak guard for a
  * turn whose onFinish never fired (itself pathological), it runs lazily

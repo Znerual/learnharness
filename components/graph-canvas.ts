@@ -295,6 +295,9 @@ const PICKING_PAD = 10;
 
 /** Click vs drag threshold: pointer travel under this many px is a click. */
 const CLICK_SLOP = 4;
+/** A finger wobbles more than a mouse (owner Q63): a touch tap tolerates this much. */
+const TOUCH_CLICK_SLOP = 10;
+const clickSlop = (e: PointerEvent): number => (e.pointerType === "touch" ? TOUCH_CLICK_SLOP : CLICK_SLOP);
 /** Live-sim tuning — see the class doc comment. */
 const LIVE_ALPHA_DECAY = 0.05; // snappier anneal than the settle's 0.0228
 const DRAG_ALPHA_TARGET = 0.3; // d3-drag's own reheat constant
@@ -934,7 +937,7 @@ export class GraphCanvasRenderer {
 			if (n) {
 				const moved =
 					this.dragOrigin !== null &&
-					Math.hypot(pos.x - this.dragOrigin.x, pos.y - this.dragOrigin.y) > CLICK_SLOP;
+					Math.hypot(pos.x - this.dragOrigin.x, pos.y - this.dragOrigin.y) > clickSlop(e);
 				if (moved) {
 					// First real movement: reheat and glue the node to the cursor.
 					if (this.commitTimer) {
@@ -1024,7 +1027,7 @@ export class GraphCanvasRenderer {
 		const pos = this.eventPos(e);
 		const moved = Math.hypot(pos.x - this.downPos.x, pos.y - this.downPos.y);
 		this.downPos = null;
-		if (moved > CLICK_SLOP) return; // that was a drag (pan), not a click
+		if (moved > clickSlop(e)) return; // that was a drag (pan), not a click
 		const node = this.pickAt(pos.x, pos.y);
 		if (node) this.callbacks.onSelect(node.id, pos);
 		else this.callbacks.onStageClick();

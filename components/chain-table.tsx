@@ -295,7 +295,7 @@ export function ChainTableBody({
 						data-testid="sort-props"
 						onClick={() => onSort("props")}
 						aria-sort={sort.col === "props" ? (sort.dir === 1 ? "ascending" : "descending") : "none"}
-						className="flex w-14 shrink-0 items-center justify-end gap-1 text-right transition-colors hover:text-foreground"
+						className="flex w-14 shrink-0 items-center justify-end gap-1 text-right transition-colors hover:text-foreground android:hidden"
 					>
 						Props {dirIcon("props")}
 					</button>
@@ -304,7 +304,7 @@ export function ChainTableBody({
 						data-testid="sort-created"
 						onClick={() => onSort("created")}
 						aria-sort={sort.col === "created" ? (sort.dir === 1 ? "ascending" : "descending") : "none"}
-						className="flex w-20 shrink-0 items-center justify-end gap-1 text-right transition-colors hover:text-foreground"
+						className="flex w-20 shrink-0 items-center justify-end gap-1 text-right transition-colors hover:text-foreground android:hidden"
 					>
 						Created {dirIcon("created")}
 					</button>
@@ -358,10 +358,10 @@ export function ChainTableBody({
 									{group.label ?? <span className="text-muted-foreground/60">unlabeled</span>}
 									{group.kind === "notes" && <span className="ml-2 text-[11px] uppercase tracking-widest text-muted-foreground/60">notes</span>}
 								</span>
-								<span className="w-14 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
+								<span className="w-14 shrink-0 text-right text-xs tabular-nums text-muted-foreground android:hidden">
 									{group.nodeIds.length}
 								</span>
-								<span className="w-20 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
+								<span className="w-20 shrink-0 text-right text-xs tabular-nums text-muted-foreground android:hidden">
 									{group.newestCreatedAt.slice(0, 10)}
 								</span>
 							</div>
@@ -438,10 +438,10 @@ export function ChainTableBody({
 														);
 													})}
 												</span>
-												<span className="w-14 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
+												<span className="w-14 shrink-0 text-right text-xs tabular-nums text-muted-foreground android:hidden">
 													{memberIds.length}
 												</span>
-												<span className="w-20 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
+												<span className="w-20 shrink-0 text-right text-xs tabular-nums text-muted-foreground android:hidden">
 													{dateOf(chain.conclusion)}
 												</span>
 											</div>
@@ -470,8 +470,8 @@ export function ChainTableBody({
 															<span className="min-w-0 flex-1 text-xs leading-relaxed text-muted-foreground">
 																{node.statement}
 															</span>
-															<span className="w-14 shrink-0" />
-															<span className="w-20 shrink-0" />
+															<span className="w-14 shrink-0 android:hidden" />
+															<span className="w-20 shrink-0 android:hidden" />
 														</div>
 													);
 												})}

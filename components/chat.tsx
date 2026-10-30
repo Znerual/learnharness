@@ -83,6 +83,7 @@ import { slotsConfigured, type ModelsSettings } from "@/src/core";
 import { useSettingsSaved } from "@/components/settings-signal";
 import { OwnedElsewhereBanner, type OwnedElsewhere } from "@/components/owned-elsewhere";
 import { SessionConflicts } from "@/components/session-conflicts";
+import { useAndroidShell } from "@/components/android-shell";
 import type { ChatConflict } from "@/src/core";
 
 /** One width for everything: transcript, cards, and the bottom blob share this column. */
@@ -273,6 +274,7 @@ export function Chat({
 	initialModelUnavailable?: { provider: string; id: string } | null;
 }) {
 	const [ownedElsewhere, setOwnedElsewhere] = useState<OwnedElsewhere | null>(initialOwnedElsewhere);
+	const android = useAndroidShell();
 	// Reattach plumbing (background-turn runner wave): the hook holds the
 	// settled terminal's callback — a stable ref assigned below, once
 	// syncFromServer exists (refs, not closures: no stale capture).
@@ -1321,7 +1323,7 @@ export function Chat({
 								spellCheck={false}
 								aria-label="Session title"
 								title="Rename this session"
-								className="lh-no-drag min-w-[8ch] max-w-[70%] shrink-0 bg-transparent font-title text-3xl tracking-tight caret-current outline-none [field-sizing:content]"
+								className="lh-no-drag min-w-[8ch] max-w-[70%] shrink-0 bg-transparent font-title text-3xl tracking-tight caret-current outline-none [field-sizing:content] android:text-xl"
 							/>
 							{/* flex-1 spacer during rename too, so the chips stay at
 							    the right edge; clicks here commit via the header
@@ -1342,7 +1344,7 @@ export function Chat({
 								setTitleDraft(titleText);
 								setRenaming(true);
 							}}
-							className="lh-no-drag -mx-1.5 min-w-4 shrink cursor-text truncate rounded-md px-1.5 text-left font-title text-3xl tracking-tight transition-colors hover:bg-accent"
+							className="lh-no-drag -mx-1.5 min-w-4 shrink cursor-text truncate rounded-md px-1.5 text-left font-title text-3xl tracking-tight transition-colors hover:bg-accent android:text-xl"
 						>
 							{titleText}
 							</button>
@@ -1719,6 +1721,21 @@ export function Chat({
 					queuedSteers={visibleQueuedSteers(steerQueue, nativeMessages)}
 					setupCta={
 						<>
+						{/* Esc dismisses a question or problem on desktop; the
+						    Android app has no Esc, so it gets a button for the
+						    same confirm flow (owner Q59). */}
+						{android && (pending || activeProblem) && (
+							<div className="pointer-events-auto mb-2 flex justify-end">
+								<button
+									type="button"
+									data-testid="dock-dismiss"
+									onClick={() => setAbortAsk(pending ? "question" : "problem")}
+									className="rounded-sm border border-border bg-card px-3 py-1 font-ui text-xs text-muted-foreground hover:bg-accent cursor-pointer"
+								>
+									Dismiss
+								</button>
+							</div>
+						)}
 						{modelMissing && (
 							<div data-testid="model-missing" className="pointer-events-auto mb-2 flex flex-wrap items-center justify-center gap-2 rounded-sm border border-border bg-card px-3 py-2 font-ui text-xs text-foreground">
 								<span>

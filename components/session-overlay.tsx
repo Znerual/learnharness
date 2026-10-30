@@ -4,6 +4,7 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState } from 
 import { MaximizeIcon, MinusIcon, PlusIcon, XIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { fitGraphView, fitZoomFor, zoomedGraphView, type Viewport } from "@/components/pan-zoom";
+import { attachPinchZoom } from "@/components/pinch-zoom";
 import { renderMermaid } from "@/components/mermaid-render";
 import { MermaidError } from "@/components/mermaid-error";
 import { Hint } from "@/components/ui/hint";
@@ -169,12 +170,20 @@ export function MermaidOverlay({
 			userAdjustedRef.current = true;
 		};
 		el.addEventListener("wheel", onWheel, { passive: false });
-		return () => el.removeEventListener("wheel", onWheel);
+		// Touch: two-finger pinch, the wheel's twin (owner Q66).
+		const detachPinch = attachPinchZoom(el, (factor, focus) => {
+			setView((v) => zoomedGraphView(v, factor, fitZoom, focus, box, size));
+			userAdjustedRef.current = true;
+		});
+		return () => {
+			el.removeEventListener("wheel", onWheel);
+			detachPinch();
+		};
 	}, [fitZoom, box, size]);
 
 	const dragRef = useRef<{ px: number; py: number; x: number; y: number; moved: boolean } | null>(null);
 	const startDrag = (e: React.PointerEvent<HTMLDivElement>) => {
-		if (e.button !== 0) return;
+		if (e.button !== 0 || !e.isPrimary) return; // a pinch's second finger never pans
 		if ((e.target as HTMLElement).closest("button")) return;
 		if (atFloor) return;
 		dragRef.current = { px: e.clientX, py: e.clientY, x: view.x, y: view.y, moved: false };

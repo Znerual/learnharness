@@ -507,7 +507,7 @@ export function ReadAloudButton({ turn }: { turn: ReplyTurn }) {
 	if (!turn.text.trim()) return null;
 	const playing = owner === turn.key;
 	return (
-		<div className={`flex ${playing ? "" : "opacity-0 transition-opacity group-hover/turn:opacity-100 focus-within:opacity-100"}`}>
+		<div className={`flex ${playing ? "" : "opacity-0 transition-opacity group-hover/turn:opacity-100 focus-within:opacity-100 pointer-coarse:opacity-100"}`}>
 			<Hint label={playing ? "Stop reading" : ready ? "Read aloud" : "Read aloud: set a text-to-speech URL in Settings"} side="top">
 				<button
 					type="button"

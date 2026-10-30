@@ -48,6 +48,12 @@ export function isJobLive(jobId: string): boolean {
 	return registry().has(jobId);
 }
 
+/** True while any job's loop executes in this process (the Android shell's
+ *  busy probe). */
+export function anyJobLive(): boolean {
+	return registry().size > 0;
+}
+
 /** Abort a running job's loop. Returns false when no controller is live —
  * the job's loop is not executing. The endpoint separately refuses abort
  * for a finished worker, even while its session delivery remains pending. */

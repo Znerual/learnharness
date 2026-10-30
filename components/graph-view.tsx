@@ -77,6 +77,7 @@ import { MenuShell } from "@/components/menu-shell.tsx";
 import { DeleteNodeDialog } from "@/components/delete-node-dialog.tsx";
 import { ChainTableOverlay } from "@/components/chain-table.tsx";
 import { Hint } from "@/components/ui/hint";
+import { useAndroidShell } from "@/components/android-shell";
 import { VaultSyncButton } from "@/components/vault-sync";
 import {
 	ARROW_LENGTH_LADDER,
@@ -867,9 +868,26 @@ export function GraphChromeRow({
 	 *  2026-09-29). */
 	onOpenChains: () => void;
 }) {
+	// The Android app: icon-only buttons, and search opens from an icon (owner Q63).
+	const android = useAndroidShell();
+	const [searchOpen, setSearchOpen] = useState(false);
+	const searchCollapsed = android && !searchOpen && !query;
 	return (
 		<>
-			{!isEmpty && (
+			{!isEmpty && searchCollapsed && (
+				<div className="graph-chrome-fade-in shrink-0 rounded-xl border bg-card/85 px-1 py-[3px] shadow-lg backdrop-blur">
+					<button
+						type="button"
+						aria-label="Search nodes"
+						data-testid="open-node-search"
+						onClick={() => setSearchOpen(true)}
+						className="flex h-7 items-center rounded-lg px-2.5 text-muted-foreground transition-colors hover:bg-accent"
+					>
+						<SearchIcon className="size-3.5" />
+					</button>
+				</div>
+			)}
+			{!isEmpty && !searchCollapsed && (
 				<div className="graph-chrome-fade-in w-56 min-w-0 shrink rounded-xl border bg-card/85 px-1 py-[3px] shadow-lg backdrop-blur">
 					<Hint
 						// ⌘F focuses node search (surface-scoped registry action).
@@ -886,6 +904,8 @@ export function GraphChromeRow({
 							placeholder="Search nodes…"
 							aria-label="Search nodes"
 							spellCheck={false}
+							autoFocus={android}
+							onBlur={() => setSearchOpen(false)}
 							className="h-7 w-full rounded-lg border bg-background pl-8 text-xs outline-none placeholder:text-muted-foreground focus:border-ring"
 						/>
 					</div>
@@ -907,7 +927,7 @@ export function GraphChromeRow({
 							className="flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-xs text-muted-foreground transition-colors hover:bg-accent"
 						>
 							<ListTreeIcon className="size-3" />
-							Chains
+							<span className="android:hidden">Chains</span>
 						</button>
 					</Hint>
 				</div>
@@ -941,7 +961,7 @@ export function GraphChromeRow({
 					className="flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-xs text-muted-foreground transition-colors hover:bg-accent disabled:opacity-50"
 				>
 						<UploadIcon className="size-3" />
-						{importing ? "Importing…" : "Import notes…"}
+						<span className="android:hidden">{importing ? "Importing…" : "Import notes…"}</span>
 					</button>
 				</Hint>
 				{/* Obsidian Sync (2026-10-24) — hidden while no vault is set. */}
@@ -977,6 +997,7 @@ export function GraphView({
 	onPracticeSelectionChange?: (nodes: { id: string; name: string; statement: string }[]) => void;
 	onChainSelectClose?: () => void;
 }) {
+	const android = useAndroidShell();
 	const containerRef = useRef<HTMLDivElement | null>(null);
 	const canvasRef = useRef<HTMLCanvasElement | null>(null);
 	const cardRef = useRef<HTMLDivElement | null>(null);
@@ -1489,6 +1510,13 @@ export function GraphView({
 		const card = cardRef.current;
 		const container = containerRef.current;
 		if (!selected || !card || !container) return;
+		// The Android app: a full-width sheet at the bottom (owner Q63).
+		if (android) {
+			card.style.left = "";
+			card.style.top = "";
+			card.style.visibility = "visible";
+			return;
+		}
 		const width = card.offsetWidth;
 		const height = card.offsetHeight;
 		const margin = 8;
@@ -1504,7 +1532,7 @@ export function GraphView({
 		card.style.left = `${left}px`;
 		card.style.top = `${top}px`;
 		card.style.visibility = "visible";
-	}, [selected]);
+	}, [selected, android]);
 
 	return (
 		<div className="relative h-full w-full">
@@ -1661,7 +1689,7 @@ export function GraphView({
 					// lh-no-drag: the card is placed anywhere on the canvas —
 					// when it lands in the top strip it must stay interactive
 					// over home.tsx's drag surface (2026-09-17).
-					className="lh-no-drag absolute z-10 w-80 max-w-[calc(100%-1rem)] rounded-xl border bg-card p-4 text-left shadow-lg"
+					className="lh-no-drag absolute z-10 w-80 max-w-[calc(100%-1rem)] rounded-xl border bg-card p-4 text-left shadow-lg android:inset-x-0 android:bottom-0 android:max-h-[60%] android:w-full android:max-w-none android:overflow-y-auto android:rounded-b-none"
 				>
 					<div className="text-sm font-medium leading-snug">{selected.node.name}</div>
 					<div className="mt-1 text-xs leading-relaxed text-muted-foreground">{selected.node.statement}</div>

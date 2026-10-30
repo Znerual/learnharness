@@ -26,6 +26,8 @@ import { catalogContextLimits } from "./model-catalog.ts";
 import { listJobs } from "./jobs.ts";
 import { jobCost } from "./pricing.ts";
 import type { JobRecord } from "../core/contracts.ts";
+import { anyTurnRunning } from "./turn-liveness.ts";
+import { anyJobLive } from "../agent/subagents/aborts.ts";
 
 export { abortExtraction, extractionStatuses, type ExtractionPhase, type RunningExtraction } from "../agent/subagents/extraction.ts";
 export { chatStore } from "../store/chats.ts";
@@ -106,4 +108,12 @@ export function activityFeed(): {
 		extractions: extractions.sort((a, b) => a.startedAt - b.startedAt),
 		graphRevision: graphRevision(),
 	};
+}
+
+/** Is this device's server working right now — a turn, a background job's
+ *  loop, or an extraction run? The Android shell polls it (GET /api/busy)
+ *  and keeps its foreground service alive only while it is, so Android
+ *  never kills work in progress. */
+export function deviceBusy(): boolean {
+	return anyTurnRunning() || anyJobLive() || extractionStatuses().length > 0;
 }

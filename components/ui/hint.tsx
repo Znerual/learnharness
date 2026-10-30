@@ -3,6 +3,7 @@
 import * as React from "react"
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 import { bindingForAction, formatBinding, type KeyAction } from "@/src/core"
+import { useAndroidShell } from "@/components/android-shell"
 
 /**
  * The tooltip composition for icon and pill controls (tooltip wave, owner
@@ -44,6 +45,12 @@ export function hintText(label: string, action?: KeyAction, binding?: string): s
 }
 
 export function Hint({ label, action, binding, side = "top", children }: HintProps) {
+	// The Android app has no keyboard shortcuts: hints carry no shortcut text (owner Q59).
+	const android = useAndroidShell()
+	if (android) {
+		action = undefined
+		binding = undefined
+	}
 	return (
 		<TooltipProvider>
 			<Tooltip>

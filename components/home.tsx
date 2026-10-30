@@ -11,6 +11,8 @@ import { useStrongKeyless, useZeroKeys, ZeroKeysPill } from "@/components/setup-
 import { DictationBar, joinDictation, useDictation } from "@/components/dictation";
 import { useFieldCycle } from "@/components/field-cycle";
 import { SidebarToggle } from "@/components/sidebar";
+import { useAndroidShell } from "@/components/android-shell";
+import { isCoarsePointer } from "@/components/touch";
 import { StatsBar } from "@/components/stats-bar";
 import type { TurnUsage } from "@/src/core";
 
@@ -30,6 +32,7 @@ export function Home({
 	 * changing the setting applies on the next visit home. */
 	rendering?: boolean;
 }) {
+	const android = useAndroidShell();
 	const router = useRouter();
 	const [topic, setTopic] = useState("");
 	/* The topic MIRROR ("nothing gets lost" round, 2026-10-01 — same
@@ -265,13 +268,15 @@ export function Home({
 								dictation.cancel();
 								return;
 							}
-							if (e.key === "Enter" && !e.shiftKey) {
+							// Android app: Enter is a newline, the button starts (owner Q60).
+							if (e.key === "Enter" && !e.shiftKey && !android) {
 								e.preventDefault();
 								void start();
 							}
 						}}
 						placeholder={mode === "practice" ? "What do you want to practice?" : "What do you want to learn?"}
-						autoFocus
+						// No keyboard popping up on load on a touch device (owner Q64).
+						autoFocus={!isCoarsePointer()}
 						rows={1}
 						className="field-sizing-content lh-input max-h-48 min-h-10 flex-1 resize-none bg-transparent px-2.5 py-2 outline-none placeholder:text-muted-foreground"
 					/>

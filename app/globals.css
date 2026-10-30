@@ -1,6 +1,9 @@
 @import "tailwindcss";
 
 @custom-variant dark (&:is(.dark *));
+/* The phone layout (multi-device, step 3): only inside the Android app,
+   whose root carries .lh-android (app/layout.tsx). */
+@custom-variant android (&:where(.lh-android, .lh-android *));
 
 /*
  * THE SKIN — wave 5. Design tokens, the single place to restyle the app.
