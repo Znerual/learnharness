@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { Chat } from "@/components/chat";
 import { slotsConfigured } from "@/src/core";
-import { compactionInFlight, foreignOwner, getChat, isTurnRunning, readSettingsRecord, turnFailure } from "@/src/server";
+import { compactionInFlight, foreignOwner, getChat, isTurnRunning, readSettingsRecord, stores, turnFailure } from "@/src/server";
 
 export const dynamic = "force-dynamic";
 
@@ -38,6 +38,9 @@ export default async function ChatPage({
 			initiallyCompacting={compactionInFlight(chat.id)}
 			// Multi-device: another device runs this session — read-only here.
 			initialOwnedElsewhere={foreignOwner(chat.id)}
+			// Multi-device: versions a sync tool kept beside this session.
+			initialConflicts={stores.chatStore.listConflicts(chat.id)}
+			initialUpdatedAt={chat.updatedAt}
 		/>
 	);
 }

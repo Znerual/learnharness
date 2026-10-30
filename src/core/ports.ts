@@ -12,6 +12,7 @@
 import type { LhMessage } from "./native-messages.ts";
 import type {
 	ActiveTurn,
+	ChatConflict,
 	ChatRecord,
 	ChatSettings,
 	ChatSummary,
@@ -58,6 +59,11 @@ export interface ChatStore {
 	saveSettings(id: string, settings: ChatSettings): void;
 	/** Set or clear the turn's owning device (multi-device); updatedAt stays. */
 	setActiveTurn(id: string, activeTurn: ActiveTurn | null): void;
+	/** Conflict copies of one session (multi-device). */
+	listConflicts(id: string): ChatConflict[];
+	/** Keep "current" or one conflict copy; the rest move to the local
+	 *  conflicts folder. False when `keep` names no copy of this session. */
+	resolveConflict(id: string, keep: string): boolean;
 	/** Rename a session (the header's click-to-edit title, 2026-09-17).
 	 * Like saveSettings: a rename is NOT conversation activity — updatedAt
 	 * stays put, so sidebar order never churns on a rename. */

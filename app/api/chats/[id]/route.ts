@@ -26,6 +26,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 		// Multi-device: work running on another device keeps this session
 		// read-only here (src/server/ownership.ts); null when nobody else does.
 		ownedElsewhere: foreignOwner(id),
+		// Multi-device: versions a sync tool kept beside this session.
+		conflicts: stores.chatStore.listConflicts(id),
 	});
 }
 

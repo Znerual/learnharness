@@ -82,6 +82,8 @@ import { currentUserThinkingOpen, setAllUserThinkingOpen } from "@/components/th
 import { slotsConfigured, type ModelsSettings } from "@/src/core";
 import { useSettingsSaved } from "@/components/settings-signal";
 import { OwnedElsewhereBanner, type OwnedElsewhere } from "@/components/owned-elsewhere";
+import { SessionConflicts } from "@/components/session-conflicts";
+import type { ChatConflict } from "@/src/core";
 
 /** One width for everything: transcript, cards, and the bottom blob share this column. */
 /**
@@ -206,6 +208,8 @@ export function Chat({
 	initiallyCompacting = false,
 	initialConfigured = false,
 	initialOwnedElsewhere = null,
+	initialConflicts = [],
+	initialUpdatedAt = "",
 	kind = "teach",
 }: {
 	chatId: string;
@@ -233,6 +237,10 @@ export function Chat({
 	/** Another device runs this session (multi-device): the composer gives
 	 *  way to the read-only banner with its Takeover. */
 	initialOwnedElsewhere?: OwnedElsewhere | null;
+	/** Conflict copies of this session (multi-device) and the session's own
+	 *  updatedAt, for the pick-a-version banner. */
+	initialConflicts?: ChatConflict[];
+	initialUpdatedAt?: string;
 }) {
 	const [ownedElsewhere, setOwnedElsewhere] = useState<OwnedElsewhere | null>(initialOwnedElsewhere);
 	// Reattach plumbing (background-turn runner wave): the hook holds the
@@ -1653,7 +1661,15 @@ export function Chat({
 					dictationCancel={dictation.cancel}
 					queuedSteers={visibleQueuedSteers(steerQueue, nativeMessages)}
 					setupCta={
-						zeroKeys ? (
+						<>
+						{initialConflicts.length > 0 && (
+							<SessionConflicts
+								chatId={chatId}
+								current={{ updatedAt: initialUpdatedAt, messageCount: initialMessages.length }}
+								conflicts={initialConflicts}
+							/>
+						)}
+						{zeroKeys ? (
 							<ZeroKeysPill onOpen={() => setSetupOpen(true)} />
 						) : (
 							!configured && (
@@ -1668,7 +1684,8 @@ export function Chat({
 									</button>
 								</div>
 							)
-						)
+						)}
+						</>
 					}
 					composer={
 						ownedElsewhere ? (

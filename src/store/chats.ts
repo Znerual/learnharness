@@ -9,10 +9,10 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { PATHS } from "../../config.ts";
+import { CONFLICTS_DIR, PATHS } from "../../config.ts";
 import { emit } from "../core/events.ts";
 import type { ChatStore } from "../core/ports.ts";
-import type { ActiveTurn, ChatRecord, ChatSettings, ChatSummary, ExtractionRunUsage, PlanTree, TurnUsage } from "../core/contracts.ts";
+import type { ActiveTurn, ChatConflict, ChatRecord, ChatSettings, ChatSummary, ExtractionRunUsage, PlanTree, TurnUsage } from "../core/contracts.ts";
 import { CURRENT_CHAT_VERSION } from "../core/contracts.ts";
 import type { LhMessage } from "../core/native-messages.ts";
 import { activeProblemOf, danglingQuestionOf } from "../core/native-messages.ts";
@@ -76,13 +76,19 @@ function getChat(id: string): ChatRecord | null {
 	return parsed as ChatRecord;
 }
 
+/** A session file name — chat_<id>.json. Anything else in the folder (a
+ *  sync tool's conflict copies and temp files) is not a session. */
+const SESSION_FILE = /^([A-Za-z0-9_-]+)\.json$/;
+
 function listChats(): ChatSummary[] {
 	try {
 		fs.mkdirSync(PATHS.chats, { recursive: true });
 		return fs
 			.readdirSync(PATHS.chats)
-			.filter((f) => f.endsWith(".json"))
-			.map((f) => getChat(f.slice(0, -5)))
+			.flatMap((f) => {
+				const id = SESSION_FILE.exec(f)?.[1];
+				return id ? [getChat(id)] : [];
+			})
 			.filter((r): r is ChatRecord => r !== null)
 			.map(({ messages, tree, turns, extractions, ...summary }) => {
 				// Per-record isolation (Wave B): a record whose messages fail the
@@ -205,6 +211,64 @@ function setActiveTurn(id: string, activeTurn: ActiveTurn | null): void {
 	writeChat(record);
 }
 
+// ─── conflict copies (multi-device, GLOSSARY "Conflict copy") ──────────────────
+
+/** Syncthing's name for the version it kept beside a file two devices
+ *  changed: <name>.sync-conflict-<date>-<time>-<device>.<ext>. */
+function conflictPattern(id: string): RegExp {
+	return new RegExp(`^${id}\\.sync-conflict-[A-Za-z0-9-]+\\.json$`);
+}
+
+/** The conflict copies of one session, oldest file name first. */
+function listConflicts(id: string): ChatConflict[] {
+	chatFile(id); // id guard
+	const pattern = conflictPattern(id);
+	let names: string[];
+	try {
+		names = fs.readdirSync(PATHS.chats).filter((f) => pattern.test(f)).sort();
+	} catch {
+		return [];
+	}
+	return names.flatMap((file) => {
+		try {
+			const record = JSON.parse(fs.readFileSync(path.join(PATHS.chats, file), "utf-8")) as Partial<ChatRecord>;
+			return [{ file, updatedAt: String(record.updatedAt ?? ""), messageCount: Array.isArray(record.messages) ? record.messages.length : 0 }];
+		} catch {
+			return []; // unreadable copy: nothing the learner can pick
+		}
+	});
+}
+
+/** Move a file into the device-local conflicts folder (never deleted). */
+function setAside(from: string, name: string): void {
+	fs.mkdirSync(CONFLICTS_DIR, { recursive: true });
+	const to = path.join(CONFLICTS_DIR, name);
+	try {
+		fs.renameSync(from, to);
+	} catch (err) {
+		if ((err as NodeJS.ErrnoException).code !== "EXDEV") throw err;
+		fs.copyFileSync(from, to);
+		fs.unlinkSync(from);
+	}
+}
+
+/**
+ * Keep one version of a conflicted session: "current" (the session file)
+ * or the file name of one of its conflict copies. Every other version moves
+ * to the conflicts folder. False when `keep` names no copy of this session.
+ */
+function resolveConflict(id: string, keep: string): boolean {
+	const copies = listConflicts(id).map((c) => c.file);
+	if (keep !== "current" && !copies.includes(keep)) return false;
+	if (keep !== "current") {
+		setAside(chatFile(id), `${id}.replaced-${new Date().toISOString().replace(/[:.]/g, "-")}.json`);
+		fs.renameSync(path.join(PATHS.chats, keep), chatFile(id));
+	}
+	for (const copy of copies) if (copy !== keep) setAside(path.join(PATHS.chats, copy), copy);
+	emit("chats-changed", {});
+	return true;
+}
+
 /** Persist the session plan tree (plan tools call this in execute). */
 function saveTree(id: string, tree: PlanTree): void {
 	const record = getChat(id);
@@ -223,6 +287,8 @@ export const chatStore: ChatStore = {
 	saveTree,
 	saveSettings,
 	setActiveTurn,
+	listConflicts,
+	resolveConflict,
 	renameChat,
 	deleteChat,
 	appendTurnUsage,

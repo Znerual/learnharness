@@ -68,6 +68,15 @@ export interface ChatRecord {
 /** The chat record format this build writes and understands. */
 export const CURRENT_CHAT_VERSION = 1;
 
+/** One conflict copy of a session (multi-device, GLOSSARY "Conflict copy"):
+ *  the version a sync tool kept beside the session file. */
+export interface ChatConflict {
+	/** Its file name in the sessions folder. */
+	file: string;
+	updatedAt: string;
+	messageCount: number;
+}
+
 /** ChatRecord.activeTurn — which device runs this session's turn. */
 export interface ActiveTurn {
 	deviceId: string;
