@@ -19,7 +19,7 @@
  *
  *   preserve-graph  the ledgers keep everything: nodes and chains stay
  *                   byte-identical, and so does the extraction bookkeeping
- *                   (multi-device, owner Q48: a session continued on another
+ *                   (multi-device, owner, 2026-10-30: a session continued on another
  *                   device must not re-extract its old messages, so its
  *                   coverage and checkpoint rows stay in both modes).
  *                   The graph keeps the session's contributions; the
@@ -127,7 +127,7 @@ export function purgeChat(ledgers: Ledgers, chatId: string, mode: ChatDeleteMode
 	}
 	const covered = writtenBy(at);
 	// The extraction bookkeeping (coverage, checkpoints) stays in both
-	// modes (owner Q48): a session that comes back from another device must
+	// modes (owner, 2026-10-30): a session that comes back from another device must
 	// not re-extract — and so resurrect — what this deletion removed.
 	const stats: ChatDeletionStats = { ...EMPTY_STATS };
 	const unchanged = ledgers;
@@ -227,7 +227,7 @@ export function purgeChat(ledgers: Ledgers, chatId: string, mode: ChatDeleteMode
 /** PURE: full death of one node — or one argument, by its arg_ id (the
  *  rules below). An argument dies with every assertion of the same
  *  (premises, conclusion), whatever arg_ id another device minted for it
- *  (owner Q50); `argument` names it when the id's own lines are gone.
+ *  (owner, 2026-10-30); `argument` names it when the id's own lines are gone.
  *  Null when no such node/chain exists. */
 export function purgeNode(
 	ledgers: Ledgers,

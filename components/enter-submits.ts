@@ -76,3 +76,11 @@ export function useEnterSubmits(submit: () => void): void {
 		return () => window.removeEventListener("keydown", onKey);
 	}, []);
 }
+
+/** Does this Enter submit a multi-line field? Enter submits and Shift+Enter
+ *  is a newline — except in the Android app, whose soft keyboard has no
+ *  Shift+Enter: there Enter is a newline and the button submits (owner,
+ *  2026-10-30). ⌘/Ctrl+Enter submits everywhere. */
+export function enterSubmits(e: { key: string; shiftKey: boolean; metaKey: boolean; ctrlKey: boolean }, android: boolean): boolean {
+	return e.key === "Enter" && (e.metaKey || e.ctrlKey || (!e.shiftKey && !android));
+}

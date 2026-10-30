@@ -63,7 +63,7 @@ test("a switch synced in from another device shows up on the next read", () => {
 	assert.deepEqual(settingsStore.readSettings()?.agent?.prompts, { [SEGMENT]: true });
 });
 
-test("when another device's switches arrived first, the migration merges: on in either stays on (owner Q52)", async () => {
+test("when another device's switches arrived first, the migration merges: on in either stays on (owner, 2026-10-30)", async () => {
 	const { migratePromptSwitches } = await import("../src/store/settings.ts");
 	fs.writeFileSync(SWITCHES, JSON.stringify({ "teacher/30-question-principles.md": true, [SEGMENT]: false }));
 	fs.writeFileSync(path.join(LOCAL, "settings.json"), JSON.stringify({ version: 1, agent: { prompts: { [SEGMENT]: true } } }));

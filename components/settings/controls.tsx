@@ -71,7 +71,7 @@ export function SettingsRow({
 	dimmed?: boolean;
 }) {
 	return (
-		// The Android app stacks the label above its control (owner Q62).
+		// The Android app stacks the label above its control (owner, 2026-10-30).
 		<div data-testid={testid} className={cn("flex items-center justify-between gap-4 py-1 android:flex-col android:items-stretch android:gap-1.5", dimmed && "opacity-40")}>
 			<span className="min-w-0">
 				<span className="block font-prose text-(length:--lh-prose-size)">{label}</span>

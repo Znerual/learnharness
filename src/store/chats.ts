@@ -224,7 +224,7 @@ function renameChat(id: string, title: string): ChatRecord {
 function deleteChat(id: string): boolean {
 	try {
 		fs.unlinkSync(chatFile(id));
-		// Its conflict copies go with it — set aside, never deleted (owner Q53).
+		// Its conflict copies go with it — set aside, never deleted (owner, 2026-10-30).
 		try {
 			for (const copy of listConflicts(id)) setAside(path.join(PATHS.chats, copy.file), copy.file);
 		} catch (err) {

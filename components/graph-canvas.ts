@@ -295,7 +295,7 @@ const PICKING_PAD = 10;
 
 /** Click vs drag threshold: pointer travel under this many px is a click. */
 const CLICK_SLOP = 4;
-/** A finger wobbles more than a mouse (owner Q63): a touch tap tolerates this much. */
+/** A finger wobbles more than a mouse (owner, 2026-10-30): a touch tap tolerates this much. */
 const TOUCH_CLICK_SLOP = 10;
 const clickSlop = (e: PointerEvent): number => (e.pointerType === "touch" ? TOUCH_CLICK_SLOP : CLICK_SLOP);
 /** Live-sim tuning — see the class doc comment. */

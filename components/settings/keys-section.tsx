@@ -481,7 +481,7 @@ export function KeysSection({
 				</div>}
 			</SettingsGroup>
 
-			{/* Subscription logins run in the desktop shell only (owner Q30) —
+			{/* Subscription logins run in the desktop shell only (owner, 2026-10-30) —
 			    the Android app hides them. */}
 			{!android && (
 			<SettingsGroup label="Subscriptions" testid="group-subscriptions">

@@ -43,8 +43,9 @@ import { useAppearance } from "./appearance.tsx";
 import { SettingsSection } from "./controls.tsx";
 import { UpdateSettings } from "./update-settings.tsx";
 import { DeviceSettings } from "./device-settings.tsx";
-import { useAndroidShell } from "@/components/android-shell";
-import { SessionStatsSection, sessionStatsNow, useSessionStats } from "@/components/stats-bar";
+import { useAndroidShell, useAndroidBack } from "@/components/android-shell";
+import { SessionStatsSection } from "@/components/stats-bar";
+import { sessionStatsNow, useSessionStats } from "@/components/session-stats";
 import { AgentSection } from "./agent-section.tsx";
 import type { ModelsSettings } from "@/src/core";
 import { MENU_CLOSE_EVENT, MENU_OPEN_EVENT } from "@/components/menu-shell";
@@ -60,7 +61,7 @@ import { NativeSubscriptionUIProvider } from "./subscription-connections.tsx";
  *  prose is out; only the keyboard note stays (storage location is a
  *  real question users ask). */
 const SECTIONS = [
-	// Android app only, inside a session (owner Q65): context, cost, thinking.
+	// Android app only, inside a session (owner, 2026-10-30): context, cost, thinking.
 	{ id: "session", label: "This session" },
 	{ id: "keys", label: "Providers" },
 	{ id: "agent", label: "Agent" },
@@ -87,6 +88,8 @@ export function SettingsDialogProvider({
 	children: React.ReactNode;
 }) {
 	const [show, setShow] = useState(false);
+	// Android back closes the dialog first (owner, 2026-10-30).
+	useAndroidBack(show, () => setShow(false));
 	const [landOn, setLandOn] = useState<SectionId>("keys");
 	const [landOnRow, setLandOnRow] = useState<string | null>(null);
 	const android = useAndroidShell();
@@ -190,6 +193,10 @@ export function SettingsDialogBody({
 	const android = useAndroidShell();
 	const sessionStats = useSessionStats();
 	const sections = SECTIONS.filter((s) => s.id !== "session" || (android && sessionStats));
+	// Leaving the session with the dialog open drops This session — land on Providers.
+	useEffect(() => {
+		if (active === "session" && !sessionStats) setActive("keys");
+	}, [active, sessionStats]);
 	// A deep-link fired while the dialog is ALREADY open (first exercised by
 	// the wave-6 embedding picker's "Add a provider key first…" link — the
 	// picker itself died with wave 7, the mechanism is general) changes
@@ -277,7 +284,7 @@ export function SettingsDialogBody({
 			aria-modal="true"
 			aria-label="Settings"
 			data-testid="settings-dialog"
-			// The Android app: full screen (owner Q62).
+			// The Android app: full screen (owner, 2026-10-30).
 			className="settings-dialog-pop flex h-[620px] max-h-[85vh] w-[920px] max-w-[90vw] flex-col overflow-hidden rounded-md border border-border bg-card shadow-xl android:h-dvh android:max-h-none android:w-screen android:max-w-none android:rounded-none android:border-0"
 			onClick={(e) => e.stopPropagation()}
 		>
@@ -316,7 +323,7 @@ export function SettingsDialogBody({
 				<nav
 					aria-label="Settings sections"
 					data-testid="settings-nav"
-					// The Android app: a row of tabs that scrolls sideways (owner Q62).
+					// The Android app: a row of tabs that scrolls sideways (owner, 2026-10-30).
 					className="flex w-44 shrink-0 flex-col gap-1 border-r border-border p-2 android:w-full android:flex-row android:overflow-x-auto android:border-r-0 android:border-b"
 				>
 					{sections.map((s) => (

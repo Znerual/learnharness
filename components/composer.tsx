@@ -4,6 +4,7 @@ import { ArrowRightIcon, CornerDownLeftIcon, SquareIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Hint } from "@/components/ui/hint";
 import { useAndroidShell } from "@/components/android-shell";
+import { enterSubmits } from "@/components/enter-submits";
 import { isCoarsePointer } from "@/components/touch";
 
 /**
@@ -112,14 +113,14 @@ export function Composer({
 					// ⌘/Ctrl+Enter also sends — the universal submit shortcut
 					// across every input in the app (thinking field, answers).
 					// In the Android app a soft keyboard has no Shift+Enter:
-					// Enter is a newline there and the button sends (owner Q60).
-					if (e.key === "Enter" && (e.metaKey || e.ctrlKey || (!e.shiftKey && !android))) {
+					// Enter is a newline there and the button sends (owner, 2026-10-30).
+					if (enterSubmits(e, android)) {
 						e.preventDefault();
 						act();
 					}
 				}}
 				placeholder={placeholder}
-				// No keyboard popping up on load on a touch device (owner Q64).
+				// No keyboard popping up on load on a touch device (owner, 2026-10-30).
 				autoFocus={autoFocus && !isCoarsePointer()}
 				rows={1}
 				className="field-sizing-content lh-input max-h-48 min-h-10 flex-1 resize-none bg-transparent px-2.5 py-2 outline-none placeholder:text-muted-foreground"

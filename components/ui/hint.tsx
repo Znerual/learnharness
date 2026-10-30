@@ -45,7 +45,7 @@ export function hintText(label: string, action?: KeyAction, binding?: string): s
 }
 
 export function Hint({ label, action, binding, side = "top", children }: HintProps) {
-	// The Android app has no keyboard shortcuts: hints carry no shortcut text (owner Q59).
+	// The Android app has no keyboard shortcuts: hints carry no shortcut text (owner, 2026-10-30).
 	const android = useAndroidShell()
 	if (android) {
 		action = undefined

@@ -77,7 +77,7 @@ import { MenuShell } from "@/components/menu-shell.tsx";
 import { DeleteNodeDialog } from "@/components/delete-node-dialog.tsx";
 import { ChainTableOverlay } from "@/components/chain-table.tsx";
 import { Hint } from "@/components/ui/hint";
-import { useAndroidShell } from "@/components/android-shell";
+import { useAndroidShell, useAndroidBack } from "@/components/android-shell";
 import { VaultSyncButton } from "@/components/vault-sync";
 import {
 	ARROW_LENGTH_LADDER,
@@ -868,7 +868,7 @@ export function GraphChromeRow({
 	 *  2026-09-29). */
 	onOpenChains: () => void;
 }) {
-	// The Android app: icon-only buttons, and search opens from an icon (owner Q63).
+	// The Android app: icon-only buttons, and search opens from an icon (owner, 2026-10-30).
 	const android = useAndroidShell();
 	const [searchOpen, setSearchOpen] = useState(false);
 	const searchCollapsed = android && !searchOpen && !query;
@@ -1101,6 +1101,9 @@ export function GraphView({
 	// The chain table overlay (chains-overlay plan, 2026-09-29) —
 	// component-local: a browsing surface, not graph state.
 	const [chainsOpen, setChainsOpen] = useState(false);
+	// Android back closes the node sheet, then the chain table (owner, 2026-10-30).
+	useAndroidBack(chainsOpen, () => setChainsOpen(false));
+	useAndroidBack(selected !== null, () => setSelected(null));
 	// PRACTICE SELECT (2026-10-04): the parent's chip drives the select
 	// mode; closing (either the picker's confirm or its X) reports back so
 	// the chip's open state and the table's never disagree.
@@ -1510,7 +1513,7 @@ export function GraphView({
 		const card = cardRef.current;
 		const container = containerRef.current;
 		if (!selected || !card || !container) return;
-		// The Android app: a full-width sheet at the bottom (owner Q63).
+		// The Android app: a full-width sheet at the bottom (owner, 2026-10-30).
 		if (android) {
 			card.style.left = "";
 			card.style.top = "";

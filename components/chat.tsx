@@ -83,7 +83,7 @@ import { slotsConfigured, type ModelsSettings } from "@/src/core";
 import { useSettingsSaved } from "@/components/settings-signal";
 import { OwnedElsewhereBanner, type OwnedElsewhere } from "@/components/owned-elsewhere";
 import { SessionConflicts } from "@/components/session-conflicts";
-import { useAndroidShell } from "@/components/android-shell";
+import { useAndroidShell, useAndroidBack } from "@/components/android-shell";
 import type { ChatConflict } from "@/src/core";
 
 /** One width for everything: transcript, cards, and the bottom blob share this column. */
@@ -908,6 +908,10 @@ export function Chat({
 	// overlay shell as mermaid, but carrying the raw svg + the card's invert
 	// state so the fullscreen view stays faithful to the toggled card.
 	const [figureFocus, setFigureFocus] = useState<{ svg: string; inverted: boolean } | null>(null);
+	// Android back closes the open overlay first (owner, 2026-10-30).
+	useAndroidBack(planOpen, () => setPlanOpen(false));
+	useAndroidBack(mermaidFocus !== null, () => setMermaidFocus(null));
+	useAndroidBack(figureFocus !== null, () => setFigureFocus(null));
 
 	// Overlay mirrors for the layered-Esc gate (owner 2026-10-04): the
 	// lh:kbd-abort-turn handler reads these at EVENT time — declared here
@@ -1723,7 +1727,7 @@ export function Chat({
 						<>
 						{/* Esc dismisses a question or problem on desktop; the
 						    Android app has no Esc, so it gets a button for the
-						    same confirm flow (owner Q59). */}
+						    same confirm flow (owner, 2026-10-30). */}
 						{android && (pending || activeProblem) && (
 							<div className="pointer-events-auto mb-2 flex justify-end">
 								<button

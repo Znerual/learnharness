@@ -82,7 +82,7 @@ test("a keep that names no conflict copy of this session is refused", async () =
 	}
 });
 
-test("deleting a session moves its conflict copies aside instead of leaving them behind (owner Q53)", () => {
+test("deleting a session moves its conflict copies aside instead of leaving them behind (owner, 2026-10-30)", () => {
 	const { id, name } = conflicted("deleted with a copy");
 	assert.equal(stores.chatStore.deleteChat(id), true);
 	assert.equal(fs.existsSync(chatPath(name)), false);

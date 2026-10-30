@@ -137,7 +137,7 @@ export const CURRENT_GRAPH_FORMAT_VERSION = 2;
  *  the deletion contributes again); node and chain deletions are permanent.
  *  A chain deletion names the argument's premises and conclusion too: it
  *  removes every assertion of that argument, whichever device minted which
- *  arg_ id for it (owner Q50). */
+ *  arg_ id for it (owner, 2026-10-30). */
 export type GraphDeletion =
 	| { type: "session"; chatId: string; mode: "preserve-graph" | "delete-nodes"; at: string }
 	| { type: "node"; id: string; at: string }

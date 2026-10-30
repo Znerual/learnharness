@@ -78,7 +78,7 @@ export function DictationEngineRows() {
 
 	return (
 		<>
-			<div className="flex items-center justify-between gap-3 px-1 py-1.5" data-testid="dictation-engine-row">
+			<div className="flex items-center justify-between gap-3 px-1 py-1.5 android:flex-col android:items-stretch android:gap-1.5" data-testid="dictation-engine-row">
 				<span className="font-ui text-xs text-foreground">Dictation engine</span>
 				<span className="flex items-center gap-1" role="radiogroup" aria-label="Dictation engine">
 					{(["deepgram", "local"] as const).map((engine) => (

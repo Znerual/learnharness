@@ -736,7 +736,7 @@ describe("session deletion (deleteChatTraces + deleteChatSession, wave 6)", () =
 			nodesRemoved: 1,
 			chainsRemoved: 1,
 		} satisfies ChatDeletionStats);
-		// The extraction bookkeeping stays (owner Q48): a session continued on
+		// The extraction bookkeeping stays (owner, 2026-10-30): a session continued on
 		// another device must not re-extract what this deletion removed.
 		assert.equal(graphStore.readCoverage().filter((row) => row.chatId === dA.id).length, 2);
 
@@ -779,7 +779,7 @@ describe("session deletion (deleteChatTraces + deleteChatSession, wave 6)", () =
 		assert.deepEqual(deleteChatTraces(graphStore, dA.id, "delete-nodes"), { nodesRemoved: 0, chainsRemoved: 0 } satisfies ChatDeletionStats);
 	});
 
-	it("preserve-graph: the ledgers keep everything — graph and extraction bookkeeping alike (owner Q48)", () => {
+	it("preserve-graph: the ledgers keep everything — graph and extraction bookkeeping alike (owner, 2026-10-30)", () => {
 		const { dA, dB, xId, yId, zId } = buildTwoSessionScenario();
 		const before = {
 			nodes: graphStore.readNodes(),

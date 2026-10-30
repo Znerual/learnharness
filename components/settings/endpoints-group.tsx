@@ -264,7 +264,7 @@ function EndpointEditor({
 
 	return (
 		<div data-testid={`${testid}-editor`} className="flex flex-col gap-2 rounded-sm border border-border/60 p-2">
-			<div className="grid grid-cols-[6rem_1fr] items-center gap-x-2 gap-y-1.5 text-xs">
+			<div className="grid grid-cols-[6rem_1fr] items-center gap-x-2 gap-y-1.5 text-xs android:grid-cols-1">
 				<label className="font-ui text-muted-foreground" htmlFor={`${testid}-name`}>Name</label>
 				<div className="flex items-center gap-2">
 					<input

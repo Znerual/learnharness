@@ -89,7 +89,7 @@ export function ModelControl({
 	chatId?: string;
 	onModelChange?: (model: string | undefined) => void;
 	/** "thinking": only the thinking control — Settings → This session in the
-	 *  Android app, whose composer bar hides it (owner Q65). */
+	 *  Android app, whose composer bar hides it (owner, 2026-10-30). */
 	part?: "both" | "thinking";
 }) {
 	const { catalog, refresh } = useModelCatalog();
@@ -364,7 +364,7 @@ export function ModelControl({
 				<button
 				type="button"
 				data-testid="stats-thinking"
-				// The Android app sets the thinking level in Settings → This session (owner Q65).
+				// The Android app sets the thinking level in Settings → This session (owner, 2026-10-30).
 				onClick={() => {
 					// No model picked → nothing to set a level FOR: the click
 					// is a no-op, never an empty menu.

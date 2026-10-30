@@ -170,7 +170,7 @@ export function MermaidOverlay({
 			userAdjustedRef.current = true;
 		};
 		el.addEventListener("wheel", onWheel, { passive: false });
-		// Touch: two-finger pinch, the wheel's twin (owner Q66).
+		// Touch: two-finger pinch, the wheel's twin (owner, 2026-10-30).
 		const detachPinch = attachPinchZoom(el, (factor, focus) => {
 			setView((v) => zoomedGraphView(v, factor, fitZoom, focus, box, size));
 			userAdjustedRef.current = true;

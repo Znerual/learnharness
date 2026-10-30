@@ -22,7 +22,7 @@ import { useServerEvent, useServerResync } from "@/components/server-events";
 import type { ChatListItem } from "@/src/core";
 import { kbdEventForAction } from "@/src/core";
 import { notifySettingsSaved } from "@/components/settings-signal";
-import { useAndroidShell } from "@/components/android-shell";
+import { useAndroidBack, useAndroidShell } from "@/components/android-shell";
 
 /**
  * Toggleable sidebar — NOT a modal drawer: no backdrop, no focus theft. It
@@ -82,7 +82,7 @@ declare global {
 	}
 }
 
-/** Android drawer gestures (owner Q57): a swipe opens from this close to
+/** Android drawer gestures (owner, 2026-10-30): a swipe opens from this close to
  *  the left edge, and counts once it travels this far sideways. */
 const EDGE_SWIPE_PX = 24;
 const SWIPE_PX = 50;
@@ -135,7 +135,7 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 
 		const stored = localStorage.getItem(STORAGE_KEY);
 		// Default: open (first run introduces the sidebar). The Android app's
-		// drawer always starts closed (owner Q57).
+		// drawer always starts closed (owner, 2026-10-30).
 		setOpen(android ? false : stored === null ? true : stored === "1");
 		setMounted(true);
 		return () => off?.();
@@ -171,23 +171,20 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 		});
 	}, [narrow, open, android]);
 	const close = useCallback(() => setOpen(false), []);
+	const openRef = useRef(open);
+	openRef.current = open;
 
-	// THE ANDROID DRAWER (owner Q57): ☰ opens it; a swipe right from the
+	// THE ANDROID DRAWER (owner, 2026-10-30): ☰ opens it; a swipe right from the
 	// left edge opens it, a swipe left closes it; the backdrop, the back
-	// button (the shell asks window.lhAndroidBack first) and any navigation
-	// close it.
+	// button (the back stack, components/android-shell.tsx) and any
+	// navigation close it.
+	useAndroidBack(android && open, close);
 	const pathname = usePathname();
 	useEffect(() => {
 		if (android) setOpen(false);
 	}, [android, pathname]);
 	useEffect(() => {
 		if (!android) return;
-		const w = window as typeof window & { lhAndroidBack?: () => boolean };
-		w.lhAndroidBack = () => {
-			if (!openRef.current) return false;
-			setOpen(false);
-			return true;
-		};
 		let start: { x: number; y: number } | null = null;
 		const onStart = (e: TouchEvent) => {
 			const t = e.touches[0];
@@ -205,13 +202,10 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 		window.addEventListener("touchstart", onStart, { passive: true });
 		window.addEventListener("touchmove", onMove, { passive: true });
 		return () => {
-			delete w.lhAndroidBack;
 			window.removeEventListener("touchstart", onStart);
 			window.removeEventListener("touchmove", onMove);
 		};
 	}, [android]);
-	const openRef = useRef(open);
-	openRef.current = open;
 
 	// ⌘B: the global shortcut dispatches kbdEventForAction("toggle-sidebar")
 	// and the context answers on exactly that name — the shared spelling
@@ -249,7 +243,7 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 export function SidebarToggle() {
 	const sidebar = useSidebar();
 	const { toggle } = sidebar;
-	// The Android drawer overlays the page, so its ☰ always stays (owner Q57).
+	// The Android drawer overlays the page, so its ☰ always stays (owner, 2026-10-30).
 	const open = sidebar.open && !useAndroidShell();
 	return (
 		<span
@@ -703,7 +697,7 @@ function SessionsSidebar() {
 			className={cn(
 				"sidebar-motion shrink-0 overflow-hidden duration-200",
 				open ? "w-72" : "w-0",
-				// The Android drawer (owner Q57): over the page, not beside it.
+				// The Android drawer (owner, 2026-10-30): over the page, not beside it.
 				"android:fixed android:inset-y-0 android:left-0 android:z-50 android:w-72 android:max-w-[85vw] android:transition-transform",
 				open ? "android:translate-x-0" : "android:-translate-x-full",
 			)}
@@ -1016,7 +1010,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 			{/* The single document-level keydown listener (keyboard wave A) —
 			    after the content in the tree, but it's window-level so order only
 			    matters for the events it dispatches, never for DOM priority.
-			    The Android app has no shortcuts and no cheat sheet (owner Q59). */}
+			    The Android app has no shortcuts and no cheat sheet (owner, 2026-10-30). */}
 			{!android && <KeyboardShortcuts />}
 		</SettingsDialogProvider>
 	);

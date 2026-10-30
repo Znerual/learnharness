@@ -123,7 +123,7 @@ describe("deletion records", () => {
 		assert.deepEqual({ ...record, at: "" }, { type: "session", chatId: chat, mode: "delete-nodes", at: "" });
 		for (const store of [a, b]) {
 			assert.equal(getGraph(store).nodes.length, 0);
-			assert.equal(store.readCoverage().length, 1, "the coverage stays: a returning session does not re-extract (owner Q48)");
+			assert.equal(store.readCoverage().length, 1, "the coverage stays: a returning session does not re-extract (owner, 2026-10-30)");
 		}
 	});
 
@@ -156,7 +156,7 @@ describe("deletion records", () => {
 });
 
 describe("argument deletion across devices", () => {
-	it("deleting an argument removes its twin that another device asserted under a different id (owner Q50)", () => {
+	it("deleting an argument removes its twin that another device asserted under a different id (owner, 2026-10-30)", () => {
 		const { a, b } = freshFolder();
 		const node = (id: string): GraphNode => ({ id, name: id, statement: `statement ${id}`, aliases: [], createdAt: "2026-09-30T00:00:00.000Z", provenance: [{ chatId: "chat_t", messageId: "" }] });
 		for (const id of ["n_p", "n_q"]) a.appendNode(node(id));

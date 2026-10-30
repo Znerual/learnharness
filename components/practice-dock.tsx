@@ -1,13 +1,13 @@
 "use client";
 
-import { useAndroidShell } from "@/components/android-shell";
 import { useCallback, useRef, useState } from "react";
 import { ChevronRightIcon } from "lucide-react";
 import { ToolContentResponse } from "@/components/ai-elements/message";
 import { Button } from "@/components/ui/button";
 import { joinDictation, useDictationTarget } from "@/components/dictation";
-import { useEnterSubmits } from "@/components/enter-submits";
+import { useEnterSubmits, enterSubmits } from "@/components/enter-submits";
 import { cn } from "@/lib/utils";
+import { useAndroidShell } from "@/components/android-shell";
 
 /**
  * The practice dock (practice sessions, owner design 2026-10-04): an
@@ -141,7 +141,7 @@ export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmi
 						// Enter SENDS — the single lane (owner round 2, 2026-10-05);
 						// Shift+Enter is the newline, ⌘/Ctrl+Enter the chord too.
 						// The Android app: Enter is a newline, the button sends (owner).
-						if (e.key === "Enter" && ((!e.shiftKey && !android) || e.metaKey || e.ctrlKey)) {
+						if (enterSubmits(e, android)) {
 							e.preventDefault();
 							submit();
 						}

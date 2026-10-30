@@ -12,6 +12,7 @@ import { DictationBar, joinDictation, useDictation } from "@/components/dictatio
 import { useFieldCycle } from "@/components/field-cycle";
 import { SidebarToggle } from "@/components/sidebar";
 import { useAndroidShell } from "@/components/android-shell";
+import { enterSubmits } from "@/components/enter-submits";
 import { isCoarsePointer } from "@/components/touch";
 import { StatsBar } from "@/components/stats-bar";
 import type { TurnUsage } from "@/src/core";
@@ -268,14 +269,14 @@ export function Home({
 								dictation.cancel();
 								return;
 							}
-							// Android app: Enter is a newline, the button starts (owner Q60).
-							if (e.key === "Enter" && !e.shiftKey && !android) {
+							// Android app: Enter is a newline, the button starts (owner, 2026-10-30).
+							if (enterSubmits(e, android)) {
 								e.preventDefault();
 								void start();
 							}
 						}}
 						placeholder={mode === "practice" ? "What do you want to practice?" : "What do you want to learn?"}
-						// No keyboard popping up on load on a touch device (owner Q64).
+						// No keyboard popping up on load on a touch device (owner, 2026-10-30).
 						autoFocus={!isCoarsePointer()}
 						rows={1}
 						className="field-sizing-content lh-input max-h-48 min-h-10 flex-1 resize-none bg-transparent px-2.5 py-2 outline-none placeholder:text-muted-foreground"

@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { subscriptionLabels, subscriptionLabel, type SessionPricing, type TurnUsage } from "@/src/core";
 import { formatTokens, formatUsd, planCostLabel, prettyModel } from "@/components/usage-format";
 import { ModelControl, catalogLimits, useModelCatalog } from "@/components/model-picker";
+import { publishSessionStats, type SessionStats } from "@/components/session-stats";
 
 export function formatContextMeasurement(tokens: number | null, limit: number | null): string {
 	const numerator = tokens === null ? "?" : formatTokens(tokens);
@@ -81,7 +82,7 @@ export function StatsBar({
 	}, [open]);
 	const labels = useStatsLabels(turns, contextTokens, pricing, selectedModel);
 	const { contextLabel, costLabel } = labels;
-	// The Android app shows these in Settings → This session (owner Q65):
+	// The Android app shows these in Settings → This session (owner, 2026-10-30):
 	// the in-session bar publishes what it knows for that section.
 	useEffect(() => {
 		if (!chatId) return;
@@ -110,7 +111,7 @@ export function StatsBar({
 			{/* The left side: the session-data summary — only once a session
 			    exists (turns). Pre-chat renders nothing (see the header). */}
 			{(chatId || turns.length > 0) && (
-			// The Android app shows context and cost in Settings → This session (owner Q65).
+			// The Android app shows context and cost in Settings → This session (owner, 2026-10-30).
 			<div ref={barRef} className="relative android:hidden">
 				{/* No tooltip — the numbers describe themselves and the popover
 			    speaks on click (owner, subtlety round 2026-09-25). */}
@@ -223,40 +224,7 @@ function StatsDetail({ turns, pricing, labels }: { turns: TurnUsage[]; pricing?:
 	);
 }
 
-/** What the in-session bar knows, for Settings → This session. */
-export interface SessionStats {
-	chatId: string;
-	turns: TurnUsage[];
-	contextTokens: number | null;
-	pricing?: SessionPricing;
-	selectedModel?: string;
-}
-
-let sessionStats: SessionStats | null = null;
-const statsListeners = new Set<() => void>();
-function publishSessionStats(next: SessionStats | null): void {
-	sessionStats = next;
-	for (const listener of statsListeners) listener();
-}
-
-/** The open session's stats right now (non-reactive). */
-export function sessionStatsNow(): SessionStats | null {
-	return sessionStats;
-}
-
-/** The open session's stats, or null outside a session. */
-export function useSessionStats(): SessionStats | null {
-	return useSyncExternalStore(
-		(listener) => {
-			statsListeners.add(listener);
-			return () => statsListeners.delete(listener);
-		},
-		() => sessionStats,
-		() => null,
-	);
-}
-
-/** Settings → This session (Android app, owner Q65): context, cost, the
+/** Settings → This session (Android app, owner, 2026-10-30): context, cost, the
  *  per-turn spend, and the session's thinking level. */
 export function SessionStatsSection({ stats }: { stats: SessionStats }) {
 	const labels = useStatsLabels(stats.turns, stats.contextTokens, stats.pricing, stats.selectedModel);

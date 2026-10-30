@@ -339,6 +339,7 @@ export class SessionModel {
 			body,
 			signal,
 		};
+		announceAndroidWork();
 		let response = await this.fetch("/api/chat", init);
 		let waited = 0;
 		while (response.status === 409) {
@@ -918,4 +919,13 @@ export class SessionModel {
 	clearError(): void {
 		this.setError(null);
 	}
+}
+
+/** The Android app keeps a foreground service alive while work runs, and
+ *  Android only lets it start one while the app is on screen: a turn about
+ *  to start tells the app right away (owner, 2026-10-30). The bridge
+ *  exists only inside the Android app's WebView. */
+function announceAndroidWork(): void {
+	if (typeof window === "undefined") return;
+	(window as typeof window & { LHAndroid?: { workStarted?: () => void } }).LHAndroid?.workStarted?.();
 }

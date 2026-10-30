@@ -1,5 +1,5 @@
 /**
- * Two-finger pinch zoom for the pan/zoom overlays (owner Q66): the touch
+ * Two-finger pinch zoom for the pan/zoom overlays (owner, 2026-10-30): the touch
  * twin of their wheel zoom. Reports each step's scale factor and the
  * pinch midpoint in the element's own coordinates; the caller applies it
  * with the shared viewport math (pan-zoom.ts zoomedGraphView).
