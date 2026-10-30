@@ -1,4 +1,4 @@
-import { compactionInFlight, deleteChatSession, getChat, isTurnRunning, sessionCoverage, sessionCost, stores, turnFailure, type ChatDeleteMode } from "@/src/server";
+import { compactionInFlight, deleteChatSession, foreignOwner, getChat, isTurnRunning, sessionCoverage, sessionCost, stores, turnFailure, type ChatDeleteMode } from "@/src/server";
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
 	const { id } = await params;
@@ -23,6 +23,9 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 		turnError: turnFailure(id),
 		compacting: compactionInFlight(id),
 		coverage: sessionCoverage(id),
+		// Multi-device: work running on another device keeps this session
+		// read-only here (src/server/ownership.ts); null when nobody else does.
+		ownedElsewhere: foreignOwner(id),
 	});
 }
 

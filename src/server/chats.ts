@@ -8,6 +8,7 @@ import { stores } from "./stores.ts";
 import { isTurnRunning } from "./turn-liveness.ts";
 import { clearTurnFailure } from "./turn-runs.ts";
 import { discardChatDeliveries } from "./jobs.ts";
+import { foreignOwner } from "./ownership.ts";
 
 /**
  * Server-side chat entries for the transport layer (app/api/chats*,
@@ -35,7 +36,7 @@ const WIND_DOWN_POLL_MS = 50;
 /** What deleteChatSession did — the route maps it straight to HTTP. */
 export type ChatDeleteOutcome =
 	| { ok: false; status: 404; code: "not_found"; error: string }
-	| { ok: false; status: 409; code: "turn_in_flight" | "jobs_running"; error: string; jobIds: string[] }
+	| { ok: false; status: 409; code: "owned_elsewhere" | "turn_in_flight" | "jobs_running"; error: string; jobIds: string[] }
 	| { ok: false; status: 503; code: "extraction_winding_down"; error: string }
 	| {
 			ok: true;
@@ -69,6 +70,16 @@ export type ChatDeleteOutcome =
  *      nothing merged.
  */
 function runningWorkBlocker(chatId: string): Extract<ChatDeleteOutcome, { status: 409 }> | null {
+	const owner = foreignOwner(chatId);
+	if (owner) {
+		return {
+			ok: false,
+			status: 409,
+			code: "owned_elsewhere",
+			error: `This session is running on ${owner.deviceName} — try again when it finishes there`,
+			jobIds: [],
+		};
+	}
 	if (isTurnRunning(chatId)) {
 		return {
 			ok: false,

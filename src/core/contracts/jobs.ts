@@ -28,6 +28,12 @@ export interface JobRecord {
 	delivery?: { kind: "result" | "abort"; status: "pending" | "delivered" };
 	/** Worker computation only; a pending delivery does not keep it running. */
 	status: JobStatus;
+	/** The OWNING DEVICE (multi-device, GLOSSARY): the device whose server
+	 *  runs this job — only it re-runs or delivers it. Absent on records
+	 *  from before multi-device: treated as this device's. */
+	deviceId?: string;
+	/** That device's name when the job started, for "running on …". */
+	deviceName?: string;
 	/** Latest human-readable activity line, e.g. `web_search: "sigma.js v3"`. */
 	activity: string;
 	createdAt: string;

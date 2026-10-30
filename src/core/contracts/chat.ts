@@ -52,6 +52,11 @@ export interface ChatRecord {
 	extractions?: ExtractionRunUsage[];
 	/** Per-chat model/thinking overrides for the conversation agents. */
 	settings?: ChatSettings;
+	/** The OWNING DEVICE of the turn running now (multi-device, GLOSSARY):
+	 *  written at turn start, cleared when it settles. Another device keeps
+	 *  the session read-only while it is set; this device ignores its own
+	 *  leftover (a crash) — src/server/ownership.ts. */
+	activeTurn?: ActiveTurn;
 	/** SCHEMA STAMP (schema-versioning wave, owner 2026-10-10): LAZY v1 —
 	 *  existing records stay unstamped (absence reads as v1); every write
 	 *  stamps the current version. A record stamped NEWER than this build
@@ -62,6 +67,13 @@ export interface ChatRecord {
 
 /** The chat record format this build writes and understands. */
 export const CURRENT_CHAT_VERSION = 1;
+
+/** ChatRecord.activeTurn — which device runs this session's turn. */
+export interface ActiveTurn {
+	deviceId: string;
+	deviceName: string;
+	startedAt: string;
+}
 
 /** The conversation agents' runtime model choice (model-control wave,
  *  2026-09-12): a per-chat override of config.ts's pinned prober/teacher

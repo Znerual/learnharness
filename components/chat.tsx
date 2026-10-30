@@ -81,6 +81,7 @@ import { ReadingThinkingField } from "@/components/reading-thinking";
 import { currentUserThinkingOpen, setAllUserThinkingOpen } from "@/components/thinking-block";
 import { slotsConfigured, type ModelsSettings } from "@/src/core";
 import { useSettingsSaved } from "@/components/settings-signal";
+import { OwnedElsewhereBanner, type OwnedElsewhere } from "@/components/owned-elsewhere";
 
 /** One width for everything: transcript, cards, and the bottom blob share this column. */
 /**
@@ -204,6 +205,7 @@ export function Chat({
 	initiallyInFlight,
 	initiallyCompacting = false,
 	initialConfigured = false,
+	initialOwnedElsewhere = null,
 	kind = "teach",
 }: {
 	chatId: string;
@@ -228,7 +230,11 @@ export function Chat({
 	 *  it (BYOK, owner 2026-09-22). The server gate stays the truth; this
 	 *  only decides whether the pill rides the composer. */
 	initialConfigured?: boolean;
+	/** Another device runs this session (multi-device): the composer gives
+	 *  way to the read-only banner with its Takeover. */
+	initialOwnedElsewhere?: OwnedElsewhere | null;
 }) {
+	const [ownedElsewhere, setOwnedElsewhere] = useState<OwnedElsewhere | null>(initialOwnedElsewhere);
 	// Reattach plumbing (background-turn runner wave): the hook holds the
 	// settled terminal's callback — a stable ref assigned below, once
 	// syncFromServer exists (refs, not closures: no stale capture).
@@ -945,8 +951,9 @@ export function Chat({
 			try {
 				const res = await fetch(`/api/chats/${chatId}`);
 				if (!res.ok || cancelled) return;
-				const record = (await res.json()) as { turnInFlight?: boolean };
+				const record = (await res.json()) as { turnInFlight?: boolean; ownedElsewhere?: OwnedElsewhere | null };
 				if (cancelled) return;
+				setOwnedElsewhere(record.ownedElsewhere ?? null);
 				if (record.turnInFlight === true) setTurnInFlight(true);
 				else void syncFromServer();
 			} catch {
@@ -1664,6 +1671,16 @@ export function Chat({
 						)
 					}
 					composer={
+						ownedElsewhere ? (
+							<OwnedElsewhereBanner
+								chatId={chatId}
+								owner={ownedElsewhere}
+								onTakenOver={() => {
+									setOwnedElsewhere(null);
+									void syncFromServer();
+								}}
+							/>
+						) : (
 						<Composer
 							// Stop aborts ANY in-flight turn (stream-reattach wave): the
 							// square renders while a reattached/wake turn runs too — the
@@ -1684,6 +1701,7 @@ export function Chat({
 							onNext={sendNext}
 							placeholder={nextReady ? "Ask anything, or press Enter for the next one." : undefined}
 						/>
+						)
 					}
 					onSubmitAnswer={(output) => {
 						if (!pending) return;

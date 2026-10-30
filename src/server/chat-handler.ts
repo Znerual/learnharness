@@ -59,6 +59,18 @@ import {
 } from "../core/input-events.ts";
 import { steerDelivered } from "../core/contracts.ts";
 import type {CallUsage} from "../core/contracts.ts";
+import { claimTurn, foreignOwner, ownedElsewhereResponse, releaseTurn } from "./ownership.ts";
+
+/** Clear this device's turn marker beside endTurn — a failed write must
+ *  never break the settle (the marker is then this device's own leftover,
+ *  which this device ignores). */
+function safeReleaseTurn(chatId: string): void {
+	try {
+		releaseTurn(chatId);
+	} catch (err) {
+		console.error(`[chat ${chatId}] could not clear the turn's owning device:`, err);
+	}
+}
 
 /**
  * One chat turn over the server-owned native record. Framework-free (plain
@@ -185,6 +197,11 @@ export async function handleChatInput(
 	if (!record) {
 		return Response.json({ error: "Unknown chat" }, { status: 404 });
 	}
+	// THE OWNING DEVICE (multi-device): work running on another device keeps
+	// this session read-only here until it settles and syncs, or the learner
+	// takes over — first, before any gate with side effects.
+	const owner = foreignOwner(chatId);
+	if (owner) return ownedElsewhereResponse(owner);
 
 	// THE UNIVERSAL TURN GATE (BYOK, owner, 2026-09-22): a turn needs the
 	// CONVERSATION chain — the chat's own model override over the strong
@@ -310,6 +327,11 @@ export async function handleChatInput(
 		console.info(`[chat ${chatId}] turn already in flight — request rejected`);
 		return Response.json({ error: "A turn is already running for this session" }, { status: 409 });
 	}
+	try {
+		claimTurn(chatId); // other devices now see the session as running here
+	} catch (err) {
+		console.error(`[chat ${chatId}] could not mark the turn's owning device:`, err);
+	}
 
 	// Write-ahead persistence: the input's native appends go on disk BEFORE
 	// the turn starts - the learner's answer is durable the instant the
@@ -325,6 +347,7 @@ export async function handleChatInput(
 	} catch (err) {
 		console.error(`[chat ${chatId}] write-ahead persist failed:`, err);
 		endTurn(chatId);
+		safeReleaseTurn(chatId);
 		return new Response("Your input could not be saved. Please try again.", { status: 500 });
 	}
 	// Visibility bookkeeping is not the canonical save. Its failure must
@@ -519,6 +542,7 @@ export async function handleChatInput(
 				// after this turn has already failed and left the registry.
 				rememberTurnFailure(chatId, reportedErrorText ?? settlementErrorText(error));
 				endTurn(chatId);
+				safeReleaseTurn(chatId);
 				unregisterTurn(chatId);
 				unregisterLiveAgent(chatId);
 				// The canonical save may have succeeded before later bookkeeping
@@ -567,6 +591,7 @@ export async function handleChatInput(
 				// LAST: a poller that sees not-in-flight must read an already-persisted
 				// record — endTurn only after persistTurn has done its job.
 				endTurn(chatId);
+				safeReleaseTurn(chatId);
 				// And only then does the turn stop being a running object
 				// (background-turn wave, 2026-09-25): a reattach that finds
 				// nothing must find the persisted record current — the same
@@ -638,6 +663,7 @@ export async function handleChatInput(
 		// The stream never started, so no onFinish will fire — clear the registry
 		// or a malformed request would lock the chat until the TTL eviction.
 		endTurn(chatId);
+		safeReleaseTurn(chatId);
 		// Wave C: the live-agent registration (if it happened) dies with the
 		// turn here too - nothing was handed (the loop never ticked).
 		unregisterLiveAgent(chatId);

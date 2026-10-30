@@ -15,6 +15,7 @@ import { emit } from "../core/events.ts";
 import type { JobStore } from "../core/ports.ts";
 import type { CreateJobInit, JobPatch } from "../core/ports.ts";
 import type { JobRecord } from "../core/contracts.ts";
+import { deviceStore } from "./device.ts";
 
 /** Background jobs (data/jobs). Not in config.ts PATHS (orchestrator-owned). */
 const JOBS_DIR = path.join(PATHS.data, "jobs");
@@ -30,6 +31,7 @@ function jobFile(id: string): string {
  *  progress lines, settles, and aborts all surface as one fetch. */
 function createJob(init: CreateJobInit): JobRecord {
 	const now = new Date().toISOString();
+	const device = deviceStore.getDevice();
 	const record: JobRecord = {
 		id: `job_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 8)}`,
 		kind: init.kind,
@@ -37,6 +39,9 @@ function createJob(init: CreateJobInit): JobRecord {
 		toolCallId: init.toolCallId,
 		...(init.input !== undefined ? { input: init.input } : {}),
 		status: "running",
+		// The owning device (multi-device): only it re-runs or delivers this job.
+		deviceId: device.id,
+		deviceName: device.name,
 		activity: init.activity ?? "starting",
 		createdAt: now,
 		updatedAt: now,

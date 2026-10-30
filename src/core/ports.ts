@@ -11,6 +11,7 @@
 
 import type { LhMessage } from "./native-messages.ts";
 import type {
+	ActiveTurn,
 	ChatRecord,
 	ChatSettings,
 	ChatSummary,
@@ -55,6 +56,8 @@ export interface ChatStore {
 	/** Persist the per-chat model/thinking settings (the model control).
 	 *  Replace-whole: the picker sends the complete settings object. */
 	saveSettings(id: string, settings: ChatSettings): void;
+	/** Set or clear the turn's owning device (multi-device); updatedAt stays. */
+	setActiveTurn(id: string, activeTurn: ActiveTurn | null): void;
 	/** Rename a session (the header's click-to-edit title, 2026-09-17).
 	 * Like saveSettings: a rename is NOT conversation activity — updatedAt
 	 * stays put, so sidebar order never churns on a rename. */
