@@ -26,6 +26,7 @@
  * effect immediately. Plaintext never returns from the store.
  */
 
+import { useAndroidShell } from "@/components/android-shell";
 import { useEffect, useRef, useState } from "react";
 import { AUTH_KEYS, isEndpointKeyVar, type AuthKeyStatus } from "@/src/core";
 import { SettingsGroup } from "./controls.tsx";
@@ -348,6 +349,7 @@ export function KeysSection({
 }: {
 	initialRow?: string;
 }) {
+	const android = useAndroidShell();
 	const [statuses, setStatuses] = useState<AuthKeyStatus[] | null>(null);
 	const [providers, setProviders] = useState<ProviderKeyInfo[] | undefined>(undefined);
 	const [loading, setLoading] = useState(true);
@@ -479,9 +481,13 @@ export function KeysSection({
 				</div>}
 			</SettingsGroup>
 
+			{/* Subscription logins run in the desktop shell only (owner Q30) —
+			    the Android app hides them. */}
+			{!android && (
 			<SettingsGroup label="Subscriptions" testid="group-subscriptions">
 				<SubscriptionConnections />
 			</SettingsGroup>
+			)}
 
 			<EndpointsGroup
 				keyStatuses={statuses}

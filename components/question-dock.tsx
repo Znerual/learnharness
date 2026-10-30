@@ -1,5 +1,6 @@
 "use client";
 
+import { useAndroidShell } from "@/components/android-shell";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDownIcon, ChevronRightIcon, PlayIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -273,6 +274,7 @@ function QuestionDockForm({
 	dictationClaim = true,
 	compactionRunning = false,
 }: Omit<QuestionDockProps, "expanded" | "onExpand" | "reveal">) {
+	const android = useAndroidShell();
 	const kind = toolQuestionKind(toolName);
 
 	// Canonical QuestionData, built once per question. Quiz options are
@@ -877,7 +879,8 @@ function QuestionDockForm({
 								}
 								// Chat convention: Enter submits, Shift+Enter is a newline;
 								// ⌘/Ctrl+Enter also submits (universal across the app).
-								if (e.key === "Enter" && (e.metaKey || e.ctrlKey || !e.shiftKey)) {
+								// The Android app: Enter is a newline, the button submits (owner).
+								if (e.key === "Enter" && (e.metaKey || e.ctrlKey || (!e.shiftKey && !android))) {
 									e.preventDefault();
 									submit();
 								}
@@ -907,7 +910,7 @@ function QuestionDockForm({
 								// THE STANDARD CHORD (owner round 5, 2026-10-05): Enter
 								// submits, Shift+Enter is a newline, ⌘/Ctrl+Enter works
 								// too — identical to the practice dock and the composer.
-								if (e.key === "Enter" && (!e.shiftKey || e.metaKey || e.ctrlKey)) {
+								if (e.key === "Enter" && ((!e.shiftKey && !android) || e.metaKey || e.ctrlKey)) {
 									e.preventDefault();
 									submit();
 								}

@@ -1,5 +1,6 @@
 "use client";
 
+import { useAndroidShell } from "@/components/android-shell";
 import { useCallback, useRef, useState } from "react";
 import { ChevronRightIcon } from "lucide-react";
 import { ToolContentResponse } from "@/components/ai-elements/message";
@@ -49,6 +50,7 @@ export interface PracticeDockProps {
 }
 
 export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmit, onEscape, compactionRunning = false }: PracticeDockProps) {
+	const android = useAndroidShell();
 	const [thinking, setThinking] = useState("");
 	// Ref MIRRORS the field ("nothing gets lost", the question-dock
 	// discipline): a submit resuming after `await finishDictation()` reads
@@ -138,7 +140,8 @@ export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmi
 						}
 						// Enter SENDS — the single lane (owner round 2, 2026-10-05);
 						// Shift+Enter is the newline, ⌘/Ctrl+Enter the chord too.
-						if (e.key === "Enter" && (!e.shiftKey || e.metaKey || e.ctrlKey)) {
+						// The Android app: Enter is a newline, the button sends (owner).
+						if (e.key === "Enter" && ((!e.shiftKey && !android) || e.metaKey || e.ctrlKey)) {
 							e.preventDefault();
 							submit();
 						}
