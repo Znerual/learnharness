@@ -11,11 +11,11 @@
 import {
 	endpointKeyVar,
 	lmStudioV0Url,
-	normalizeBaseUrl,
 	parseLmStudioModels,
 	parseModelListing,
 	type EndpointModel,
 } from "../core/endpoints.ts";
+import { normalizeBaseUrl } from "../core/settings.ts";
 import { keyValue } from "./keys.ts";
 
 const DETECT_TIMEOUT_MS = 10_000;

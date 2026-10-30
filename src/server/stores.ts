@@ -13,6 +13,7 @@ import { createJobStore } from "../store/jobs.ts";
 import { migratePromptSwitches, settingsStore } from "../store/settings.ts";
 import { resolveSettings, type EffectiveSettings } from "../core/settings-resolution.ts";
 import { setCustomEndpointSource } from "../agent/models.ts";
+import { syncCustomProvider } from "./custom-provider.ts";
 import { migrateDeviceLocalData } from "../store/local-migration.ts";
 import { deviceStore } from "../store/device.ts";
 
@@ -51,3 +52,7 @@ setCustomEndpointSource(() => settingsStore.readSettings()?.endpoints?.list ?? [
 export function effectiveSettings(): EffectiveSettings {
 	return resolveSettings(settingsStore.readSettings());
 }
+
+// Boot: register the custom endpoint (when configured) into piModels(); the
+// POST /api/custom-provider route re-syncs after every connect.
+syncCustomProvider();

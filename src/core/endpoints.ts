@@ -20,6 +20,8 @@
  * chosen format (default qwen-chat-template), stored as pi's off/high.
  */
 
+import { normalizeBaseUrl } from "./settings.ts";
+
 /** How thinking on/off reaches the server (pi-ai's openai-completions
  *  thinkingFormat, narrowed to the on/off-capable ones), or "none" —
  *  never send thinking params; the model runs its own default. */
@@ -96,21 +98,6 @@ export function endpointKeyVar(id: string): string {
 /** Is this var name an endpoint key (any endpoint, stored or not)? */
 export function isEndpointKeyVar(name: string): boolean {
 	return /^LH_ENDPOINT_[A-Z0-9_]+_KEY$/.test(name);
-}
-
-/** A base URL the server can call: http(s), no query/fragment, trailing
- *  slashes trimmed. Returns null when unusable. */
-export function normalizeBaseUrl(raw: string): string | null {
-	const trimmed = raw.trim();
-	let url: URL;
-	try {
-		url = new URL(trimmed);
-	} catch {
-		return null;
-	}
-	if (url.protocol !== "http:" && url.protocol !== "https:") return null;
-	if (url.search || url.hash) return null;
-	return trimmed.replace(/\/+$/, "");
 }
 
 // ─── effective view ──────────────────────────────────────────────────────────

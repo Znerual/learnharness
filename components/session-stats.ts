@@ -1,7 +1,7 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import type { SessionPricing, TurnUsage } from "@/src/core";
+import type { cliContextWindowOf, SessionPricing, TurnUsage } from "@/src/core";
 
 /**
  * The open session's stats for Settings → This session (Android app,
@@ -14,6 +14,7 @@ export interface SessionStats {
 	chatId: string;
 	turns: TurnUsage[];
 	contextTokens: number | null;
+	cliContextWindow?: ReturnType<typeof cliContextWindowOf>;
 	pricing?: SessionPricing;
 	selectedModel?: string;
 }

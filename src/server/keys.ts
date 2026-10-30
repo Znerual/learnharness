@@ -43,6 +43,7 @@ import {
 	AUTH_KEYS,
 	AUTH_PROVIDER_KEYS,
 	AUTH_PROVIDER_ENV_VARS,
+	CUSTOM_PROVIDER,
 	type AuthKeyInfo,
 	type AuthKeyStatus,
 	genericProviderKeyGuard,
@@ -65,30 +66,21 @@ function isCustomEndpointId(provider: string): boolean {
 	return customEndpointIds().includes(provider);
 }
 import { isSubscriptionProvider, subscriptionConnected } from "../agent/subscription-connections.ts";
+import { customProviderAvailable, installCustomProviderSource } from "./custom-provider.ts";
+import { claudeCodeAvailable } from "./claude-code-config.ts";
+import { CLAUDE_CODE_PROVIDER } from "../agent/claude-code/constants.ts";
+import { CUSTOM_AUTH_BINDING } from "../core/custom-provider-auth.ts";
 
-// The once-per-process boot record — globalThis anchor (HMR re-imports the
-// module; the snapshot must not re-run and misread fill-gapped vars as real
-// env). Same pattern as globalThis.__lhExtractionRuns.
-interface AuthBoot {
-	/** Vars that were in the REAL env at first init — env precedence's
-	 *  untouchable set. Fill-gapped vars are everything else we set. */
-	realEnv: Set<string>;
-	/** Vars WE put into process.env (the file's reflection) — deletable. */
-	fillGap: Set<string>;
-}
-const BOOT_KEY = Symbol.for("lh.authBoot");
-
-function boot(): AuthBoot {
-	const g = globalThis as Record<symbol, AuthBoot | undefined>;
-	if (!g[BOOT_KEY]) g[BOOT_KEY] = { realEnv: new Set(), fillGap: new Set() };
-	return g[BOOT_KEY];
-}
+// Shared HMR-stable provenance lets external CLIs exclude file-only injections
+// without importing this store-backed module into the agent layer.
+import { authEnvRecord as boot } from "../core/auth-env.ts";
 
 /** Is `id` a WRITABLE key name — curated catalog, model-provider env
- *  var (provider-keys interlude: PUT/DELETE accept both), or a custom
- *  endpoint's key var (custom-endpoints wave, 2026-10-24). */
+ *  var, or a custom endpoint's key var (custom-endpoints wave, 2026-10-24).
+ *  The custom provider's auth writes must use the atomic endpoint-binding
+ *  seam, never the generic single-key API. */
 export function isWritableAuthKey(id: string): boolean {
-	return isKnownAuthKey(id) || isProviderEnvVar(id) || isEndpointKeyVar(id);
+	return id !== CUSTOM_AUTH_BINDING && id !== CUSTOM_PROVIDER.envVar && (isKnownAuthKey(id) || isProviderEnvVar(id) || isEndpointKeyVar(id));
 }
 
 /** Endpoint keys: paste hygiene only — local servers use short keys. */
@@ -121,7 +113,7 @@ export function envKeysIgnored(): boolean {
  */
 export function initAuthEnv(): void {
 	const record = boot();
-	const fileVars = authStore.authVars();
+	const fileVars = Object.fromEntries(Object.entries(authStore.authVars()).filter(([name]) => name !== CUSTOM_AUTH_BINDING));
 	const managed = new Set<string>([
 		...Object.keys(fileVars),
 		...AUTH_KEYS.map((k) => k.id),
@@ -129,6 +121,7 @@ export function initAuthEnv(): void {
 		// an env-exported OPENAI_API_KEY with a file copy gets honest shadow
 		// semantics, exactly like the curated vars.
 		...AUTH_PROVIDER_KEYS.map((p) => p.envVar),
+		CUSTOM_PROVIDER.envVar,
 	]);
 	if (envKeysIgnored()) {
 		// THE FRESH-USER SWITCH: delete every managed env var (re-run on
@@ -156,7 +149,7 @@ export function initAuthEnv(): void {
 /** Is this env-var name one the keys system manages (curated, provider,
  *  or held in the file)? */
 function isManagedName(name: string): boolean {
-	return isWritableAuthKey(name) || name in authStore.authVars();
+	return name !== CUSTOM_AUTH_BINDING && (isWritableAuthKey(name) || name in authStore.authVars());
 }
 
 /**
@@ -178,6 +171,7 @@ export function resolveKeyStatuses(
 	}
 	const rows: AuthKeyStatus[] = [];
 	for (const id of ids) {
+		if (id === CUSTOM_AUTH_BINDING) continue;
 		const envValue = env[id];
 		const fileValue = fileVars[id];
 		const isRealEnv = realEnv.has(id);
@@ -189,7 +183,9 @@ export function resolveKeyStatuses(
 			id,
 			info: AUTH_KEYS.find((k) => k.id === id) ?? null,
 			present: live !== undefined,
-			masked: live !== undefined ? `${maskKey(live)} (${live.trim().length} chars)` : null,
+			// Custom keys may be one character: even a masked suffix can expose
+			// the entire credential. Preserve inventory, return no key characters.
+			masked: live !== undefined ? id === CUSTOM_PROVIDER.envVar ? "••••" : `${maskKey(live)} (${live.trim().length} chars)` : null,
 			source: isRealEnv ? "env" : live !== undefined ? "file" : "none",
 			shadowedByEnv: isRealEnv && fileValue !== undefined && envValue !== fileValue,
 		});
@@ -199,7 +195,7 @@ export function resolveKeyStatuses(
 
 /** The GET view: every curated key (present or not) + unknown file vars. */
 export function keyStatuses(): AuthKeyStatus[] {
-	return resolveKeyStatuses(authStore.authVars(), process.env, boot().realEnv, AUTH_PROVIDER_ENV_VARS);
+	return resolveKeyStatuses(authStore.authVars(), process.env, boot().realEnv, new Set([...AUTH_PROVIDER_ENV_VARS, CUSTOM_PROVIDER.envVar]));
 }
 
 /** The live value for one var, env-first (the env-wins rule) — the canonical
@@ -207,6 +203,7 @@ export function keyStatuses(): AuthKeyStatus[] {
  *  STT route was the one cold-boot hole: a first-ever request to it would
  *  otherwise read env before any fill-gap ran). */
 export function keyValue(id: string): string | undefined {
+	if (id === CUSTOM_AUTH_BINDING) return undefined;
 	// The fresh-user switch: ONLY the file store counts (belt-and-
 	// suspenders — the boot deletion already emptied the env; this guards
 	// any env key reintroduced after boot).
@@ -224,6 +221,10 @@ export function providerKeyPresent(provider: string): boolean {
 	// Custom endpoints take an OPTIONAL key (owner, 2026-10-24): a keyless
 	// one is configured, and a builtin id never names one (the write gate).
 	if (isCustomEndpointId(provider)) return true;
+	if (provider === CUSTOM_PROVIDER.id) return customProviderAvailable();
+	// Explicit opt-in + installation only, never authentication readiness.
+	// Consulted at admission, not inside already-running agent loops.
+	if (provider === CLAUDE_CODE_PROVIDER) return claudeCodeAvailable();
 	if (isSubscriptionProvider(provider)) return subscriptionConnected(provider);
 	const info = AUTH_PROVIDER_KEYS.find((p) => p.id === provider);
 	return info ? keyValue(info.envVar) !== undefined : true;
@@ -236,6 +237,7 @@ export function providerKeyPresent(provider: string): boolean {
  * reports shadowedByEnv so the page can explain it).
  */
 export function saveKey(id: string, value: string): { ok: true; status: AuthKeyStatus } | { ok: false; error: string } {
+	if (id === CUSTOM_PROVIDER.envVar || id === CUSTOM_AUTH_BINDING) return { ok: false, error: "Use the custom endpoint editor" };
 	const shape = isEndpointKeyVar(id)
 		? endpointKeyGuard(id, value)
 		: isProviderEnvVar(id)
@@ -259,6 +261,7 @@ export function saveKey(id: string, value: string): { ok: true; status: AuthKeyS
  * wins) and the status shows the key still present from env.
  */
 export function deleteKey(id: string): AuthKeyStatus {
+	if (id === CUSTOM_PROVIDER.envVar || id === CUSTOM_AUTH_BINDING) throw new Error("Use the custom endpoint editor");
 	authStore.deleteAuthVar(id);
 	const record = boot();
 	if (record.fillGap.has(id) && !record.realEnv.has(id)) {
@@ -271,3 +274,4 @@ export function deleteKey(id: string): AuthKeyStatus {
 // Reflect the file into the env at first import (idempotent; the module is
 // imported by every route/handler path that touches keys).
 initAuthEnv();
+installCustomProviderSource();

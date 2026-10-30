@@ -24,6 +24,6 @@ describe("the fork update feed", () => {
 		const { version } = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8")) as { version: string };
 		const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(version);
 		assert.ok(match, `plain semver, no prerelease: ${version}`);
-		assert.ok(Number(match[3]) >= 1000, `the patch carries the fork counter (e.g. 0.3.6001): ${version}`);
+		assert.ok(Number(match[3]) >= 1000, `the patch carries the fork counter (e.g. 0.4.1001): ${version}`);
 	});
 });

@@ -18,24 +18,24 @@ import type {
 	AppearanceSettings,
 	BackgroundModelRole,
 	CompactionSettings,
+	CustomModelOverride,
 	GeneralSettings,
 	GraphSettings,
 	ModelsSettings,
 	RoleModelOverride,
 } from "../core/settings.ts";
-import { BACKGROUND_MODEL_ROLES, COMPACTION_THRESHOLD_FLOOR, EXTRACTION_CHUNK_TOKENS_FLOOR, MODEL_SLOTS } from "../core/settings.ts";
+import { BACKGROUND_MODEL_ROLES, COMPACTION_THRESHOLD_FLOOR, CUSTOM_MODEL_PIN_FLOOR, EXTRACTION_CHUNK_TOKENS_FLOOR, MODEL_SLOTS, normalizeBaseUrl } from "../core/settings.ts";
 import { WRITABLE_TOOL_KEYS } from "../core/pending.ts";
 import {
 	ENDPOINT_THINKING_FORMATS,
 	isValidEndpointId,
-	normalizeBaseUrl,
 	type CustomEndpoint,
 	type EndpointModel,
 	type EndpointModelValues,
 	type EndpointsSettings,
 	type EndpointThinkingFormat,
 } from "../core/endpoints.ts";
-import { DICTATION_ENGINES, type DictationSettings } from "../core/dictation.ts";
+import { DICTATION_ENGINES, isDictationLanguage, type DictationSettings } from "../core/dictation.ts";
 import { SPEECH_SPEED_MAX, SPEECH_SPEED_MIN, isSpeechSpeed, type SpeechSettings } from "../core/speech.ts";
 
 /** Parsed-or-rejected — `ok: false` carries the 400's error message. */
@@ -99,6 +99,15 @@ export function parseGeneralSettingsBody(body: unknown): SettingsBodyResult<Gene
 		settings.autoUpdate = raw.autoUpdate;
 	}
 	return { ok: true, settings };
+}
+
+/** claudeCode: explicit app-wide opt-in. Empty section resets to off. */
+export function parseClaudeCodeSettingsBody(body: unknown): SettingsBodyResult<{ enabled?: boolean }> {
+	const raw = asRecord(body);
+	if (!raw) return { ok: false, error: "Invalid JSON body" };
+	if (raw.enabled === undefined) return { ok: true, settings: {} };
+	if (typeof raw.enabled !== "boolean") return { ok: false, error: "enabled must be a boolean" };
+	return { ok: true, settings: { enabled: raw.enabled } };
 }
 
 /** agent.models: only the six known background roles; each override's
@@ -485,7 +494,9 @@ export function parseEndpointsSettingsBody(body: unknown): SettingsBodyResult<En
 
 // ─── dictation (local-STT wave, 2026-10-24) ─────────────────────────────────
 
-/** dictation: { engine?, localUrl?, localModel? } — strict. */
+/** dictation: { engine?, localUrl?, localModel?, language? } — strict.
+ *  `language` is Deepgram's (one of Nova-3's codes); the local fields are
+ *  the local engine's. */
 export function parseDictationSettingsBody(body: unknown): SettingsBodyResult<DictationSettings> {
 	const raw = asRecord(body);
 	if (!raw) return { ok: false, error: "Invalid JSON body" };
@@ -504,6 +515,10 @@ export function parseDictationSettingsBody(body: unknown): SettingsBodyResult<Di
 	if (raw.localModel !== undefined && raw.localModel !== "") {
 		if (typeof raw.localModel !== "string") return { ok: false, error: "localModel must be a string" };
 		settings.localModel = raw.localModel.trim();
+	}
+	if (raw.language !== undefined) {
+		if (!isDictationLanguage(raw.language)) return { ok: false, error: "Unsupported dictation language" };
+		settings.language = raw.language;
 	}
 	return { ok: true, settings };
 }
@@ -537,6 +552,47 @@ export function parseSpeechSettingsBody(body: unknown): SettingsBodyResult<Speec
 	return { ok: true, settings };
 }
 
+/** The custom endpoint's per-model pins (PATCH /api/custom-provider): the
+ *  whole desired map, replace-whole like every section. Strict write side — a
+ *  token count must be a whole number at or above the floor (the read side
+ *  clamps, this rejects — the compaction discipline). `reasoning` is the
+ *  tri-state capability pin, not a backend execution toggle. */
+export function parseCustomModelOverridesBody(
+	body: unknown,
+): SettingsBodyResult<Record<string, CustomModelOverride>> {
+	const raw = asRecord(body);
+	if (!raw) return { ok: false, error: "Invalid JSON body" };
+	const map = asRecord(raw.overrides);
+	if (!map) return { ok: false, error: "overrides must be a { modelId: { context?, maxTokens?, reasoning? } } map" };
+	const out: Record<string, CustomModelOverride> = {};
+	for (const [key, value] of Object.entries(map)) {
+		const id = key.trim();
+		if (!id) return { ok: false, error: "override keys must be non-empty model ids" };
+		const entry = asRecord(value);
+		if (!entry) return { ok: false, error: `override for ${id} must be an object` };
+		const pin: CustomModelOverride = {};
+		for (const field of ["context", "maxTokens"] as const) {
+			const v = entry[field];
+			if (v === undefined) continue;
+			if (typeof v !== "number" || !Number.isInteger(v) || v < CUSTOM_MODEL_PIN_FLOOR) {
+				return {
+					ok: false,
+					error: `${field} for ${id} must be a whole number of tokens at least ${CUSTOM_MODEL_PIN_FLOOR}`,
+				};
+			}
+			pin[field] = v;
+		}
+		if (entry.reasoning !== undefined) {
+			if (typeof entry.reasoning !== "boolean") return { ok: false, error: `reasoning for ${id} must be true or false` };
+			pin.reasoning = entry.reasoning;
+		}
+		Object.defineProperty(out, id, { value: pin, enumerable: true, configurable: true, writable: true });
+	}
+	return { ok: true, settings: out };
+}
+
+/** The section→parser map for PUT /api/settings/[section]. The custom endpoint
+ *  is NOT a section — it connects via POST /api/custom-provider. */
 export const SETTINGS_SECTIONS = {
 	general: parseGeneralSettingsBody,
 	chat: parseSettingsBody,
@@ -548,6 +604,7 @@ export const SETTINGS_SECTIONS = {
 	endpoints: parseEndpointsSettingsBody,
 	dictation: parseDictationSettingsBody,
 	speech: parseSpeechSettingsBody,
+	claudeCode: parseClaudeCodeSettingsBody,
 } as const;
 
 export type SettingsSectionName = keyof typeof SETTINGS_SECTIONS;

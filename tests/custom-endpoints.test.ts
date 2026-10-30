@@ -33,6 +33,7 @@ delete process.env.LH_ENDPOINT_TEST_VLLM_KEY;
 const core = await import("../src/core/endpoints.ts");
 const { parseEndpointsSettingsBody } = await import("../src/server/settings-body.ts");
 const { sanitizeUserSettings } = await import("../src/core/settings.ts");
+const settings = await import("../src/core/settings.ts");
 const { writeSettings } = await import("../src/store/settings.ts");
 const catalog = await import("../src/server/model-catalog.ts");
 const keys = await import("../src/server/keys.ts");
@@ -93,10 +94,10 @@ describe("slug, key and URL rules", () => {
 		assert.ok(!core.isEndpointKeyVar("OPENAI_API_KEY"));
 	});
 	it("normalizes base URLs and refuses unusable ones", () => {
-		assert.equal(core.normalizeBaseUrl(" http://10.0.0.5:8012/v1/ "), "http://10.0.0.5:8012/v1");
-		assert.equal(core.normalizeBaseUrl("ftp://x/v1"), null);
-		assert.equal(core.normalizeBaseUrl("http://x/v1?a=1"), null);
-		assert.equal(core.normalizeBaseUrl("not a url"), null);
+		assert.equal(settings.normalizeBaseUrl(" http://10.0.0.5:8012/v1/ "), "http://10.0.0.5:8012/v1");
+		assert.equal(settings.normalizeBaseUrl("ftp://x/v1"), "");
+		assert.equal(settings.normalizeBaseUrl("http://x/v1?a=1"), "");
+		assert.equal(settings.normalizeBaseUrl("not a url"), "");
 		assert.equal(core.lmStudioV0Url("http://h:1/v1"), "http://h:1/api/v0");
 		assert.equal(core.lmStudioV0Url("http://h:1/api"), null);
 	});

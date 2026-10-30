@@ -10,7 +10,7 @@
  * PURE, browser-safe: shape, sanitizer, resolution.
  */
 
-import { normalizeBaseUrl } from "./endpoints.ts";
+import { normalizeBaseUrl } from "./settings.ts";
 
 /** The `speech` settings section (delta — absent = default). */
 export interface SpeechSettings {
