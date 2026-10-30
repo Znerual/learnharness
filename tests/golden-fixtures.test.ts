@@ -29,11 +29,17 @@ import test from "node:test";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const GOLDEN = path.join(HERE, "fixtures", "golden-data");
+/** The same user's device-local records (multi-device split: settings,
+ *  graph layout, render settings live beside the data folder). */
+const GOLDEN_LOCAL = path.join(HERE, "fixtures", "golden-local");
 
 // ── the seam, BEFORE any config-loading import ──────────────────────────────
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), "lh-golden-"));
 fs.cpSync(GOLDEN, TMP, { recursive: true });
 process.env.LH_DATA_DIR = TMP;
+const TMP_LOCAL = `${TMP}-local`;
+fs.cpSync(GOLDEN_LOCAL, TMP_LOCAL, { recursive: true });
+process.env.LH_LOCAL_DIR = TMP_LOCAL;
 
 const { chatStore } = await import("../src/store/chats.ts");
 const { graphStore } = await import("../src/store/graph.ts");
@@ -63,6 +69,7 @@ const BEFORE = snapshotTree(TMP);
 
 test.after(() => {
 	fs.rmSync(TMP, { recursive: true, force: true });
+	fs.rmSync(TMP_LOCAL, { recursive: true, force: true });
 });
 
 // ── chats: records, folds, and the wire ─────────────────────────────────────
@@ -188,7 +195,7 @@ test("graph: render-settings sanitize and positions parse", () => {
 	assert.ok(raw, "render-settings.json reads");
 	const clean = sanitizeRenderSettings(raw);
 	assert.ok(clean.nodeSize > 0 && typeof clean.labelZoom === "number", "sanitizes to concrete knobs");
-	const positionsFile = JSON.parse(fs.readFileSync(path.join(TMP, "graph", "positions.json"), "utf8")) as {
+	const positionsFile = JSON.parse(fs.readFileSync(path.join(TMP_LOCAL, "positions.json"), "utf8")) as {
 		positions: Record<string, unknown>;
 	};
 	assert.ok(Object.keys(positionsFile.positions).length >= 300, "positions parse");

@@ -53,6 +53,9 @@ const PRODUCT_NAME = "LearnHarness";
 app.setName(PRODUCT_NAME);
 const AUTH_FILE = () => path.join(app.getPath("userData"), "auth.json");
 const DATA_DIR = () => path.join(app.getPath("userData"), "data");
+/** Device-local records (multi-device, ADR 0002): settings, layout, debug,
+ * the device identity — beside the synced data folder, never inside it. */
+const LOCAL_DIR = () => path.join(app.getPath("userData"), "local");
 
 /** The packaged standalone server (extraResources → Resources/server).
  *  In dev LH_DEV_URL short-circuits everything: no spawn, no packaging —
@@ -230,6 +233,7 @@ function startServer(port) {
 					PORT: String(port),
 					HOSTNAME: "127.0.0.1", // the server defaults to 0.0.0.0 — never
 					LH_DATA_DIR: DATA_DIR(),
+					LH_LOCAL_DIR: LOCAL_DIR(),
 					// The auth/keys store — the child reads AND writes this file itself
 					// (no env injection anymore: a spawn-time copy would shadow every
 					// settings-page key change until restart; env wins over file).
@@ -474,16 +478,21 @@ function reportUpdateStatus(status, version = null) {
 	}
 }
 
-/** Read the SAME data directory passed to the packaged server. Only an
- * explicit false opts out; absent/corrupt/unreadable settings keep updates ON.
- * Re-read for each automatic check so saving the toggle needs no restart. */
+/** Read the SAME settings file the packaged server uses: the device-local
+ * folder, or the data folder before the server's first-launch migration
+ * moved it. Only an explicit false opts out; absent/corrupt/unreadable
+ * settings keep updates ON. Re-read for each automatic check so saving the
+ * toggle needs no restart. */
 function automaticUpdatesEnabled() {
-	try {
-		const settings = JSON.parse(fs.readFileSync(path.join(DATA_DIR(), "settings.json"), "utf8"));
-		return settings?.general?.autoUpdate !== false;
-	} catch {
-		return true;
+	for (const file of [path.join(LOCAL_DIR(), "settings.json"), path.join(DATA_DIR(), "settings.json")]) {
+		try {
+			const settings = JSON.parse(fs.readFileSync(file, "utf8"));
+			return settings?.general?.autoUpdate !== false;
+		} catch {
+			/* try the next location */
+		}
 	}
+	return true;
 }
 
 function checkForUpdates({ manual = false } = {}) {

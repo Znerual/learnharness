@@ -96,15 +96,14 @@ test("graph: a NEWER-stamped sidecar is refused honestly", () => {
 	fs.writeFileSync(GRAPH_FORMAT_FILE, JSON.stringify({ version: 99 }), "utf-8");
 	assert.throws(() => graphStore.readNodes(), /older than its data|format version 99/);
 	assert.throws(() => graphStore.readSources(), /older than its data|format version 99/);
-	assert.throws(() => readRenderSettings(), /older than its data|format version 99/);
 });
 
-test("render-settings: its write stamps the family sidecar too", () => {
+test("render-settings is device-local (multi-device): outside the graph family, its write stamps nothing", () => {
 	fs.rmSync(path.dirname(GRAPH_FORMAT_FILE), { recursive: true, force: true });
-	assert.ok(!fs.existsSync(GRAPH_FORMAT_FILE));
 	const written = writeRenderSettings({ sizeUnits: "world", nodeSize: 3 });
 	assert.equal(written.nodeSize, 3);
-	assert.equal(JSON.parse(fs.readFileSync(GRAPH_FORMAT_FILE, "utf8")).version, 1, "the render-settings write stamped the family");
+	assert.equal(readRenderSettings()?.nodeSize, 3);
+	assert.ok(!fs.existsSync(GRAPH_FORMAT_FILE), "no graph-family sidecar for a device-local file");
 });
 
 // ── the fixtures stay the legacy pin: golden data reads unstamped ───────────

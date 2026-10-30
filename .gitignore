@@ -1,5 +1,7 @@
 node_modules/
 data/
+# device-local records (multi-device): settings, layout, device identity
+local/
 .next/
 *.log
 .DS_Store

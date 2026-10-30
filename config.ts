@@ -18,6 +18,21 @@ const DATA_ROOT = process.env.LH_DATA_DIR
 	? path.resolve(process.env.LH_DATA_DIR)
 	: path.join(ROOT, "data");
 
+/**
+ * THE DEVICE-LOCAL FOLDER (multi-device, ADR 0002): records that belong to
+ * this device and never sync — settings, debug recordings, graph layout and
+ * display settings, the device identity. It lives OUTSIDE the data folder,
+ * so the data folder holds only synced records. The desktop and Android
+ * shells always pass LH_LOCAL_DIR; without it the folder sits beside the
+ * data folder: <repo>/local for repo work, "<data folder>-local" for any
+ * other LH_DATA_DIR (so two data folders never share one).
+ */
+const LOCAL_ROOT = process.env.LH_LOCAL_DIR
+	? path.resolve(process.env.LH_LOCAL_DIR)
+	: process.env.LH_DATA_DIR
+		? `${DATA_ROOT}-local`
+		: path.join(ROOT, "local");
+
 export const PATHS = {
 	root: ROOT,
 	/** Teacher system prompt — the agent's instructions (src/agent/). */
@@ -26,9 +41,11 @@ export const PATHS = {
 	/** Chat sessions (AI SDK UIMessage transcripts, one JSON file per chat). */
 	chats: path.join(DATA_ROOT, "chats"),
 	graph: path.join(DATA_ROOT, "graph"),
-	/** Debug artifacts (env-gated): data/debug/provider-events/<chatId>.jsonl
+	/** The device-local folder (LOCAL_ROOT above) — never synced. */
+	local: LOCAL_ROOT,
+	/** Debug artifacts (env-gated, device-local): debug/provider-events/<chatId>.jsonl
 	 * raw provider stream recordings (src/agent/provider-events.ts). */
-	debug: path.join(DATA_ROOT, "debug"),
+	debug: path.join(LOCAL_ROOT, "debug"),
 } as const;
 
 // ─── Models ────────────────────────────────────────────────────────────────
@@ -77,25 +94,44 @@ export const LEDGER_FILES = {
 export const SOURCES_FILE = path.join(PATHS.graph, "sources.json");
 /** The layout ledger (read-modify-write like sources.json): nodeId →
  *  {x,y} resting positions from the incremental settle (core/layout.ts).
- *  Carries an updatedAt stamp for future live-physics conflict handling. */
-export const POSITIONS_FILE = path.join(PATHS.graph, "positions.json");
+ *  Carries an updatedAt stamp for future live-physics conflict handling.
+ *  Device-local (screen-dependent, rebuildable): never synced. */
+export const POSITIONS_FILE = path.join(LOCAL_ROOT, "positions.json");
 
 /**
  * Graph render settings (the settings-panel controls): one small JSON blob,
  * read-modify-write. Shared shape/sanitizer: src/core/render-settings.ts.
+ * Device-local display preferences: never synced, outside the graph format
+ * family.
  */
-export const RENDER_SETTINGS_FILE = path.join(PATHS.graph, "render-settings.json");
+export const RENDER_SETTINGS_FILE = path.join(LOCAL_ROOT, "render-settings.json");
+
+/** The device identity (multi-device): {id, name} — src/store/device.ts. */
+export const DEVICE_FILE = path.join(LOCAL_ROOT, "device.json");
+
+/** Conflict copies the learner chose NOT to keep (multi-device, ADR 0002):
+ *  moved here instead of deleted, so they stay recoverable by hand. */
+export const CONFLICTS_DIR = path.join(LOCAL_ROOT, "conflicts");
+
+/** Where the device-local records lived before the multi-device split —
+ *  read only by the one-time migration (src/store/local-migration.ts). */
+export const LEGACY_DEVICE_LOCAL = {
+	settings: path.join(DATA_ROOT, "settings.json"),
+	positions: path.join(DATA_ROOT, "graph", "positions.json"),
+	renderSettings: path.join(DATA_ROOT, "graph", "render-settings.json"),
+	debug: path.join(DATA_ROOT, "debug"),
+} as const;
 
 /** The graph-family FORMAT STAMP sidecar (schema-versioning wave,
- *  2026-10-10): one version for the whole family — the four JSONL ledgers,
- *  sources.json, render-settings.json. LAZY v1: absent = v1; the first
- *  graph-family write creates it. positions.json is REBUILDABLE and rides
- *  along unversioned by design (owner ruling). */
+ *  2026-10-10): one version for the whole family — the JSONL ledgers and
+ *  sources.json. LAZY v1: absent = v1; the first graph-family write
+ *  creates it. */
 export const GRAPH_FORMAT_FILE = path.join(PATHS.graph, "format.json");
 
 /**
  * THE USER SETTINGS RECORD (settings-storage wave, 2026-09-19): one
- * versioned, DELTA-shaped JSON blob at the data-dir seam holding every
+ * versioned, DELTA-shaped JSON blob in the device-local folder (multi-device:
+ * each device configures its own models, endpoints and appearance) holding every
  * non-secret product preference — general, agent (background
  * model/thinking overrides + tool toggles + prompt-override switches),
  * appearance, graph. Explicit user choices only: ABSENT keys resolve to the
@@ -109,7 +145,7 @@ export const GRAPH_FORMAT_FILE = path.join(PATHS.graph, "format.json");
  * with per-session models, owner 2026-09-28 — sessions own their model
  * from birth, stamped from the strong slot.)
  */
-export const SETTINGS_FILE = path.join(DATA_ROOT, "settings.json");
+export const SETTINGS_FILE = path.join(LOCAL_ROOT, "settings.json");
 
 /**
  * User prompt-override files (settings-storage wave, 2026-09-19): the
