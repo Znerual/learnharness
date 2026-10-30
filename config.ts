@@ -152,8 +152,8 @@ export const SETTINGS_FILE = path.join(LOCAL_ROOT, "settings.json");
  * per-segment system-prompt overrides mirroring the SOURCE layout
  * (src/agent/prompts/) — the shared base as prompts/system-prompt.md,
  * fragments as prompts/teacher/<file> / prompts/prober/<file>. File
- * PRESENCE alone is not the override: settings.json's agent.prompts map
- * (segmentPath → boolean) is the explicit switch, so a user can keep a
+ * PRESENCE alone is not the override: the switch map (PROMPT_SWITCHES_FILE
+ * below, presented as the settings record's agent.prompts) is the explicit switch, so a user can keep a
  * customized file on disk but run the source default to compare. The
  * segment list itself is ALWAYS derived from source at runtime (the
  * loader in src/store/prompt-overrides.ts) — code updates that add,
@@ -161,6 +161,13 @@ export const SETTINGS_FILE = path.join(LOCAL_ROOT, "settings.json");
  * a vanished segment stops composing but stays on disk.
  */
 export const PROMPTS_OVERRIDE_DIR = path.join(DATA_ROOT, "prompts");
+
+/** The prompt-override SWITCHES (multi-device, ADR 0002): the
+ *  {segmentPath: boolean} map that used to live in settings.json's
+ *  agent.prompts, moved beside the override files so it syncs with them —
+ *  every device teaches with the same prompts. The settings store still
+ *  presents it as agent.prompts (src/store/prompt-switches.ts). */
+export const PROMPT_SWITCHES_FILE = path.join(PROMPTS_OVERRIDE_DIR, "switches.json");
 
 /**
  * THE AUTH/KEY STORE (auth-keys wave, 2026-09-19): BYOK provider keys in a

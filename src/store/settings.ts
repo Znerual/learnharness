@@ -1,8 +1,13 @@
 /**
  * Server-side persistence for THE user settings record (settings-storage
- * wave, 2026-09-19): data/settings.json (config.SETTINGS_FILE), under the
- * LH_DATA_DIR seam — read-modify-write, NOT a ledger. Non-secret product
- * preferences only; secrets stay in auth.json / .env.local.
+ * wave, 2026-09-19): settings.json in the device-local folder
+ * (config.SETTINGS_FILE) — read-modify-write, NOT a ledger. Non-secret
+ * product preferences only; secrets stay in auth.json / .env.local.
+ *
+ * One section is stored elsewhere (multi-device, ADR 0002): agent.prompts,
+ * the prompt-override switches, lives in the synced prompts/switches.json
+ * (src/store/prompt-switches.ts). Reads overlay it onto the record and
+ * writes split it off, so callers see one record as before.
  *
  * This adapter OWNS the lazy migrations:
  *  1. schema-version bumps (CURRENT_SETTINGS_VERSION) slot in here — the
@@ -21,14 +26,50 @@ import fs from "node:fs";
 import path from "node:path";
 import { SETTINGS_FILE } from "../../config.ts";
 import {
+	CURRENT_SETTINGS_VERSION,
 	sanitizeUserSettings,
 	type UserSettings,
 } from "../core/settings.ts";
 import type { SettingsStore } from "../core/ports.ts";
+import { readPromptSwitches, writePromptSwitches } from "./prompt-switches.ts";
 
-/** The persisted record, or null when none exists (first boot). Runs the
- *  migration chain on every read — cheap: a no-op file check when current. */
+/** The record with the synced prompt switches overlaid as agent.prompts,
+ *  or null when neither exists (first boot). */
 export function readSettings(): UserSettings | null {
+	const record = readStoredSettings();
+	const switches = readPromptSwitches();
+	if (!switches) return record;
+	const base = record ?? { version: CURRENT_SETTINGS_VERSION };
+	return { ...base, agent: { ...base.agent, prompts: switches } };
+}
+
+/** Persist the record (sanitized), routing agent.prompts to the synced
+ *  switches file — the record is written whole, so absent switches mean
+ *  none on. The switches file is only rewritten when it changes (it syncs).
+ *  Returns what was written, switches included. */
+export function writeSettings(raw: unknown): UserSettings {
+	const settings = sanitizeUserSettings(raw);
+	if (!settings) throw new Error("settings record must be a JSON object");
+	const switches = settings.agent?.prompts ?? {};
+	if (JSON.stringify(switches) !== JSON.stringify(readPromptSwitches() ?? {})) writePromptSwitches(switches);
+	writeStoredSettings(settings);
+	return settings;
+}
+
+/** One-time split (multi-device, ADR 0002): a record that still carries
+ *  agent.prompts hands them to prompts/switches.json — unless that file
+ *  already exists (another device's switches won the sync) — and drops them. */
+export function migratePromptSwitches(): void {
+	const record = readStoredSettings();
+	const prompts = record?.agent?.prompts;
+	if (!record || !prompts) return;
+	if (!readPromptSwitches()) writePromptSwitches(prompts);
+	writeStoredSettings(record);
+}
+
+/** settings.json as stored (no switch overlay), or null when absent/corrupt.
+ *  Runs the migration chain on every read — cheap: a no-op when current. */
+function readStoredSettings(): UserSettings | null {
 	let raw: string;
 	try {
 		raw = fs.readFileSync(SETTINGS_FILE, "utf-8");
@@ -49,13 +90,15 @@ export function readSettings(): UserSettings | null {
 	return record;
 }
 
-/** Persist the record (sanitized). Returns what was written. */
-export function writeSettings(raw: unknown): UserSettings {
-	const settings = sanitizeUserSettings(raw);
-	if (!settings) throw new Error("settings record must be a JSON object");
+/** Writes settings.json WITHOUT agent.prompts (those live in switches.json). */
+function writeStoredSettings(settings: UserSettings): void {
+	let stored = settings;
+	if (settings.agent && "prompts" in settings.agent) {
+		const { prompts: _switches, ...agent } = settings.agent;
+		stored = { ...settings, agent };
+	}
 	fs.mkdirSync(path.dirname(SETTINGS_FILE), { recursive: true });
-	fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, "\t"), "utf-8");
-	return settings;
+	fs.writeFileSync(SETTINGS_FILE, JSON.stringify(stored, null, "\t"), "utf-8");
 }
 
 /** The typed adapter (core/ports.ts SettingsStore), for the composition root. */

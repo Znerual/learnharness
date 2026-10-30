@@ -9,7 +9,7 @@
 import { chatStore } from "../store/chats.ts";
 import { graphStore } from "../store/graph.ts";
 import { jobStore } from "../store/jobs.ts";
-import { settingsStore } from "../store/settings.ts";
+import { migratePromptSwitches, settingsStore } from "../store/settings.ts";
 import { resolveSettings, type EffectiveSettings } from "../core/settings-resolution.ts";
 import { setCustomEndpointSource } from "../agent/models.ts";
 import { migrateDeviceLocalData } from "../store/local-migration.ts";
@@ -18,6 +18,7 @@ import { deviceStore } from "../store/device.ts";
 // Multi-device (ADR 0002): device-local records leave the synced data
 // folder before any store reads them — once per process, idempotent.
 migrateDeviceLocalData();
+migratePromptSwitches();
 
 /** The wired adapters. Satisfies core/graph.ts's GraphDeps structurally. */
 export const stores = {

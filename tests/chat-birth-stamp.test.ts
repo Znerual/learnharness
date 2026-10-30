@@ -61,7 +61,7 @@ describe("POST /api/chats — the birth stamp", () => {
 	});
 
 	it("no strong slot configured (fresh BYOK boot) → NO stamp; the turn gate refuses downstream", async () => {
-		fs.rmSync(path.join(TMP_DATA, "settings.json"), { force: true });
+		fs.rmSync(path.join(`${TMP_DATA}-local`, "settings.json"), { force: true });
 		assert.equal(readSettings(), null);
 		const res = await post();
 		assert.equal(res.status, 200);
