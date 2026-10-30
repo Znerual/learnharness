@@ -125,8 +125,20 @@ export interface NamingRunStats {
 }
 
 /** The graph-family format version this build writes and understands
- *  (the format.json sidecar — src/store/graph-format.ts). */
-export const CURRENT_GRAPH_FORMAT_VERSION = 1;
+ *  (the format.json sidecar — src/store/graph-format.ts).
+ *  v2 (multi-device, ADR 0003): one ledger file per device beside the
+ *  legacy shared base, link lines marked, deletions as records. */
+export const CURRENT_GRAPH_FORMAT_VERSION = 2;
+
+/** deletions.<deviceId>.jsonl line (multi-device, ADR 0003): a deletion is
+ *  a RECORD every device applies on read, never an edit of a ledger —
+ *  devices only ever write their own files. A session deletion covers the
+ *  lines written up to `at` (a session continued on another device after
+ *  the deletion contributes again); node and chain deletions are permanent. */
+export type GraphDeletion =
+	| { type: "session"; chatId: string; mode: "preserve-graph" | "delete-nodes"; at: string }
+	| { type: "node"; id: string; at: string }
+	| { type: "chain"; id: string; at: string };
 
 
 export interface GraphNode {
@@ -150,6 +162,11 @@ export interface GraphNode {
 	createdAt: string;
 	/** Every (chat, message) point where this proposition came up. */
 	provenance: ProvenancePoint[];
+	/** Marks a LINK line (a re-encounter of an existing node) in a device
+	 *  ledger (multi-device, ADR 0003): the unmarked line defines the node,
+	 *  whichever device's file is read first. Legacy-base lines carry no
+	 *  marker — their file order decides, as before. Readers strip it. */
+	link?: true;
 }
 
 /** sessions.jsonl line — the emission checkpoint for one chat (which chats

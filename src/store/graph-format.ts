@@ -1,7 +1,8 @@
 /**
  * The graph-family FORMAT STAMP (schema-versioning wave, owner 2026-10-10):
  * data/graph/format.json — one sidecar versioning the whole graph dir
- * family (the four JSONL ledgers, sources.json, render-settings.json).
+ * family (the JSONL ledgers — legacy base and per-device files — and
+ * sources.json).
  * JSONL ledgers can't carry inline stamps without per-line bloat, and the
  * JSON files share the family's fate, so the stamp lives beside them.
  * positions.json is rebuildable (owner ruling) and needs no protection.
@@ -52,9 +53,12 @@ export function assertGraphFormat(): void {
 }
 
 /** WRITE-SIDE STAMP: creates the sidecar on the first graph-family write
- *  (lazy); afterwards a no-op existence-wise. Callers keep their own mkdir. */
+ *  (lazy), and raises an older stamp to this build's version — the write
+ *  that follows uses this build's layout (v2: per-device ledgers, ADR 0003).
+ *  Afterwards a no-op. Callers keep their own mkdir. */
 export function ensureGraphFormat(): void {
-	if (stampedVersion() !== null) return;
+	const stamped = stampedVersion();
+	if (stamped !== null && stamped >= CURRENT_GRAPH_FORMAT_VERSION) return;
 	fs.mkdirSync(path.dirname(GRAPH_FORMAT_FILE), { recursive: true });
 	fs.writeFileSync(GRAPH_FORMAT_FILE, JSON.stringify({ version: CURRENT_GRAPH_FORMAT_VERSION }, null, "\t") + "\n", "utf-8");
 }

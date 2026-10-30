@@ -192,6 +192,7 @@ export function mergeFindings(
 				aliases: [...p.aliases],
 				createdAt: now,
 				provenance: points,
+				link: true, // multi-device: the defining line is the unmarked one
 			});
 		} else {
 			const node: GraphNode = {
@@ -228,6 +229,8 @@ export function mergeFindings(
 		if (!idOfKey.has(key)) idOfKey.set(key, line.id);
 		if (line.provenance.some((pt) => pt.chatId === chatId)) assertedByChat.add(key);
 	}
+	const shownBefore = new Set(idOfKey.keys());
+	const appendedKeys = new Set<string>();
 	const emitChain = (chain: ExtractedChain): void => {
 		// Mixed namespace (digest-aware extraction, 2026-09-30): an
 		// endpoint resolves through the job-local map (this submit's
@@ -248,6 +251,7 @@ export function mergeFindings(
 		if (assertedByChat.has(key)) return; // this chat already asserted this argument
 		const id = idOfKey.get(key) ?? newGraphChainId();
 		ledgers.appendChain({ id, premises, conclusion, createdAt: now, provenance: pointOf(chatId) });
+		appendedKeys.add(key);
 		idOfKey.set(key, id);
 		assertedByChat.add(key);
 		stats.chains!++;
@@ -255,8 +259,7 @@ export function mergeFindings(
 	for (const chain of findings.chains) emitChain(chain); // the extractor's chains — the one chain source (digest-aware, owner 2026-09-30)
 
 	// 2b. Simplification (owner, 2026-09-30 evening) — the deterministic
-	//     dedupe pass over the WHOLE chain ledger (this merge runs inside
-	//     the serialized audit section, so the rewrite is race-free). Two
+	//     dedupe of the WHOLE chain set (core simplifyChains below). Two
 	//     rules, decided per conclusion group, greedy in (premiseCount,
 	//     createdAt, key) order — the leanest, earliest derivation stands:
 	//     • prefer-fewest-premises: a chain whose premise set strictly
@@ -265,14 +268,15 @@ export function mergeFindings(
 	//       kept chain, or derivable from one (transitively, through the
 	//       FULL pre-simplification chain set) is redundant — [A,B]⟹X
 	//       plus [X,C]⟹Y makes [A,B,C]⟹Y redundant.
-	//     Dropped keys take every provenance line with them (the rewrite is
-	//     atomic); stats count APPENDS only — simplification is maintenance.
-	const allChains = ledgers.readChains();
-	const keptChains = simplifyChains(allChains);
-	if (keptChains.length !== allChains.length) {
-		ledgers.rewriteLedgers({ chains: keptChains });
-		stats.droppedChains = allChains.length - keptChains.length;
-	}
+	//     Multi-device (ADR 0003): it runs on READ — the graph store
+	//     simplifies every readChains — so redundant lines stay on disk
+	//     (no device rewrites a ledger) and simply never show. Stats count
+	//     APPENDS; droppedChains counts the arguments this merge left
+	//     hidden (its own redundant arrivals, or older chains it made
+	//     redundant) — simplification is maintenance.
+	const shownAfter = new Set(ledgers.readChains().map((line) => chainKey(line.premises, line.conclusion)));
+	const dropped = [...new Set([...shownBefore, ...appendedKeys])].filter((key) => !shownAfter.has(key)).length;
+	if (dropped > 0) stats.droppedChains = dropped;
 
 	// 3. Checkpoint — THE COVERAGE DISCIPLINE (vision-extraction-coverage.md):
 	//    only now, after every append succeeded, is the batch covered. The

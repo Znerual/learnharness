@@ -89,7 +89,8 @@ function memoryLedgers() {
 		appendNode: (n: GraphNode) => void nodes.push(n),
 		readNodes: () => nodes.map((n) => ({ ...n })),
 		appendChain: (c: GraphChain) => void chains.push(c),
-		readChains: () => chains.map((c) => ({ ...c, premises: [...c.premises], provenance: [...c.provenance] })),
+		// Mirrors the real store: redundant chains are simplified away on read.
+		readChains: () => simplifyChains(chains.map((c) => ({ ...c, premises: [...c.premises], provenance: [...c.provenance] }))),
 		appendCheckpoint: (c: SessionCheckpoint) => void checkpoints.push(c),
 		readCheckpoints: () => checkpoints.map((c) => ({ ...c })),
 		// Extraction coverage (vision-extraction-coverage.md) — append-only;
@@ -116,14 +117,11 @@ function memoryLedgers() {
 			positions.clear();
 			for (const [id, p] of Object.entries(next)) positions.set(id, { x: p.x, y: p.y });
 		},
-		// The destructive seam (wave 6 session deletion) — mirrors the real
-		// store: replace the provided ledgers' full contents.
-		rewriteLedgers: (next) => {
-			if (next.nodes) nodes.splice(0, nodes.length, ...next.nodes.map((n) => ({ ...n, provenance: [...n.provenance], aliases: [...n.aliases] })));
-			if (next.chains) chains.splice(0, chains.length, ...next.chains.map((c) => ({ ...c, premises: [...c.premises], provenance: [...c.provenance] })));
-			if (next.coverage) coverage.splice(0, coverage.length, ...next.coverage.map((c) => ({ ...c })));
-			if (next.checkpoints) checkpoints.splice(0, checkpoints.length, ...next.checkpoints.map((c) => ({ ...c })));
+		// Deletion records (multi-device): no extraction test deletes.
+		appendDeletion: () => {
+			throw new Error("memoryLedgers: deletion is not exercised here");
 		},
+		readDeletions: () => [],
 	} satisfies GraphStore;
 }
 
@@ -2330,9 +2328,9 @@ describe("chain simplification (the merger's maintenance pass, owner 2026-09-30 
 		});
 		const stats = await pipeline.runExtraction(chatId);
 		assert.equal(stats.chains, 1, "the append happened (stats count activity)");
-		assert.equal(stats.droppedChains, 1, "the simplification pass then removed it (maintenance)");
+		assert.equal(stats.droppedChains, 1, "simplification then hid it (maintenance, on read)");
 		const stored = ledgers.readChains();
-		assert.equal(stored.length, 2, "the ledger is back to the two lean chains");
+		assert.equal(stored.length, 2, "readers see only the two lean chains");
 	});
 });
 

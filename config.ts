@@ -75,6 +75,11 @@ export type ModelRole =
  * The LIVE graph store (src/store/graph.ts) — owned by the app's extraction
  * pipeline. Line shapes: src/core/contracts.ts. CHAINS ARE THE STORED
  * TRUTH (owner, 2026-09-30): edges are a derived view, never stored.
+ *
+ * Multi-device (ADR 0003): these single files are the LEGACY SHARED BASE —
+ * read by every device, never written again. New lines go to one file per
+ * device beside them (<ledger>.<deviceId>.jsonl, plus
+ * deletions.<deviceId>.jsonl); the store derives the file names.
  */
 export const LEDGER_FILES = {
 	nodes: path.join(PATHS.graph, "nodes.jsonl"),

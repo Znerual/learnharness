@@ -40,30 +40,27 @@ function sessionSource(chatId: string): { foldedAt: string } {
 	return { foldedAt: record.updatedAt };
 }
 
-// ─── ledger isolation (backup-and-clear of data/graph/*.jsonl) ──────────────
+// ─── ledger isolation (backup-and-clear of the whole data/graph dir) ────────
+// Multi-device (ADR 0003): the ledgers are one file per device plus the
+// legacy base and the deletion records, so the whole dir moves aside.
 
-const LEDGER_PATHS = [...Object.values(LEDGER_FILES), SOURCES_FILE];
-const backups: Array<{ file: string; bak: string }> = [];
+const GRAPH_BACKUP = `${PATHS.graph}.w5test.bak`;
+const hadGraphDir = fs.existsSync(PATHS.graph);
 const createdChats: string[] = [];
 
+if (hadGraphDir) fs.renameSync(PATHS.graph, GRAPH_BACKUP);
 fs.mkdirSync(PATHS.graph, { recursive: true });
-for (const file of LEDGER_PATHS) {
-	if (fs.existsSync(file)) {
-		const bak = `${file}.w5test.bak`;
-		fs.renameSync(file, bak);
-		backups.push({ file, bak });
+
+/** Empty every ledger (legacy base, device files, deletion records). */
+function clearLedgers(): void {
+	for (const name of fs.readdirSync(PATHS.graph)) {
+		if (name.endsWith(".jsonl")) fs.rmSync(`${PATHS.graph}/${name}`);
 	}
 }
 
 after(() => {
-	for (const file of LEDGER_PATHS) {
-		try {
-			fs.unlinkSync(file);
-		} catch {
-			/* nothing was written here */
-		}
-	}
-	for (const { file, bak } of backups) fs.renameSync(bak, file);
+	fs.rmSync(PATHS.graph, { recursive: true, force: true });
+	if (hadGraphDir) fs.renameSync(GRAPH_BACKUP, PATHS.graph);
 	for (const id of createdChats) {
 		try {
 			fs.unlinkSync(`${PATHS.chats}/${id}.json`);
@@ -851,7 +848,7 @@ describe("single-node deletion (deleteNodeTraces + deleteGraphNode, node interlu
 		// Clean slate per test: each test in this describe builds its own
 		// scenario from empty ledgers (the suite's isolation covers the
 		// whole file; this covers describe-internal stacking).
-		graphStore.rewriteLedgers({ nodes: [], chains: [] });
+		clearLedgers();
 		graphStore.writePositions({});
 		graphStore.appendNode({
 			id: "n_dead",

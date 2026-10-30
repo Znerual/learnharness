@@ -15,6 +15,7 @@ import type {
 	ChatSettings,
 	ChatSummary,
 	GraphChain,
+	GraphDeletion,
 	GraphNode,
 	JobKind,
 	JobRecord,
@@ -68,9 +69,11 @@ export interface ChatStore {
 // ─── GraphStore — the append-only evidence ledgers (data/graph) ──────────────
 // Chains are the stored truth (owner, 2026-09-30): nodes + reasoning
 // chains; edges are a DERIVED view (core/graph.ts) and never touch this
-// seam. Reads return the raw append-order lines; merging chain assertions
-// by (premises, conclusion) is DERIVED in core/graph.ts — the store never
-// decides. The extraction pipeline is the sole writer; this read surface
+// seam. Reads return the EFFECTIVE lines (multi-device, ADR 0003): every
+// device's ledger plus the legacy base, defining node line first, deletion
+// records applied, redundant chains simplified away; merging lines by id
+// and chain assertions by (premises, conclusion) is DERIVED in
+// core/graph.ts. The extraction pipeline is the sole writer; this read surface
 // stays.
 
 export interface GraphStore {
@@ -112,20 +115,11 @@ export interface GraphStore {
 	/** Replace the whole ledger (the settle is a full-graph computation). */
 	writePositions(positions: Record<string, Position>): void;
 
-	/** THE DESTRUCTIVE SEAM (session-deletion wave 6, owner 2026-09-22 —
-	 *  the first non-append operation on these ledgers): atomically
-	 *  replace the full contents of any subset of the six rewritable
-	 *  ledgers. Each provided array is written to a temp file and renamed
-	 *  over the ledger (crash-safe: a torn write never replaces the
-	 *  original); absent keys leave their ledger untouched. The pure
-	 *  computation is core/graph-deletion.ts — the store only makes the
-	 *  replacement atomic. */
-	rewriteLedgers(next: {
-		nodes?: GraphNode[];
-		chains?: GraphChain[];
-		coverage?: CoverageEntry[];
-		checkpoints?: SessionCheckpoint[];
-	}): void;
+	/** Deletion records (multi-device, ADR 0003): a session/node/chain
+	 *  deletion is appended here and applied by every read above — no
+	 *  ledger is ever rewritten. The pure rules: core/graph-deletion.ts. */
+	appendDeletion(record: GraphDeletion): void;
+	readDeletions(): GraphDeletion[];
 }
 
 // ─── JobStore — background sub-agent jobs (data/jobs) ─────────────────────────

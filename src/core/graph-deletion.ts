@@ -53,12 +53,21 @@
  * interleave), and the extraction pipeline re-checks the chat record
  * before each batch's merge (a deleted chat never merges). Both seams
  * together close every corrupt/resurrect path.
+ *
+ * MULTI-DEVICE (ADR 0003): devices only ever write their own ledger files,
+ * so a deletion is not a rewrite. It is a RECORD (GraphDeletion) appended
+ * to the deleting device's deletions file; the graph store replays every
+ * device's records on each read through the same pure rules (purgeChat /
+ * purgeNode below). A session deletion covers the lines written up to its
+ * time, so a session that comes back from another device contributes again.
  */
 
 import type {
 	CoverageEntry,
 	GraphChain,
+	GraphDeletion,
 	GraphNode,
+	ProvenancePoint,
 	SessionCheckpoint,
 } from "./contracts.ts";
 import type { GraphStore } from "./ports.ts";
@@ -88,64 +97,79 @@ const EMPTY_STATS: ChatDeletionStats = {
 	checkpointsRemoved: 0,
 };
 
+/** The four graph ledgers as one in-memory value — what a deletion
+ *  transforms. */
+export interface Ledgers {
+	nodes: GraphNode[];
+	chains: GraphChain[];
+	coverage: CoverageEntry[];
+	checkpoints: SessionCheckpoint[];
+}
+
+/** One deletion's effect on the ledgers. */
+interface Purge {
+	ledgers: Ledgers;
+	/** Node ids that died entirely. */
+	deadNodes: Set<string>;
+	/** Chain ids whose every surviving line is gone. */
+	deadChains: Set<string>;
+}
+
+/** Multi-device (ADR 0003): every ledger line carries the time it was
+ *  written — a session deletion covers exactly the lines up to its `at`. */
+const writtenBy = (at: string | undefined) => (time: string): boolean => at === undefined || time <= at;
+
 /**
- * Remove one chat's traces from the graph ledgers. Synchronous by design
- * (the atomicity argument above); idempotent (a second run finds nothing
- * and returns zero stats).
+ * PURE: one chat's traces out of the ledgers (the rules in the header).
+ * `at` limits the purge to lines written up to then (multi-device: a
+ * deletion record replayed on read must leave a session's later
+ * contributions alone); undefined = every line.
  */
-export function deleteChatTraces(graphStore: GraphStore, chatId: string, mode: ChatDeleteMode): ChatDeletionStats {
+export function purgeChat(ledgers: Ledgers, chatId: string, mode: ChatDeleteMode, at?: string): Purge & { stats: ChatDeletionStats } {
 	if (mode !== "preserve-graph" && mode !== "delete-nodes") {
 		throw new Error(`Unknown deletion mode: ${mode as string}`);
 	}
+	const covered = writtenBy(at);
 
 	// The bookkeeping rows die in BOTH modes — coverage and checkpoints
 	// are extraction state, not graph content (owner semantics: even
 	// preserve-graph deletes "the chat's coverage rows").
-	const coverage = graphStore.readCoverage().filter((row) => row.chatId !== chatId);
-	const checkpoints = graphStore.readCheckpoints().filter((row) => row.chatId !== chatId);
+	const coverage = ledgers.coverage.filter((row) => row.chatId !== chatId || !covered(row.foldedAt));
+	const checkpoints = ledgers.checkpoints.filter((row) => row.chatId !== chatId || !covered(row.foldedAt));
 	const stats: ChatDeletionStats = {
 		...EMPTY_STATS,
-		coverageRemoved: graphStore.readCoverage().length - coverage.length,
-		checkpointsRemoved: graphStore.readCheckpoints().length - checkpoints.length,
+		coverageRemoved: ledgers.coverage.length - coverage.length,
+		checkpointsRemoved: ledgers.checkpoints.length - checkpoints.length,
 	};
-
-	if (mode === "preserve-graph") {
-		if (stats.coverageRemoved > 0 || stats.checkpointsRemoved > 0) {
-			graphStore.rewriteLedgers({ coverage, checkpoints });
-		}
-		return stats;
-	}
+	const unchanged = { ...ledgers, coverage, checkpoints };
+	if (mode === "preserve-graph") return { ledgers: unchanged, stats, deadNodes: new Set(), deadChains: new Set() };
 
 	// ── delete-nodes: the full purge ──────────────────────────────────────
-	const nodeLines = graphStore.readNodes();
-	const chainLines = graphStore.readChains();
+	const nodeLines = ledgers.nodes;
+	const chainLines = ledgers.chains;
+	/** The chat's points on a line this deletion covers (a later line keeps them). */
+	const strippable = (line: { createdAt: string; provenance: ProvenancePoint[] }) =>
+		covered(line.createdAt) ? line.provenance.filter((pt) => pt.chatId === chatId).length : 0;
 
 	// Does the chat touch the graph at all? (A never-extracted chat still
-	// needs its coverage rows dropped above, but no ledger rewrite — keeps
-	// mtimes stable so the graph revision only moves when something really
-	// changed.)
-	const touched =
-		nodeLines.some((line) => line.provenance.some((pt) => pt.chatId === chatId)) ||
-		chainLines.some((line) => line.provenance.some((pt) => pt.chatId === chatId));
-	if (!touched) {
-		if (stats.coverageRemoved > 0 || stats.checkpointsRemoved > 0) {
-			graphStore.rewriteLedgers({ coverage, checkpoints });
-		}
-		return stats;
+	// needs its coverage rows dropped above, nothing else.)
+	if (!nodeLines.some((line) => strippable(line) > 0) && !chainLines.some((line) => strippable(line) > 0)) {
+		return { ledgers: unchanged, stats, deadNodes: new Set(), deadChains: new Set() };
 	}
 
 	// 1. Survival: a node lives iff a reference from ANY surviving source
-	//    remains — another chat/src's provenance point on any of its lines.
+	//    remains — another chat/src's provenance point on any of its lines,
+	//    or a point this deletion does not cover.
 	//    (Chain members are deliberately NOT survival references: a
 	//    chain's asserting session always left provenance on its endpoints,
 	//    so endpoint-only liveness cannot occur in a consistent ledger —
 	//    and counting it would keep nodes alive whose lines we would then
 	//    drop, dangling the chain.)
-	const survives = (points: ReadonlyArray<{ chatId: string }>): boolean =>
-		points.some((pt) => pt.chatId !== chatId);
+	const survivingPoints = (line: { createdAt: string; provenance: ProvenancePoint[] }) =>
+		covered(line.createdAt) ? line.provenance.filter((pt) => pt.chatId !== chatId) : line.provenance;
 	const live = new Set<string>();
 	for (const line of nodeLines) {
-		if (survives(line.provenance)) live.add(line.id);
+		if (survivingPoints(line).length > 0) live.add(line.id);
 	}
 
 	// 2. Node lines. Per-line (each line is ONE extraction run's append, so
@@ -163,7 +187,7 @@ export function deleteChatTraces(graphStore: GraphStore, chatId: string, mode: C
 		if (!live.has(line.id)) continue; // the whole node dies
 		const first = !seenIds.has(line.id);
 		seenIds.add(line.id);
-		const points = line.provenance.filter((pt) => pt.chatId !== chatId);
+		const points = survivingPoints(line);
 		if (points.length === line.provenance.length) {
 			outNodes.push(line); // untouched by this chat
 			continue;
@@ -192,7 +216,7 @@ export function deleteChatTraces(graphStore: GraphStore, chatId: string, mode: C
 	const outChains: GraphChain[] = [];
 	for (const line of chainLines) {
 		if (deadNodes.has(line.conclusion) || line.premises.some((premise) => deadNodes.has(premise))) continue;
-		const points = line.provenance.filter((pt) => pt.chatId !== chatId);
+		const points = survivingPoints(line);
 		// An assertion dies when THIS deletion empties its provenance — a
 		// line that already had no points is foreign/legacy data, not this
 		// chat's trace; it rides untouched.
@@ -200,37 +224,94 @@ export function deleteChatTraces(graphStore: GraphStore, chatId: string, mode: C
 		outChains.push(points.length === line.provenance.length ? line : { ...line, provenance: points });
 	}
 
-	stats.nodesRemoved = [...new Set(nodeLines.map((line) => line.id))].filter((id) => !live.has(id)).length;
+	stats.nodesRemoved = deadNodes.size;
 	stats.chainsRemoved = chainLines.length - outChains.length;
+	const keptChainIds = new Set(outChains.map((line) => line.id));
+	return {
+		ledgers: { nodes: outNodes, chains: outChains, coverage, checkpoints },
+		stats,
+		deadNodes,
+		deadChains: new Set(chainLines.filter((line) => !keptChainIds.has(line.id)).map((line) => line.id)),
+	};
+}
 
-	graphStore.rewriteLedgers({
-		nodes: outNodes,
-		chains: outChains,
-		coverage,
-		checkpoints,
-	});
-
-	// 4. Positions: prune dead nodes AND dead chains (an argument's derived
-	//    implication node carries the chain's arg_ id — stale resting spots
-	//    would pin nothing; pruning keeps the ledger honest and the
-	//    revision moving for exactly the right reason).
-	const deadChainIds = new Set(
-		chainLines
-			.filter((line) => !outChains.includes(line))
-			.map((line) => line.id),
-	);
-	const positions = graphStore.readPositions();
-	const knownNodeIds = new Set(nodeLines.map((line) => line.id));
-	const prunedPositions = Object.fromEntries(
-		Object.entries(positions).filter(
-			([id]) => (live.has(id) || !knownNodeIds.has(id)) && !deadChainIds.has(id),
-		),
-	);
-	if (Object.keys(prunedPositions).length !== Object.keys(positions).length) {
-		graphStore.writePositions(prunedPositions);
+/** PURE: full death of one node — or one argument, by its arg_ id (the
+ *  rules below). Null when no such node/chain exists. */
+export function purgeNode(ledgers: Ledgers, nodeId: string): (Purge & { stats: NodeDeletionStats }) | null {
+	const chainLines = ledgers.chains;
+	// The argument branch: an arg_ id names a CHAIN, not a proposition —
+	// its lines die, and that is the whole death (the member propositions
+	// survive: deleting an argument spares its premises/conclusion).
+	if (nodeId.startsWith("arg_")) {
+		const outChains = chainLines.filter((line) => line.id !== nodeId);
+		if (outChains.length === chainLines.length) return null; // unknown argument
+		return {
+			ledgers: { ...ledgers, chains: outChains },
+			stats: { chainsRemoved: chainLines.length - outChains.length },
+			deadNodes: new Set(),
+			deadChains: new Set([nodeId]),
+		};
 	}
+	if (!ledgers.nodes.some((line) => line.id === nodeId)) return null;
+	const outChains = chainLines.filter((line) => line.conclusion !== nodeId && !line.premises.includes(nodeId));
+	return {
+		ledgers: { ...ledgers, nodes: ledgers.nodes.filter((line) => line.id !== nodeId), chains: outChains },
+		stats: { chainsRemoved: chainLines.length - outChains.length },
+		deadNodes: new Set([nodeId]),
+		deadChains: new Set(chainLines.filter((line) => !outChains.includes(line)).map((line) => line.id)),
+	};
+}
 
-	return stats;
+/** PURE: replay every device's deletion records, oldest first — what the
+ *  graph store applies on every read (multi-device, ADR 0003). */
+export function applyDeletions(ledgers: Ledgers, deletions: ReadonlyArray<GraphDeletion>): Ledgers {
+	let out = ledgers;
+	for (const record of [...deletions].sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0))) {
+		if (record.type === "session") out = purgeChat(out, record.chatId, record.mode, record.at).ledgers;
+		else out = purgeNode(out, record.id)?.ledgers ?? out;
+	}
+	return out;
+}
+
+function readLedgers(graphStore: GraphStore): Ledgers {
+	return {
+		nodes: graphStore.readNodes(),
+		chains: graphStore.readChains(),
+		coverage: graphStore.readCoverage(),
+		checkpoints: graphStore.readCheckpoints(),
+	};
+}
+
+/** Positions die with the nodes and chains a deletion killed (an
+ *  argument's derived implication node carries the chain's arg_ id —
+ *  stale resting spots would pin nothing). The layout is device-local, so
+ *  each device prunes its own; another device's stale spots pin nothing. */
+function prunePositions(graphStore: GraphStore, purge: Purge): void {
+	const positions = graphStore.readPositions();
+	const pruned = Object.fromEntries(
+		Object.entries(positions).filter(([id]) => !purge.deadNodes.has(id) && !purge.deadChains.has(id)),
+	);
+	if (Object.keys(pruned).length !== Object.keys(positions).length) graphStore.writePositions(pruned);
+}
+
+/**
+ * Remove one chat's traces from the graph ledgers. Synchronous by design
+ * (the atomicity argument above); idempotent (a second run finds nothing
+ * and returns zero stats). Multi-device (ADR 0003): the removal is a
+ * deletion RECORD appended to this device's own file, which every device
+ * applies on read — no ledger file is ever rewritten.
+ */
+export function deleteChatTraces(graphStore: GraphStore, chatId: string, mode: ChatDeleteMode): ChatDeletionStats {
+	const at = new Date().toISOString();
+	const before = readLedgers(graphStore);
+	const purge = purgeChat(before, chatId, mode, at);
+	// Only a deletion that changes something leaves a record (a stripped
+	// link line or provenance point counts, even when no stat moves).
+	if (JSON.stringify(purge.ledgers) !== JSON.stringify(before)) {
+		graphStore.appendDeletion({ type: "session", chatId, mode, at });
+		prunePositions(graphStore, purge);
+	}
+	return purge.stats;
 }
 
 // ─── single-node deletion (node interlude, owner-locked full-death) ───────────
@@ -262,73 +343,25 @@ export function deleteChatTraces(graphStore: GraphStore, chatId: string, mode: C
  * rendering — fine), and no other consumer indexes nodes by id across
  * ledgers.
  *
- * Synchronous, one rewriteLedgers call, no awaits (the same atomicity
+ * Synchronous, one deletion record, no awaits (the same atomicity
  * argument as the chat cascade); idempotent in the wave-6 sense — a
- * second run finds no lines and changes nothing.
+ * second run finds no lines and changes nothing. The death is permanent
+ * (multi-device): a later link line from another device does not revive it.
  */
 export interface NodeDeletionStats {
 	/** Chain assertion LINES removed (every chain referencing the node). */
 	chainsRemoved: number;
 }
 
-function nodeLinesOf(graphStore: GraphStore, nodeId: string): GraphNode[] {
-	return graphStore.readNodes().filter((line) => line.id === nodeId);
-}
-
-function chainLinesOf(graphStore: GraphStore, chainId: string): GraphChain[] {
-	return graphStore.readChains().filter((line) => line.id === chainId);
-}
-
 /**
  * Full-death one node (or one argument, by its arg_ id). Returns null
- * when no such node/chain exists (the orchestration maps that to 404);
- * rewrites only the ledgers that changed (unchanged files keep their
- * mtimes — the version stamp moves only when something really did).
+ * when no such node/chain exists (the orchestration maps that to 404).
  */
 export function deleteNodeTraces(graphStore: GraphStore, nodeId: string): NodeDeletionStats | null {
-	const chainLines = graphStore.readChains();
-
-	// The argument branch: an arg_ id names a CHAIN, not a proposition —
-	// its lines die, and that is the whole death (the member propositions
-	// survive: deleting an argument spares its premises/conclusion).
-	if (nodeId.startsWith("arg_")) {
-		const outChains = chainLines.filter((line) => line.id !== nodeId);
-		if (outChains.length === chainLines.length) return null; // unknown argument
-		graphStore.rewriteLedgers({ chains: outChains });
-		const positions = graphStore.readPositions();
-		if (positions[nodeId] !== undefined) {
-			const { [nodeId]: _dead, ...rest } = positions;
-			graphStore.writePositions(rest);
-		}
-		return { chainsRemoved: chainLines.length - outChains.length };
-	}
-
-	const nodeLines = nodeLinesOf(graphStore, nodeId);
-	if (nodeLines.length === 0) return null;
-
-	const outChains = chainLines.filter(
-		(line) => line.conclusion !== nodeId && !line.premises.includes(nodeId),
-	);
-
-	// Only the touched ledgers: the node's own lines always die (its file
-	// must move), everything else rewrites only when rows actually drop.
-	const outNodes = graphStore.readNodes().filter((line) => line.id !== nodeId);
-	graphStore.rewriteLedgers({
-		nodes: outNodes,
-		...(outChains.length !== chainLines.length ? { chains: outChains } : {}),
-	});
-
-	// The resting positions die with the node and every dead chain.
-	const deadChainIds = new Set(chainLines.filter((line) => !outChains.includes(line)).map((line) => line.id));
-	const positions = graphStore.readPositions();
-	const prunedPositions = Object.fromEntries(
-		Object.entries(positions).filter(([id]) => id !== nodeId && !deadChainIds.has(id)),
-	);
-	if (Object.keys(prunedPositions).length !== Object.keys(positions).length) {
-		graphStore.writePositions(prunedPositions);
-	}
-
-	return {
-		chainsRemoved: chainLines.length - outChains.length,
-	};
+	const purge = purgeNode(readLedgers(graphStore), nodeId);
+	if (!purge) return null;
+	const at = new Date().toISOString();
+	graphStore.appendDeletion(nodeId.startsWith("arg_") ? { type: "chain", id: nodeId, at } : { type: "node", id: nodeId, at });
+	prunePositions(graphStore, purge);
+	return purge.stats;
 }
