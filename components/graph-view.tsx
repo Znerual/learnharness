@@ -1086,12 +1086,24 @@ export function GraphView({
 	useEffect(() => {
 		if (chainSelectOpen) setChainsOpen(true);
 	}, [chainSelectOpen]);
+	// A graph saved by a NEWER app (multi-device): the server answers 409
+	// graph_format_newer and the view says so instead of rendering empty.
+	const [formatNotice, setFormatNotice] = useState<string | null>(null);
 	useEffect(() => {
 		let cancelled = false;
 		fetch("/api/graph")
-			.then((res) => res.json() as Promise<GraphSnapshot>)
+			.then(async (res) => {
+				if (res.status === 409) {
+					const body = (await res.json()) as { code?: string; error?: string };
+					if (body.code === "graph_format_newer") {
+						if (!cancelled) setFormatNotice(body.error ?? "Update this app to see your knowledge graph.");
+						return null;
+					}
+				}
+				return res.json() as Promise<GraphSnapshot>;
+			})
 			.then((data) => {
-				if (!cancelled) setSnapshot(data);
+				if (!cancelled && data) setSnapshot(data);
 			})
 			.catch((err) => console.error("[graph] fetch failed:", err));
 		return () => {
@@ -1503,7 +1515,7 @@ export function GraphView({
 						<WaypointsIcon className="size-10 opacity-40" strokeWidth={1.25} />
 						<div className="text-lg font-medium text-foreground">Knowledge graph</div>
 						<p className="max-w-sm text-sm">
-							Start a session or import notes to build your graph.
+							{formatNotice ?? "Start a session or import notes to build your graph."}
 						</p>
 					</div>
 				</div>

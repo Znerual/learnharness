@@ -39,13 +39,19 @@ function stampedVersion(): number | null {
 	}
 }
 
+/** The refusal assertGraphFormat throws — routes answer it with 409
+ *  graph_format_newer (multi-device: devices update at different times). */
+export class GraphFormatNewerError extends Error {
+	readonly code = "graph_format_newer";
+}
+
 /** READ-SIDE GUARD: throws when the data dir was written by a NEWER build.
  *  Called by every graph-family read — never writes (the golden fixtures
  *  pin reads as byte-identical). */
 export function assertGraphFormat(): void {
 	const v = stampedVersion();
 	if (v !== null && v > CURRENT_GRAPH_FORMAT_VERSION) {
-		throw new Error(
+		throw new GraphFormatNewerError(
 			`Graph data is stamped with format version ${v}, but this build understands only ${CURRENT_GRAPH_FORMAT_VERSION}. ` +
 				"The app is older than its data — upgrade the app before touching the knowledge map.",
 		);

@@ -14,7 +14,20 @@ export default async function ChatPage({
 }) {
 	const [{ id }, { prompt }] = await Promise.all([params, searchParams]);
 	const chat = getChat(id);
-	if (!chat) notFound();
+	if (!chat) {
+		// Saved by a NEWER app (multi-device: devices update at different
+		// times) — say so instead of a 404.
+		const newer = stores.chatStore.newerChat(id);
+		if (!newer) notFound();
+		return (
+			<div className="flex h-full items-center justify-center px-4" data-testid="newer-session">
+				<div className="max-w-sm text-center font-ui text-sm text-muted-foreground">
+					<p className="mb-2 text-lg font-medium text-foreground">{newer.title}</p>
+					<p>This session was saved by a newer LearnHarness. Update this app to open it.</p>
+				</div>
+			</div>
+		);
+	}
 	// The persistent setup CTA's seed (BYOK, owner 2026-09-22): slotsConfigured
 	// over the settings record, server-read — the same gate home/new read. The
 	// server's 503 stays the truth; this only decides whether the pill rides.

@@ -260,7 +260,11 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 			return;
 		}
 		void fetch("/api/graph")
-			.then((r) => r.json() as Promise<GraphSnapshot>)
+			.then((r) => {
+				// A 409 (graph saved by a newer app) is no snapshot.
+				if (!r.ok) throw new Error(String(r.status));
+				return r.json() as Promise<GraphSnapshot>;
+			})
 			.then((snap) => {
 				setSnapshot(snap);
 				setPickerOpen(true);

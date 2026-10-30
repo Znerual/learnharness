@@ -64,6 +64,9 @@ export interface ChatStore {
 	/** Keep "current" or one conflict copy; the rest move to the local
 	 *  conflicts folder. False when `keep` names no copy of this session. */
 	resolveConflict(id: string, keep: string): boolean;
+	/** Title and times of a session saved by a NEWER app (getChat refuses
+	 *  it); null otherwise. */
+	newerChat(id: string): Pick<ChatRecord, "id" | "title" | "createdAt" | "updatedAt"> | null;
 	/** Rename a session (the header's click-to-edit title, 2026-09-17).
 	 * Like saveSettings: a rename is NOT conversation activity — updatedAt
 	 * stays put, so sidebar order never churns on a rename. */

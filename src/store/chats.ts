@@ -80,15 +80,43 @@ function getChat(id: string): ChatRecord | null {
  *  sync tool's conflict copies and temp files) is not a session. */
 const SESSION_FILE = /^([A-Za-z0-9_-]+)\.json$/;
 
+/** The bare identity of a session saved by a NEWER app version, which
+ *  getChat refuses to read (multi-device: devices update at different
+ *  times) — null for anything else. */
+function newerChat(id: string): Pick<ChatRecord, "id" | "title" | "createdAt" | "updatedAt"> | null {
+	try {
+		const parsed = JSON.parse(fs.readFileSync(chatFile(id), "utf-8")) as Partial<ChatRecord>;
+		if (typeof parsed.version !== "number" || parsed.version <= CURRENT_CHAT_VERSION) return null;
+		const at = typeof parsed.updatedAt === "string" ? parsed.updatedAt : "";
+		return {
+			id,
+			title: typeof parsed.title === "string" ? parsed.title : "Untitled session",
+			createdAt: typeof parsed.createdAt === "string" ? parsed.createdAt : at,
+			updatedAt: at,
+		};
+	} catch {
+		return null;
+	}
+}
+
+/** The list entry for a session this build cannot read. */
+function newerSummary(chat: Pick<ChatRecord, "id" | "title" | "createdAt" | "updatedAt">): ChatSummary {
+	return { ...chat, kind: "teach", messageCount: 0, phase: "probe", pendingQuestion: false, pendingProblem: false, newer: true };
+}
+
 function listChats(): ChatSummary[] {
 	try {
 		fs.mkdirSync(PATHS.chats, { recursive: true });
-		return fs
-			.readdirSync(PATHS.chats)
-			.flatMap((f) => {
-				const id = SESSION_FILE.exec(f)?.[1];
-				return id ? [getChat(id)] : [];
-			})
+		const ids = fs.readdirSync(PATHS.chats).flatMap((f) => {
+			const id = SESSION_FILE.exec(f)?.[1];
+			return id ? [id] : [];
+		});
+		const newer = ids.flatMap((id) => {
+			const chat = newerChat(id);
+			return chat ? [newerSummary(chat)] : [];
+		});
+		return ids
+			.map((id) => getChat(id))
 			.filter((r): r is ChatRecord => r !== null)
 			.map(({ messages, tree, turns, extractions, ...summary }) => {
 				// Per-record isolation (Wave B): a record whose messages fail the
@@ -120,6 +148,7 @@ function listChats(): ChatSummary[] {
 				}
 			})
 			.filter((s): s is ChatSummary => s !== null)
+			.concat(newer)
 			.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 	} catch {
 		return [];
@@ -289,6 +318,7 @@ export const chatStore: ChatStore = {
 	setActiveTurn,
 	listConflicts,
 	resolveConflict,
+	newerChat,
 	renameChat,
 	deleteChat,
 	appendTurnUsage,

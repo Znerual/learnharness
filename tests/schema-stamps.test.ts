@@ -62,7 +62,9 @@ test("chats: a NEWER-stamped record is refused honestly (the downgrade scenario)
 		"utf-8",
 	);
 	assert.equal(chatStore.getChat(id), null, "getChat refuses: reads as absent, never misparsed");
-	assert.ok(!chatStore.listChats().some((s) => s.id === id), "listChats skips it too");
+	// Multi-device (devices update at different times): the list shows a
+	// placeholder instead of dropping it — tests/newer-records.test.ts.
+	assert.equal(chatStore.listChats().find((s) => s.id === id)?.newer, true, "listChats lists a newer placeholder");
 	// and the refused record is NOT rewritten or downgraded by the visit:
 	const onDisk = JSON.parse(fs.readFileSync(path.join(TMP_DATA, "chats", `${id}.json`), "utf8"));
 	assert.equal(onDisk.version, 99, "the future record survives untouched");

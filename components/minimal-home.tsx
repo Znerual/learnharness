@@ -101,7 +101,11 @@ export function MinimalHome({
 
 	const readState = useCallback(() => {
 		fetch("/api/graph")
-			.then((res) => res.json() as Promise<GraphSnapshot>)
+			.then((res) => {
+				// A 409 (graph saved by a newer app) is no snapshot.
+				if (!res.ok) throw new Error(String(res.status));
+				return res.json() as Promise<GraphSnapshot>;
+			})
 			.then(setSnapshot)
 			.catch(() => {});
 		fetch("/api/graph/costs")

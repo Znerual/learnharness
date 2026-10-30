@@ -296,6 +296,10 @@ export interface ChatSummary {
 	 *  summary spread (the picker never needs it from here; the full record
 	 *  is its source). */
 	settings?: ChatSettings;
+	/** Saved by a NEWER app (multi-device: devices update at different
+	 *  times): listed so it never vanishes, but unreadable here — the
+	 *  derived fields are placeholders. */
+	newer?: true;
 }
 
 /** The sidebar's session row: a summary + live liveness. The chats list
