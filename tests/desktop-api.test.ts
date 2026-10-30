@@ -69,6 +69,16 @@ test("all methods fail closed for desktop missing/wrong secret; API-only matcher
 	}
 });
 
+test("the Android shell's WebView may carry the desktop capability as the lh_desktop cookie instead of the header", () => {
+	const env = { LH_DESKTOP_SERVER: "1", LH_DESKTOP_API_SECRET: secret };
+	assert(desktopAPIAuthorized(new Headers({ cookie: `lh_desktop=${secret}` }), env));
+	assert(desktopAPIAuthorized(new Headers({ cookie: `theme=dark; lh_desktop=${secret}; other=1` }), env));
+	for (const cookie of ["", "lh_desktop=", "lh_desktop=wrong", `lh_desktop=${secret}x`, `lh_desktopx=${secret}`, `xlh_desktop=${secret}`]) {
+		assert(!desktopAPIAuthorized(new Headers({ cookie }), env), cookie);
+	}
+	assert(!desktopAPIAuthorized(new Headers({ cookie: `lh_desktop=${secret}` }), { LH_DESKTOP_SERVER: "1" }), "missing server secret must not disable authorization");
+});
+
 test("renderer controls route explicit account forgetting and account-independent boolean consent only", async () => {
 	const forgotten: string[] = [], changes: boolean[] = [];
 	const connection = { disconnect: async (id: string) => { forgotten.push(id); return { ok: true }; }, consent: async (enabled: boolean) => { changes.push(enabled); return { ok: true }; } };
