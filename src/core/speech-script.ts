@@ -4,6 +4,9 @@
  *
  * - Prose, headings, lists and callouts are read; emphasis and markup are
  *   dropped; links read their text.
+ * - Arrows read as words between pauses: "A → B" → "A, leads to, B"
+ *   (owner 2026-10-30; ⇒ "implies", ← "comes from", ↔ "corresponds to",
+ *   ⇔ "if and only if", ASCII forms too, inline code included).
  * - `> [!IMPORTANT]` reads "Key idea: …" (NOTE/TIP/WARNING/CAUTION read
  *   their own label).
  * - Code, mermaid diagrams and tables are NOT read — a short cue tells the
@@ -113,20 +116,41 @@ export function withLead(lead: string, blocks: SpeechBlock[]): SpeechBlock[] {
 	return [tidyBlock([{ kind: "text", text: `${lead} ` }, ...first]), ...rest];
 }
 
+/** The silence before a spoken block (owner 2026-10-30): after every
+ *  paragraph, longer before a dock question, between its options. */
+export type SpeechPause = "paragraph" | "question" | "option";
+
+/** The pause lengths at speed 1; the player divides them by the speed. */
+export const SPEECH_PAUSE_MS: Record<SpeechPause, number> = { paragraph: 700, question: 1200, option: 900 };
+
+/** A block with the pause the player keeps before it. */
+export interface SpokenBlock {
+	block: SpeechBlock;
+	pauseBefore: SpeechPause;
+}
+
+/** Blocks with a pause: `first` before the first, a paragraph pause between the rest. */
+function spoken(blocks: SpeechBlock[], first: SpeechPause): SpokenBlock[] {
+	return blocks.map((block, i) => ({ block, pauseBefore: i === 0 ? first : "paragraph" }));
+}
+
 /**
  * A question-dock question, spoken (owner ruling: question, context, then
  * every option — "Option 1: …" in the dock's display order, so quiz
  * options get the dock's same seeded shuffle). Option descriptions are
  * read where the dock shows them (never on quizzes); the dock's built-in
- * "I don't know" is not read.
+ * "I don't know" is not read. A question with options opens on "And now
+ * the question:" (owner 2026-10-30); every question is set apart by the
+ * longer pause, every option by its own.
  */
-export function questionSpeechBlocks(tool: string, toolCallId: string, input: unknown): SpeechBlock[] {
+export function questionSpeechBlocks(tool: string, toolCallId: string, input: unknown): SpokenBlock[] {
 	const raw = (input ?? {}) as { question?: unknown; details?: unknown; options?: unknown };
 	const kind = toolQuestionKind(tool);
-	const blocks: SpeechBlock[] = [];
-	if (typeof raw.question === "string") blocks.push(...speechBlocks(raw.question));
-	if (typeof raw.details === "string") blocks.push(...speechBlocks(raw.details));
-	if (kind === "explain") return blocks;
+	const asked: SpeechBlock[] = [];
+	if (typeof raw.question === "string") asked.push(...speechBlocks(raw.question));
+	if (typeof raw.details === "string") asked.push(...speechBlocks(raw.details));
+	if (kind === "explain") return spoken(asked, "question");
+	const blocks = spoken(withLead("And now the question:", asked), "question");
 	let options: QuizOption[] = [];
 	try {
 		options = normalizeOptions(raw.options as Parameters<typeof normalizeOptions>[0]);
@@ -137,7 +161,7 @@ export function questionSpeechBlocks(tool: string, toolCallId: string, input: un
 	options.forEach((option, i) => {
 		const said = speechBlocks(option.label);
 		if (kind !== "quiz" && option.description) said.push(...speechBlocks(option.description));
-		blocks.push(...withLead(`Option ${i + 1}:`, said));
+		blocks.push(...spoken(withLead(`Option ${i + 1}:`, said), "option"));
 	});
 	return blocks;
 }
@@ -232,7 +256,29 @@ function endSentence(block: SpeechBlock): SpeechBlock {
 	return block;
 }
 
-/** Merge adjacent text, collapse whitespace, drop empties. */
+/** Arrow → its spoken word (owner 2026-10-30), longest forms first. */
+const ARROW_WORDS: Record<string, string> = {
+	"<->": "corresponds to",
+	"↔": "corresponds to",
+	"⇔": "if and only if",
+	"-->": "leads to",
+	"->": "leads to",
+	"→": "leads to",
+	"=>": "implies",
+	"⇒": "implies",
+	"<-": "comes from",
+	"←": "comes from",
+};
+
+const ARROW_RE = /\s*(<->|-->|->|=>|<-|[↔⇔→⇒←])\s*/g;
+
+/** Arrows read as words, set apart by commas — the voice pauses on them:
+ *  "A → B" → "A, leads to, B". */
+function speakArrows(text: string): string {
+	return text.replace(ARROW_RE, (_, arrow: string) => `, ${ARROW_WORDS[arrow]}, `);
+}
+
+/** Merge adjacent text, read arrows, collapse whitespace, drop empties. */
 function tidyBlock(block: SpeechBlock): SpeechBlock {
 	const out: SpeechBlock = [];
 	for (const segment of block) {
@@ -245,12 +291,15 @@ function tidyBlock(block: SpeechBlock): SpeechBlock {
 		else out.push({ kind: "text", text: segment.text });
 	}
 	return out
-		.map((segment) => (segment.kind === "text" ? { kind: "text" as const, text: segment.text.replace(/\s+/g, " ") } : segment))
+		.map((segment) =>
+			segment.kind === "text" ? { kind: "text" as const, text: speakArrows(segment.text).replace(/\s+/g, " ") } : segment,
+		)
 		.filter((segment) => segment.kind === "math" || segment.text.trim() !== "")
 		.map((segment, i, all) => {
 			if (segment.kind !== "text") return segment;
 			let text = segment.text;
-			if (i === 0) text = text.trimStart();
+			// A block that opens on an arrow has no pause before its word.
+			if (i === 0) text = text.trimStart().replace(/^, /, "");
 			if (i === all.length - 1) text = text.trimEnd();
 			return { kind: "text" as const, text };
 		});

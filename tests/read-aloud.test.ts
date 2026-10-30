@@ -70,6 +70,15 @@ describe("speechBlocks", () => {
 	it("flattens list items to one block per paragraph", () => {
 		assert.deepEqual(speechBlocks("1. First.\n2. Second.\n\n   More."), [[text("First.")], [text("Second.")], [text("More.")]]);
 	});
+	it("reads arrows as words with a pause around them, inline code included", () => {
+		assert.deepEqual(speechBlocks("Heat → expansion --> cracks."), [[text("Heat, leads to, expansion, leads to, cracks.")]]);
+		assert.deepEqual(speechBlocks("Rain -> wet, `x => x + 1`, A ⇒ B."), [[text("Rain, leads to, wet, x, implies, x + 1, A, implies, B.")]]);
+		assert.deepEqual(speechBlocks("Output ← input, a <- b."), [[text("Output, comes from, input, a, comes from, b.")]]);
+		assert.deepEqual(speechBlocks("Word ↔ meaning, a <-> b, P ⇔ Q."), [
+			[text("Word, corresponds to, meaning, a, corresponds to, b, P, if and only if, Q.")],
+		]);
+		assert.deepEqual(speechBlocks("→ Next step."), [[text("leads to, Next step.")]]);
+	});
 	it("withLead prefixes the first block", () => {
 		assert.deepEqual(withLead("Option 1:", speechBlocks("$x$ wins")), [[text("Option 1: "), math("x"), text(" wins")]]);
 		assert.deepEqual(withLead("Option 2:", []), [[text("Option 2:")]]);
@@ -77,23 +86,38 @@ describe("speechBlocks", () => {
 });
 
 describe("questionSpeechBlocks", () => {
-	it("reads question, context, then options numbered in the dock's shuffled order", () => {
+	const spoken = (pauseBefore: string, ...block: Array<ReturnType<typeof text> | ReturnType<typeof math>>) => ({ block, pauseBefore });
+
+	it("leads in, reads context, then options numbered in the dock's shuffled order, each set apart", () => {
 		const options = [{ label: "$x^2$" }, { label: "B" }, { label: "C" }];
 		const shown = shuffleOptions(normalizeOptions(options), seededRandom("call-1")).map((o) => o.label);
 		const blocks = questionSpeechBlocks("quiz", "call-1", { question: "Which?", details: "Think.", options });
-		assert.deepEqual(blocks.slice(0, 2), [[text("Which?")], [text("Think.")]]);
+		assert.deepEqual(blocks.slice(0, 2), [spoken("question", text("And now the question: Which?")), spoken("paragraph", text("Think."))]);
 		assert.deepEqual(
 			blocks.slice(2),
-			shown.map((label, i) => (label === "$x^2$" ? [text(`Option ${i + 1}: `), math("x^2")] : [text(`Option ${i + 1}: ${label}`)])),
+			shown.map((label, i) =>
+				label === "$x^2$" ? spoken("option", text(`Option ${i + 1}: `), math("x^2")) : spoken("option", text(`Option ${i + 1}: ${label}`)),
+			),
 		);
 	});
-	it("reads ask options in order with descriptions; explain has none", () => {
+	it("reads ask options in order, a description a paragraph after its label", () => {
 		const ask = questionSpeechBlocks("ask_user_question", "c", {
 			question: "Pace?",
 			options: [{ label: "Slow", description: "More examples." }, { label: "Fast" }],
 		});
-		assert.deepEqual(ask, [[text("Pace?")], [text("Option 1: Slow")], [text("More examples.")], [text("Option 2: Fast")]]);
-		assert.deepEqual(questionSpeechBlocks("recall", "c", { question: "Explain it." }), [[text("Explain it.")]]);
+		assert.deepEqual(ask, [
+			spoken("question", text("And now the question: Pace?")),
+			spoken("option", text("Option 1: Slow")),
+			spoken("paragraph", text("More examples.")),
+			spoken("option", text("Option 2: Fast")),
+		]);
+	});
+	it("sets explain and recall apart without the lead-in", () => {
+		assert.deepEqual(questionSpeechBlocks("recall", "c", { question: "Explain it." }), [spoken("question", text("Explain it."))]);
+		assert.deepEqual(questionSpeechBlocks("explain", "c", { question: "Why?", details: "In words." }), [
+			spoken("question", text("Why?")),
+			spoken("paragraph", text("In words.")),
+		]);
 	});
 });
 
@@ -304,6 +328,16 @@ describe("the forward to the speech endpoint", () => {
 		call = seen.at(-1)!;
 		assert.equal(call.auth, "Bearer sk-tts");
 		deleteKey("LH_TTS_KEY");
+	});
+	it("reads a formula on its own at 0.8 of the speed, never below the minimum", async () => {
+		writeSettings({ version: 1, speech: { url: "http://tts:8110/v1", speed: 1.5 } });
+		await synthesizeSpeech([math("x^2")], fake(200, "ID3") as typeof fetch);
+		assert.equal(seen.at(-1)!.body!.speed, 1.2);
+		await synthesizeSpeech([text("So "), math("x^2")], fake(200, "ID3") as typeof fetch);
+		assert.equal(seen.at(-1)!.body!.speed, 1.5);
+		writeSettings({ version: 1, speech: { url: "http://tts:8110/v1", speed: 0.5 } });
+		await synthesizeSpeech([math("x^2")], fake(200, "ID3") as typeof fetch);
+		assert.equal(seen.at(-1)!.body!.speed, 0.5);
 	});
 	it("passes endpoint errors through and names an unreachable endpoint", async () => {
 		const failed = await synthesizeSpeech(

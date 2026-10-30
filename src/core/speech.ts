@@ -42,6 +42,9 @@ export const SPEECH_SPEED_MIN = 0.5;
 export const SPEECH_SPEED_MAX = 3;
 /** The composer slider's and the Settings field's step. */
 export const SPEECH_SPEED_STEP = 0.1;
+/** A display equation is read slower than the prose around it (owner
+ *  2026-10-30): this share of the chosen speed, never below the minimum. */
+export const SPEECH_MATH_SPEED_FACTOR = 0.8;
 
 export function isSpeechSpeed(value: unknown): value is number {
 	return typeof value === "number" && Number.isFinite(value) && value >= SPEECH_SPEED_MIN && value <= SPEECH_SPEED_MAX;

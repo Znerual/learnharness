@@ -17,6 +17,10 @@
  * - Per turn (owner 2026-10-27): a reply group runs on across dock
  *   answers, so speech is owned by its TURN (core replyTurns) — each turn
  *   has its own button, and a stop silences only the turn it cut.
+ * - Pauses (owner 2026-10-30): silence before each block, as long as its
+ *   SpeechPause says (core SPEECH_PAUSE_MS) divided by the speed —
+ *   counted from the end of the last block played, so speech that
+ *   arrives after a quiet spell starts at once.
  * - Playback stops on Esc (after dictation in the chain), when dictation
  *   starts, when the learner sends, and when another reply is played.
  *
@@ -32,6 +36,7 @@ import {
 	isSpeechSpeed,
 	replyTurns,
 	speechBlocks,
+	SPEECH_PAUSE_MS,
 	SPEECH_SPEED_MAX,
 	SPEECH_SPEED_MIN,
 	SPEECH_SPEED_STEP,
@@ -39,6 +44,7 @@ import {
 	type ReplyTurn,
 	type SpeechBlock,
 	type SpeechSettings,
+	type SpokenBlock,
 	type UserSettings,
 } from "@/src/core";
 import { Hint } from "@/components/ui/hint";
@@ -74,8 +80,7 @@ function subscribe(listener: () => void): () => void {
 
 // ─── the player ──────────────────────────────────────────────────────────────
 
-interface Entry {
-	block: SpeechBlock;
+interface Entry extends SpokenBlock {
 	/** The block's audio as an object URL, fetched on first need. */
 	audio?: Promise<string>;
 }
@@ -86,6 +91,8 @@ let generation = 0;
 let pumpingGeneration = -1;
 let controller = new AbortController();
 let endCurrent: (() => void) | null = null;
+/** When the last block finished playing (performance.now()), null when none has. */
+let lastEnded: number | null = null;
 /** Turns the learner silenced: later blocks of the same turn stay quiet. */
 const muted = new Set<string>();
 
@@ -128,6 +135,23 @@ function playUrl(url: string): Promise<void> {
 	});
 }
 
+/** Keep the entry's pause before it plays: what is left of it since the
+ *  last block ended. stop() cuts it short, like a playing block. */
+function pauseBefore(entry: Entry): Promise<void> {
+	if (lastEnded === null) return Promise.resolve();
+	const left = SPEECH_PAUSE_MS[entry.pauseBefore] / state.speed - (performance.now() - lastEnded);
+	if (left <= 0) return Promise.resolve();
+	return new Promise((resolve) => {
+		const timer = setTimeout(done, left);
+		function done() {
+			clearTimeout(timer);
+			endCurrent = null;
+			resolve();
+		}
+		endCurrent = done;
+	});
+}
+
 async function pump(): Promise<void> {
 	const gen = generation;
 	if (pumpingGeneration === gen) return;
@@ -143,7 +167,14 @@ async function pump(): Promise<void> {
 			}
 			const next = queue[0];
 			if (next) void load(next).catch(() => {});
+			await pauseBefore(entry);
+			if (gen !== generation) {
+				URL.revokeObjectURL(url);
+				break;
+			}
 			await playUrl(url);
+			// A stop resolves the block it cut: its end is no pause to keep.
+			if (gen === generation) lastEnded = performance.now();
 		}
 	} catch (error) {
 		if (gen === generation) {
@@ -168,6 +199,7 @@ export function stopReadAloud(): void {
 	for (const entry of queue) entry.audio?.then(URL.revokeObjectURL, () => {});
 	queue = [];
 	endCurrent?.();
+	lastEnded = null;
 	if (state.owner) muted.add(state.owner);
 	pendingQuestions.clear();
 	if (state.owner !== null) set({ owner: null });
@@ -178,22 +210,27 @@ export function isReadAloudActive(): boolean {
 	return state.owner !== null;
 }
 
+/** Prose blocks, each a paragraph pause after the one before. */
+function paragraphs(blocks: SpeechBlock[]): SpokenBlock[] {
+	return blocks.map((block) => ({ block, pauseBefore: "paragraph" }));
+}
+
 /** Play one turn from its start, replacing whatever was playing. */
 export function speakReply(owner: string, blocks: SpeechBlock[]): void {
 	stopReadAloud();
 	muted.delete(owner);
 	if (blocks.length === 0) return;
-	queue.push(...blocks.map((block) => ({ block })));
+	queue.push(...paragraphs(blocks));
 	set({ owner, error: null });
 	void pump();
 }
 
 /** Queue more of a turn (auto-read). A different turn's speech stops;
  *  a turn the learner silenced stays silent. */
-function appendReply(owner: string, blocks: SpeechBlock[]): void {
+function appendReply(owner: string, blocks: SpokenBlock[]): void {
 	if (blocks.length === 0 || muted.has(owner)) return;
 	if (state.owner !== null && state.owner !== owner) stopReadAloud();
-	queue.push(...blocks.map((block) => ({ block })));
+	queue.push(...blocks.map((spoken) => ({ ...spoken })));
 	if (state.owner !== owner) set({ owner, error: null });
 	void pump();
 }
@@ -206,7 +243,7 @@ function appendReply(owner: string, blocks: SpeechBlock[]): void {
  *  whichever is second queues the question, so it always follows the
  *  prose. */
 const liveQuestions = new Map<string, string>();
-const pendingQuestions = new Map<string, SpeechBlock[]>();
+const pendingQuestions = new Map<string, SpokenBlock[]>();
 const spokenQuestions = new Set<string>();
 
 function markLiveQuestion(toolCallId: string, owner: string): void {
@@ -219,7 +256,7 @@ function markLiveQuestion(toolCallId: string, owner: string): void {
 	}
 }
 
-function speakQuestion(toolCallId: string, blocks: SpeechBlock[]): void {
+function speakQuestion(toolCallId: string, blocks: SpokenBlock[]): void {
 	const owner = liveQuestions.get(toolCallId);
 	if (!owner || spokenQuestions.has(toolCallId)) return;
 	spokenQuestions.add(toolCallId);
@@ -227,7 +264,7 @@ function speakQuestion(toolCallId: string, blocks: SpeechBlock[]): void {
 }
 
 /** The dock shows a question: read it if auto-read is on and it arrived live. */
-export function offerQuestion(toolCallId: string, blocks: SpeechBlock[]): void {
+export function offerQuestion(toolCallId: string, blocks: SpokenBlock[]): void {
 	if (!state.autoRead || spokenQuestions.has(toolCallId)) return;
 	if (liveQuestions.has(toolCallId)) speakQuestion(toolCallId, blocks);
 	else pendingQuestions.set(toolCallId, blocks);
@@ -355,7 +392,7 @@ export function useAutoRead(messages: LhViewMessage[], status: string): void {
 					const blocks = speechBlocks(closed);
 					const from = spoken.current.get(turn.key) ?? 0;
 					if (blocks.length > from) {
-						if (autoRead) appendReply(turn.key, blocks.slice(from));
+						if (autoRead) appendReply(turn.key, paragraphs(blocks.slice(from)));
 						spoken.current.set(turn.key, blocks.length);
 					}
 				}

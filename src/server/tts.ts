@@ -10,10 +10,18 @@
  *
  * MATH (owner ruling): deterministic, offline — server/math-speech.ts
  * reads each formula in words: "\frac{a}{b} + x^2" → "a over b plus x
- * squared". English only, like the Kokoro voices.
+ * squared". English only, like the Kokoro voices. A block that is one
+ * formula alone — a display equation — is read slower (owner 2026-10-30):
+ * SPEECH_MATH_SPEED_FACTOR of the chosen speed.
  */
 
-import { resolveSpeech, SPEECH_KEY_ID, type EffectiveSpeech } from "../core/speech.ts";
+import {
+	resolveSpeech,
+	SPEECH_KEY_ID,
+	SPEECH_MATH_SPEED_FACTOR,
+	SPEECH_SPEED_MIN,
+	type EffectiveSpeech,
+} from "../core/speech.ts";
 import type { SpeechSegment } from "../core/speech-script.ts";
 import { keyValue } from "./keys.ts";
 import { speakMath } from "./math-speech.ts";
@@ -36,6 +44,12 @@ export async function speechText(segments: SpeechSegment[]): Promise<string> {
 		parts.push(segment.kind === "math" ? await speakMath(segment.latex) : segment.text);
 	}
 	return parts.join(" ").replace(/\s+/g, " ").replace(/\s+([.,;:!?])/g, "$1").trim();
+}
+
+/** The speed a block is read at: a formula alone is slower than prose. */
+function blockSpeed(segments: SpeechSegment[], speed: number): number {
+	if (segments.length !== 1 || segments[0]?.kind !== "math") return speed;
+	return Math.max(SPEECH_SPEED_MIN, Math.round(speed * SPEECH_MATH_SPEED_FACTOR * 100) / 100);
 }
 
 /** Strict shape check of a /api/tts/speak body's `segments`. */
@@ -83,7 +97,7 @@ export async function synthesizeSpeech(segments: SpeechSegment[], fetchFn: typeo
 	if (!input) return { ok: false, status: 400, error: "Nothing to read aloud" };
 	if (input.length > SPEECH_INPUT_MAX) input = input.slice(0, SPEECH_INPUT_MAX);
 
-	const body: Record<string, unknown> = { model: "tts-1", input, response_format: "mp3", speed: config.speed };
+	const body: Record<string, unknown> = { model: "tts-1", input, response_format: "mp3", speed: blockSpeed(segments, config.speed) };
 	if (config.voice) body.voice = config.voice;
 
 	let res: Response;
