@@ -28,7 +28,7 @@ import { useEnterSubmits } from "@/components/enter-submits";
 import { blurAfterPointerClick } from "@/components/focus-hygiene";
 import { dockStateKey } from "@/components/dock-state-key";
 import { clearOpeningPrompt, readOpeningPromptEntry, stashOpeningPrompt, OPENING_PROMPT_FAILURE } from "@/components/opening-prompt";
-import { forwardDockWheel, useDockHeight } from "@/components/dock-height";
+import { attachDockSwipeFold, forwardDockWheel, useDockHeight } from "@/components/dock-height";
 import { QueuedSteersBody, type QueuedSteerLine } from "@/components/queued-steers";
 import { DictationBar, finishDictation, joinDictation, useDictation } from "@/components/dictation";
 import { ReadAloudButton, ReadAloudSpeed, ReadAloudToggle, stopReadAloud, useAutoRead } from "@/components/read-aloud";
@@ -2145,6 +2145,7 @@ function DockOverlay({
 	setupCta?: React.ReactNode;
 }) {
 	const { isAtBottom, scrollToBottom, scrollRef } = useStickToBottomContext();
+	const android = useAndroidShell();
 	// Render-fresh bottom state (flicker round): the arrival block below reads
 	// it DURING RENDER — the same value the after-paint effect used to read a
 	// frame too late. Assigned per render like the other refs below.
@@ -2291,7 +2292,7 @@ function DockOverlay({
 	const [sbInset, setSbInset] = useState(0);
 	useDockHeight({
 		scrollRef, blockRef, viewportRef, bodyRef, shellRef, contentRef,
-		expanded, enabled: !!pending || !!practice, mode, onScrollbarInset: setSbInset, onHeight: offer,
+		expanded, enabled: !!pending || !!practice, wholeColumn: android, mode, onScrollbarInset: setSbInset, onHeight: offer,
 	});
 
 	// GROWTH MUTE (owner round, 2026-10-05 — the generation churn): during a
@@ -2332,6 +2333,33 @@ function DockOverlay({
 		root.addEventListener("wheel", onWheel, { passive: false });
 		return () => root.removeEventListener("wheel", onWheel);
 	}, [scrollRef]);
+
+	// Swipe down to the earlier text (Android, owner 2026-10-30): touch has
+	// no wheel to forward. A finger-down drag at the top of an open dock
+	// folds it at once, and the same drag scrolls the transcript. Its first
+	// pixels sit inside EXPAND_DIST, so the fold machine must not reopen the
+	// dock until the finger lifts.
+	const swipeFoldRef = useRef(false);
+	const docked = !!pending || !!practice;
+	useEffect(() => {
+		const root = blockRef.current;
+		const el = scrollRef.current;
+		if (!android || !docked || !root || !el) return;
+		const detach = attachDockSwipeFold(root, el, {
+			canFold: () => expandedRef.current,
+			onFold: () => {
+				swipeFoldRef.current = true;
+				setExpanded(false);
+			},
+			onDragEnd: () => {
+				swipeFoldRef.current = false;
+			},
+		});
+		return () => {
+			detach();
+			swipeFoldRef.current = false;
+		};
+	}, [android, docked, scrollRef]);
 
 	// Explicit expand (bar click): the smooth scroll to the bottom takes
 	// hundreds of ms, during which the position is still legitimately inside
@@ -2415,6 +2443,7 @@ function DockOverlay({
 				// left the bottom.
 				if (d > COLLAPSE_DIST && !expandIntentRef.current && !atBottomRef.current) setExpanded(false);
 			} else if (d < EXPAND_DIST) {
+				if (swipeFoldRef.current) return;
 				// Teach checks stay collapsed until the learner opens them (W5): the
 				// at-bottom auto-expand would pop the form over the teaching.
 				if (requiresRevealRef.current && !revealedRef.current) return;

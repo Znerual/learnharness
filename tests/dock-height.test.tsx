@@ -31,7 +31,7 @@ Object.assign(globalThis, {
 	}),
 });
 // Import after installing window so the hook uses its browser layout effect.
-const { dockHeightBudget, syncDockHeight, useDockHeight, forwardDockWheel } = await import("../components/dock-height.ts");
+const { dockHeightBudget, syncDockHeight, useDockHeight, forwardDockWheel, attachDockSwipeFold, DOCK_FOLD_SWIPE_PX } = await import("../components/dock-height.ts");
 
 const normal = {
 	columnHeight: 700, outsideHeight: 60, beforeShellHeight: 0,
@@ -70,6 +70,14 @@ describe("dockHeightBudget — whole dock, not just its question", () => {
 		assert.equal(dockHeightBudget({ ...normal, questionHeight: null, contentHeight: 42 }).scrollWholeContent, false);
 		assert.equal(dockHeightBudget({ ...normal, questionHeight: null, contentHeight: 42, beforeShellHeight: 650 }).scrollWholeContent, true);
 	});
+	it("whole column (Android) scrolls everything once the dock overflows, never squeezing the question", () => {
+		// The open-keyboard repro: the capped question would keep only 106px.
+		assert.equal(dockHeightBudget({ ...normal, columnHeight: 400 }).scrollWholeContent, false);
+		assert.equal(dockHeightBudget({ ...normal, columnHeight: 400 }, true).scrollWholeContent, true);
+		const fits = dockHeightBudget({ ...normal, contentHeight: 300, questionHeight: 100 }, true);
+		assert.equal(fits.scrollWholeContent, false);
+		assert.ok(fits.questionMaxHeight! >= 100, "a fitting dock keeps its question uncut");
+	});
 });
 
 // These mocked dimensions test the DOM/lifecycle seam, not real CSS layout.
@@ -90,8 +98,8 @@ Object.defineProperty(dom.window.HTMLElement.prototype, "offsetWidth", { configu
 Object.defineProperty(dom.window.HTMLElement.prototype, "scrollHeight", { configurable: true, get() { return Number(this.dataset.scrollHeight ?? 0); } });
 
 const ignoreHeight = () => {};
-function Fixture({ expanded = true, practice = false, enabled = true, inspected, onHeight = ignoreHeight }: {
-	expanded?: boolean; practice?: boolean; enabled?: boolean; inspected?: (block: HTMLDivElement) => void;
+function Fixture({ expanded = true, practice = false, enabled = true, wholeColumn = false, inspected, onHeight = ignoreHeight }: {
+	expanded?: boolean; practice?: boolean; enabled?: boolean; wholeColumn?: boolean; inspected?: (block: HTMLDivElement) => void;
 	onHeight?: (height: number) => void;
 }) {
 	const scrollRef = useRef<HTMLDivElement>(null);
@@ -102,7 +110,7 @@ function Fixture({ expanded = true, practice = false, enabled = true, inspected,
 	const contentRef = useRef<HTMLDivElement>(null);
 	const [inset, setInset] = useState(0);
 	useDockHeight({ scrollRef, blockRef, viewportRef, bodyRef, shellRef, contentRef,
-		expanded, enabled, mode: practice ? "practice:p1" : "question:q1", onScrollbarInset: setInset, onHeight });
+		expanded, enabled, wholeColumn, mode: practice ? "practice:p1" : "question:q1", onScrollbarInset: setInset, onHeight });
 	// Like DockOverlay's later morph/reserve layout effect: constraints must
 	// already be applied in this same commit, not an after-paint correction.
 	useLayoutEffect(() => { if (blockRef.current) inspected?.(blockRef.current); });
@@ -181,6 +189,18 @@ describe("measured question/practice DOM and observer lifecycle", () => {
 			assert.equal(part(host, "viewport").style.overflowY, "visible");
 		});
 	});
+	it("whole column (Android) uncaps the question as soon as the dock overflows", async () => {
+		await withFixture(async (host, render) => {
+			sizes.column = 400;
+			await render({ wholeColumn: true });
+			assert.equal(part(host, "block").style.getPropertyValue("--dock-max-h"), "none");
+			assert.equal(part(host, "viewport").style.overflowY, "auto");
+			assert.equal(part(host, "viewport").style.maxHeight, "308px");
+			await render({ wholeColumn: false });
+			assert.equal(part(host, "block").style.getPropertyValue("--dock-max-h"), "106px");
+			assert.equal(part(host, "viewport").style.overflowY, "visible");
+		});
+	});
 	it("removes constraints in composer mode and disconnects observers on unmount", async () => {
 		let last: TestObserver;
 		await withFixture(async (host, render) => {
@@ -255,5 +275,59 @@ describe("wheel routing — question, short-window content, then transcript", ()
 		question.style.overflowY = "hidden";
 		assert.equal(wheel(-20), true, "hidden and visible boxes are not scroll containers");
 		assert.equal(wheel(0), false);
+	});
+});
+
+describe("swipe fold (Android) — pull at the top folds, then the drag scrolls the transcript", () => {
+	const touch = (target: HTMLElement, type: string, y?: number) => {
+		const event = new dom.window.Event(type, { bubbles: true, cancelable: true });
+		Object.defineProperty(event, "touches", { value: y === undefined ? [] : [{ clientY: y }] });
+		target.dispatchEvent(event);
+		return event.defaultPrevented;
+	};
+	function setup(open = true) {
+		const root = document.createElement("div");
+		root.innerHTML = '<div data-viewport style="overflow-y:auto"><span>text</span></div>';
+		document.body.append(root);
+		const viewport = root.firstElementChild as HTMLElement;
+		const target = viewport.firstElementChild as HTMLElement;
+		viewport.dataset.scrollHeight = "400"; viewport.dataset.clientHeight = "100"; viewport.scrollTop = 30;
+		const transcript = document.createElement("div"); transcript.scrollTop = 500;
+		const log: string[] = [];
+		const detach = attachDockSwipeFold(root, transcript, {
+			canFold: () => open, onFold: () => log.push("fold"), onDragEnd: () => log.push("end"),
+		});
+		return { root, viewport, target, transcript, log, detach };
+	}
+	it("lets the dock scroll up first, folds after the threshold at its top, then forwards the drag", () => {
+		const { root, viewport, target, transcript, log, detach } = setup();
+		touch(target, "touchstart", 100);
+		assert.equal(touch(target, "touchmove", 100 + DOCK_FOLD_SWIPE_PX), false, "dock content can still scroll up");
+		viewport.scrollTop = 0;
+		assert.equal(touch(target, "touchmove", 100 + 2 * DOCK_FOLD_SWIPE_PX - 1), false);
+		assert.deepEqual(log, []);
+		assert.equal(touch(target, "touchmove", 100 + 2 * DOCK_FOLD_SWIPE_PX), true);
+		assert.deepEqual(log, ["fold"]);
+		assert.equal(touch(target, "touchmove", 100 + 2 * DOCK_FOLD_SWIPE_PX + 40), true);
+		assert.equal(transcript.scrollTop, 460, "finger down scrolls the transcript up");
+		touch(target, "touchend");
+		assert.deepEqual(log, ["fold", "end"]);
+		detach(); root.remove();
+	});
+	it("an upward move resets the pull, and a closed dock never folds", () => {
+		const a = setup();
+		a.viewport.scrollTop = 0;
+		touch(a.target, "touchstart", 100);
+		touch(a.target, "touchmove", 100 + DOCK_FOLD_SWIPE_PX - 10);
+		touch(a.target, "touchmove", 100 + DOCK_FOLD_SWIPE_PX - 20);
+		touch(a.target, "touchmove", 100 + 2 * DOCK_FOLD_SWIPE_PX - 30);
+		assert.deepEqual(a.log, []);
+		a.detach(); a.root.remove();
+		const b = setup(false);
+		b.viewport.scrollTop = 0;
+		touch(b.target, "touchstart", 100);
+		assert.equal(touch(b.target, "touchmove", 100 + 3 * DOCK_FOLD_SWIPE_PX), false);
+		assert.deepEqual(b.log, []);
+		b.detach(); b.root.remove();
 	});
 });

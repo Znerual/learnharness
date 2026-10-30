@@ -18,7 +18,10 @@ export interface DockHeightMeasurements {
 	questionPaddingHeight: number;
 }
 
-export function dockHeightBudget(m: DockHeightMeasurements) {
+/** wholeColumn (Android, owner 2026-10-30): no inner question cap. When the
+ * dock does not fit, question, answers and controls scroll as one column,
+ * so an open keyboard never squeezes the question out of sight. */
+export function dockHeightBudget(m: DockHeightMeasurements, wholeColumn = false) {
 	const available = Math.max(m.columnHeight - 32, 0);
 	const viewportMaxHeight = Math.max(available - m.outsideHeight, 0);
 	const shellMaxHeight = Math.max(viewportMaxHeight - m.beforeShellHeight, 0);
@@ -29,7 +32,7 @@ export function dockHeightBudget(m: DockHeightMeasurements) {
 	// A cap smaller than the question's padding leaves no content viewport.
 	// Deliberately uncap the question and scroll the whole content instead;
 	// do not confuse a measured zero with an unmeasured CSS fallback.
-	const scrollWholeContent = questionMaxHeight === null
+	const scrollWholeContent = questionMaxHeight === null || wholeColumn
 		? naturalHeight > viewportMaxHeight
 		: questionMaxHeight <= m.questionPaddingHeight;
 	return { viewportMaxHeight, shellMaxHeight, questionMaxHeight, scrollWholeContent };
@@ -50,7 +53,7 @@ const pixels = (value: string) => Number.parseFloat(value) || 0;
  * animated height out of both ancestor measurements, then substitute its
  * natural content and borders. This stays valid during a WAAPI height morph
  * and when the outer viewport is already capped. */
-export function syncDockHeight(elements: DockHeightElements, expanded: boolean) {
+export function syncDockHeight(elements: DockHeightElements, expanded: boolean, wholeColumn = false) {
 	const { column, block, viewport, body, shell, content } = elements;
 	// QuestionDock keeps a laid-out form in an invisible h-0 wrapper;
 	// PracticeDock removes its form. Neither hidden form is a height input.
@@ -68,7 +71,7 @@ export function syncDockHeight(elements: DockHeightElements, expanded: boolean) 
 		questionPaddingHeight: questionStyle
 			? pixels(questionStyle.paddingTop) + pixels(questionStyle.paddingBottom)
 			: 0,
-	});
+	}, wholeColumn);
 	if (budget.questionMaxHeight === null) block.style.removeProperty("--dock-max-h");
 	else block.style.setProperty("--dock-max-h", budget.scrollWholeContent ? "none" : `${budget.questionMaxHeight}px`);
 	viewport.style.maxHeight = `${budget.viewportMaxHeight}px`;
@@ -92,10 +95,12 @@ interface DockHeightRefs {
 
 export function useDockHeight({
 	scrollRef, blockRef, viewportRef, bodyRef, shellRef, contentRef,
-	expanded, enabled, mode, onScrollbarInset, onHeight,
+	expanded, enabled, wholeColumn, mode, onScrollbarInset, onHeight,
 }: DockHeightRefs & {
 	expanded: boolean;
 	enabled: boolean;
+	/** One scroll column instead of a capped question (the Android app). */
+	wholeColumn: boolean;
 	/** Reconnect observers when the keyed content node/scroll area changes. */
 	mode: string;
 	onScrollbarInset: (inset: number) => void;
@@ -111,7 +116,7 @@ export function useDockHeight({
 		const content = contentRef.current;
 		if (!column || !block || !viewport || !body || !shell || !content) return;
 		onScrollbarInset(Math.round((column.offsetWidth - column.clientWidth) / 2));
-		if (enabled) syncDockHeight({ column, block, viewport, body, shell, content }, expanded);
+		if (enabled) syncDockHeight({ column, block, viewport, body, shell, content }, expanded, wholeColumn);
 		else {
 			block.style.removeProperty("--dock-max-h");
 			viewport.style.removeProperty("max-height");
@@ -122,7 +127,7 @@ export function useDockHeight({
 		// did not rerender DockOverlay. Keep its transcript reserve current,
 		// but never report a mid-morph height.
 		if (shell.getAnimations().length === 0) onHeight(block.getBoundingClientRect().height);
-	}, [scrollRef, blockRef, viewportRef, bodyRef, shellRef, contentRef, expanded, enabled, onScrollbarInset, onHeight]);
+	}, [scrollRef, blockRef, viewportRef, bodyRef, shellRef, contentRef, expanded, enabled, wholeColumn, onScrollbarInset, onHeight]);
 
 	// Imperative constraints land before the overlay's later layout effect
 	// measures its morph target/reserve, and before paint (including reveal).
@@ -140,6 +145,72 @@ export function useDockHeight({
 			window.removeEventListener("resize", measure);
 		};
 	}, [measure, mode, expanded, scrollRef, blockRef, viewportRef, bodyRef, contentRef]);
+}
+
+/** Can a real scroll container between target and root still scroll up?
+ * overflow:hidden/visible boxes are not scroll containers. */
+function scrollsUp(target: EventTarget | null, root: HTMLElement) {
+	for (let n = target as HTMLElement | null; n && n !== root; n = n.parentElement) {
+		if (!(n instanceof HTMLElement) || !/^(auto|scroll)$/.test(getComputedStyle(n).overflowY)) continue;
+		if (n.scrollHeight - n.clientHeight >= 2 && n.scrollTop > 0) return true;
+	}
+	return false;
+}
+
+/** Finger travel that folds the dock (owner 2026-10-30: the sidebar's swipe). */
+export const DOCK_FOLD_SWIPE_PX = 50;
+
+/** Swipe down to the earlier text (Android, owner 2026-10-30): finger-down
+ * travel counts only while nothing under the finger can scroll up, and an
+ * upward move resets it. Past DOCK_FOLD_SWIPE_PX the dock folds at once and
+ * the rest of the same drag scrolls the transcript. */
+export function attachDockSwipeFold(root: HTMLElement, transcript: HTMLElement, fold: {
+	/** Read at touchstart: only an open dock folds. */
+	canFold: () => boolean;
+	onFold: () => void;
+	/** The folding drag lifted. */
+	onDragEnd: () => void;
+}) {
+	let lastY: number | null = null;
+	let pull = 0;
+	let folded = false;
+	const onStart = (e: TouchEvent) => {
+		lastY = e.touches.length === 1 && fold.canFold() ? e.touches[0]!.clientY : null;
+		pull = 0;
+		folded = false;
+	};
+	const onMove = (e: TouchEvent) => {
+		const t = e.touches[0];
+		if (lastY === null || !t || e.touches.length !== 1) return;
+		const dy = t.clientY - lastY;
+		lastY = t.clientY;
+		if (folded) {
+			e.preventDefault();
+			transcript.scrollTop -= dy;
+			return;
+		}
+		if (dy < 0) pull = 0;
+		else if (!scrollsUp(e.target, root)) pull += dy;
+		if (pull < DOCK_FOLD_SWIPE_PX) return;
+		folded = true;
+		e.preventDefault();
+		fold.onFold();
+	};
+	const onEnd = () => {
+		if (folded) fold.onDragEnd();
+		lastY = null;
+		folded = false;
+	};
+	root.addEventListener("touchstart", onStart, { passive: true });
+	root.addEventListener("touchmove", onMove, { passive: false });
+	root.addEventListener("touchend", onEnd);
+	root.addEventListener("touchcancel", onEnd);
+	return () => {
+		root.removeEventListener("touchstart", onStart);
+		root.removeEventListener("touchmove", onMove);
+		root.removeEventListener("touchend", onEnd);
+		root.removeEventListener("touchcancel", onEnd);
+	};
 }
 
 /** Overlay and transcript are siblings. Keep native scrolling in an actual
