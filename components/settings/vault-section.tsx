@@ -7,7 +7,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { createVaultApi, type AccountResponse } from "@/src/core";
+import { createVaultApi, reauthPasskeys, type AccountDto } from "@/src/core";
 import { Button } from "@/components/ui/button";
 import { Devices } from "@/components/vault/Devices";
 import { DeleteAccount } from "@/components/vault/DeleteAccount";
@@ -30,7 +30,7 @@ export function VaultSection() {
 	const [screen, setScreen] = useState<Screen>("unlock");
 	const [email, setEmail] = useState("");
 	const [adding, setAdding] = useState(false);
-	const [account, setAccount] = useState<AccountResponse | null>(null);
+	const [account, setAccount] = useState<AccountDto | null>(null);
 
 	const toAccount = useCallback(() => setScreen("account"), []);
 	const onNeeds = useCallback((s: "sign_in" | "unlock" | "set_password") => setScreen(s === "set_password" ? "new_password" : "signin"), []);
@@ -90,7 +90,7 @@ export function VaultSection() {
 							<ExportSettings api={api} account={account} />
 						</SettingsGroup>
 						<SettingsGroup label="Delete account">
-							<DeleteAccount api={api} email={account.email} passkeys={account.passkeys} onDeleted={signedOut} />
+							<DeleteAccount api={api} email={account.email} passkeys={reauthPasskeys(account)} onDeleted={signedOut} />
 						</SettingsGroup>
 					</>
 				) : null}

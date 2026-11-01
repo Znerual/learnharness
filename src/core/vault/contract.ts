@@ -26,6 +26,19 @@ export type SessionDto =
 	| { state: "must_set_password" }
 	| { state: "signed_in"; accountId: string; deviceId: string; ephemeral: boolean; offline: boolean };
 
+/** Why the passkey ceremony cannot run here: no desktop bridge (web, dev, Android), or a server whose host is not vault.<domain>. */
+export type PasskeyAvailabilityDto = { available: true } | { available: false; reason: "bridge_missing" | "unsupported_server" };
+
+/** The account plus whether a passkey can be used for re-authentication on this device (it has one and the ceremony can run here). */
+export type AccountDto = AccountResponse & { passkeyUsable: boolean };
+
+export interface PasskeyRow {
+	id: string;
+	name: string;
+	/** True when this passkey cannot unlock the data (no PRF): it signs in only. */
+	signInOnly: boolean;
+}
+
 export interface OneTimeSecrets {
 	recoveryKey: string;
 	backupCodes: string[];
@@ -62,8 +75,8 @@ export interface VaultContract {
 
 	// sign-in, unlock, recovery
 	signIn: { req: { email: string; password: string }; res: SessionDto };
-	passkeySignInStart: { req: { email: string }; res: { ceremonyId: string; options: unknown } };
-	passkeySignInFinish: { req: { email: string; ceremonyId: string; credential: unknown; prfOutput: string | null }; res: SessionDto };
+	/** The whole ceremony runs in the server process and the Electron passkey window (ADR 0004); the credential and the PRF output never reach the renderer. */
+	passkeySignIn: { req: { email: string }; res: SessionDto };
 	unlockWithPassword: { req: { password: string }; res: SessionDto };
 	recover: { req: { email: string; secret: string }; res: SessionDto };
 	setNewPassword: { req: { password: string }; res: RotationDto };
@@ -71,16 +84,21 @@ export interface VaultContract {
 	// re-authentication (ADR 0013); grants stay on the server, the UI holds a short handle
 	reauthPassword: { req: { password: string }; res: { reauthId: string; strength: ReauthStrength } };
 	reauthRecovery: { req: { secret: string }; res: { reauthId: string; strength: ReauthStrength } };
-	reauthPasskeyStart: { req: Empty; res: { ceremonyId: string; options: unknown } };
-	reauthPasskeyFinish: { req: { ceremonyId: string; credential: unknown }; res: { reauthId: string; strength: ReauthStrength } };
+	reauthPasskey: { req: Empty; res: { reauthId: string; strength: ReauthStrength } };
 
 	// account
-	account: { req: Empty; res: AccountResponse };
+	account: { req: Empty; res: AccountDto };
 	changePassword: { req: { password: string; reauthId: string }; res: RotationDto };
 	regenerateRecoveryKey: { req: { reauthId: string }; res: { rotation: RotationDto; recoveryKey: string; kit: EmergencyKit } };
 	regenerateBackupCodes: { req: { reauthId: string }; res: { rotation: RotationDto; backupCodes: string[] } };
 	managePlan: { req: Empty; res: { url: string } };
 	deleteAccount: { req: { email: string; reauthId: string }; res: Empty };
+
+	// passkeys
+	passkeyAvailability: { req: Empty; res: PasskeyAvailabilityDto };
+	passkeys: { req: Empty; res: { availability: PasskeyAvailabilityDto; passkeys: PasskeyRow[] } };
+	passkeyRegister: { req: { name: string; reauthId: string }; res: PasskeyRow };
+	passkeyRemove: { req: { passkeyId: string; reauthId: string }; res: RotationDto };
 
 	// devices
 	devices: { req: Empty; res: { devices: DeviceRow[]; pendingAction: PendingAction | null } };
@@ -129,16 +147,14 @@ export const routeTable: { [K in RouteName]: { method: HttpMethod; path: string 
 	signupConfirm: { method: "POST", path: "/signup/confirm" },
 
 	signIn: { method: "POST", path: "/sign-in/password" },
-	passkeySignInStart: { method: "POST", path: "/sign-in/passkey/start" },
-	passkeySignInFinish: { method: "POST", path: "/sign-in/passkey/finish" },
+	passkeySignIn: { method: "POST", path: "/sign-in/passkey" },
 	unlockWithPassword: { method: "POST", path: "/unlock/password" },
 	recover: { method: "POST", path: "/recover" },
 	setNewPassword: { method: "POST", path: "/recover/new-password" },
 
 	reauthPassword: { method: "POST", path: "/reauth/password" },
 	reauthRecovery: { method: "POST", path: "/reauth/recovery" },
-	reauthPasskeyStart: { method: "POST", path: "/reauth/passkey/start" },
-	reauthPasskeyFinish: { method: "POST", path: "/reauth/passkey/finish" },
+	reauthPasskey: { method: "POST", path: "/reauth/passkey" },
 
 	account: { method: "GET", path: "/account" },
 	changePassword: { method: "POST", path: "/account/password" },
@@ -146,6 +162,11 @@ export const routeTable: { [K in RouteName]: { method: HttpMethod; path: string 
 	regenerateBackupCodes: { method: "POST", path: "/account/backup-codes" },
 	managePlan: { method: "POST", path: "/account/plan-link" },
 	deleteAccount: { method: "DELETE", path: "/account" },
+
+	passkeyAvailability: { method: "GET", path: "/passkeys/availability" },
+	passkeys: { method: "GET", path: "/passkeys" },
+	passkeyRegister: { method: "POST", path: "/passkeys" },
+	passkeyRemove: { method: "DELETE", path: "/passkeys/:passkeyId" },
 
 	devices: { method: "GET", path: "/devices" },
 	renameDevice: { method: "PATCH", path: "/devices/:deviceId" },

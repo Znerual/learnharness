@@ -21,6 +21,7 @@ import { plainStores, type Stores } from "../stores.ts";
 import { setActiveVaultStores } from "./active.ts";
 import { joinWithExistingData, seedFirstDevice, VaultNotEmptyError } from "./join.ts";
 import { IpcKeyStorage } from "./keystorage-ipc.ts";
+import { IpcPasskeys } from "./passkey-ipc.ts";
 import { createVaultRoutes, type VaultRoutes } from "./routes.ts";
 import { assertNotSyncthing } from "./syncthing.ts";
 import { leaveLocalVault, wireVault, type WiredVault } from "./wire.ts";
@@ -131,6 +132,7 @@ export async function createVaultRuntime(serverUrl: string): Promise<VaultRoutes
 			return { serverUrl, storage, device: { lhDeviceId: device.id, name: device.name }, keysProtected: true, password: PASSWORD_CHECK, ...(ephemeral ? { ephemeral: true } : {}) };
 		},
 		checkPassword: (password) => checkPassword(password, PASSWORD_CHECK),
+		passkeys: new IpcPasskeys({ serverUrl }),
 		sync: {
 			start: (vault) =>
 				serialized(async () => {

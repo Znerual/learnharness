@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useReducer, type Dispatch, type ReactNode } from "react";
 import { errorCode, type VaultApi } from "@/src/core";
 import { formatDateTime } from "@/src/core";
-import { deviceView, initialDevices, pendingCallReady, pendingView, reduceDevices, revokeCallReady, sortedDevices, type DevicesEvent, type DevicesState } from "@/src/core";
+import { reauthPasskeys, deviceView, initialDevices, pendingCallReady, pendingView, reduceDevices, revokeCallReady, sortedDevices, type DevicesEvent, type DevicesState } from "@/src/core";
 import type { ReauthEvent } from "@/src/core";
 import { strings } from "@/src/core";
 import { ReauthForm } from "./ReauthForm.tsx";
@@ -172,7 +172,7 @@ export function Devices({ api, onAddDevice, onSignedOut, now = () => new Date() 
 	const load = useCallback(async () => {
 		try {
 			const [d, a] = await Promise.all([api.devices(), api.account()]);
-			dispatch({ type: "loaded", devices: d.devices, pending: d.pendingAction, passkeys: a.passkeys });
+			dispatch({ type: "loaded", devices: d.devices, pending: d.pendingAction, passkeys: reauthPasskeys(a) });
 		} catch (e) {
 			dispatch({ type: "failed", code: errorCode(e) });
 		}

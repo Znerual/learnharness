@@ -10,6 +10,11 @@ import { initialReauth, reduceReauth, type ReauthEvent, type ReauthState } from 
 
 export const BACKUP_CODES_WARN_AT = 3;
 
+/** The passkey count to hand to `initialReauth`: zero where the ceremony cannot run, so the passkey method is not offered. */
+export function reauthPasskeys(account: { passkeys: number; passkeyUsable?: boolean }): number {
+	return account.passkeyUsable === false ? 0 : account.passkeys;
+}
+
 export interface BackupCodesWarning {
 	show: boolean;
 	text: string;

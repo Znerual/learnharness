@@ -30,6 +30,7 @@ const { attachChatGPTChild, trustedSender, chatGPTControl } = require("./chatgpt
 const { createSubscriptions, loadSubscriptionSDK } = require("./subscriptions.cjs");
 const { attachSubscriptionChild, subscriptionControl } = require("./subscription-ipc.cjs");
 const { createKeyStorageService, attachKeyStorageChild } = require("./keystorage-main.cjs");
+const { passkeyDomain, createPasskeyCeremony, attachPasskeyChild } = require("./passkey-window.cjs");
 const { desktopAPIHeaders } = require("./desktop-api.cjs");
 const { openWebSubscriptionBrowser } = require("./web-subscription-browser.cjs");
 const { randomBytes } = require("node:crypto");
@@ -147,6 +148,10 @@ let subscriptionChild = null;
 // preload.cjs, no ipcMain.handle — the renderer never reaches the vault secrets.
 let keyStorage = null;
 let keyStorageChild = null;
+// The vault's passkey ceremony window (lh:passkey). Same rule: the server child asks over its IPC
+// channel, the window answers it; the UI renderer never sees a request or a PRF output.
+let passkeys = null;
+let passkeyChild = null;
 // Per-launch request capability, never OAuth tokens and never renderer state.
 let desktopAPISecret = null;
 let reopenWindow = null;
@@ -253,6 +258,7 @@ function startServer(port) {
 		chatgptChild = attachChatGPTChild(child, chatgpt);
 		subscriptionChild = attachSubscriptionChild(child, subscriptions);
 		keyStorageChild = keyStorage ? attachKeyStorageChild(child, keyStorage) : null;
+		passkeyChild = passkeys ? attachPasskeyChild(child, passkeys) : null;
 		const fwd = (buf) => buf.toString().trimEnd().split("\n").forEach((l) => l && log(`server: ${l}`));
 		child.stdout.on("data", fwd);
 		child.stderr.on("data", fwd);
@@ -265,6 +271,8 @@ function startServer(port) {
 			subscriptionChild = null;
 			keyStorageChild?.dispose();
 			keyStorageChild = null;
+			passkeyChild?.dispose();
+			passkeyChild = null;
 			chatgpt?.close();
 			subscriptions?.close();
 		});
@@ -708,6 +716,11 @@ async function main() {
 		});
 		await subscriptions.ready;
 		keyStorage = createKeyStorageService({ safeStorage, filePath: path.join(app.getPath("userData"), "vault-secrets.bin") });
+		// Passkeys need a relying party id of the form vault.<domain> (ADR 0004); other servers get none.
+		const domain = passkeyDomain(process.env.LH_VAULT_URL ?? "");
+		passkeys = domain
+			? createPasskeyCeremony({ domain, parent: () => BrowserWindow.getFocusedWindow() ?? [...trustedAppWindows][0] })
+			: null;
 		log(`starting server: ${serverEntry()}`);
 		log(`data dir: ${DATA_DIR()}${fs.existsSync(AUTH_FILE()) ? " · auth.json: present" : " · auth.json: ABSENT (no BYOK keys yet)"}`);
 		await startServer(new URL(url).port);

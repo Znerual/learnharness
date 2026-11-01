@@ -15,6 +15,7 @@
 import { routeTable, type HttpMethod, type OneTimeSecrets, type ReauthStrength, type RotationDto, type RouteErrorBody, type RouteName, type SessionDto, type VaultContract } from "../../core/vault/contract.ts";
 import type { AccountResponse, DeviceRow, EmergencyKit, SyncStatus } from "../../core/vault/deps.ts";
 import type { PasswordCheckResult } from "../../core/vault/models/password.ts";
+import { PasskeyError, type PasskeyPort } from "./passkey-ipc.ts";
 
 export * from "../../core/vault/contract.ts";
 
@@ -41,6 +42,10 @@ export interface VaultLike {
 	reauthRecovery(text: string): Promise<string>;
 	reauthPasskeyStart(): Promise<{ ceremonyId: string; options: unknown }>;
 	reauthPasskeyFinish(ceremonyId: string, credential: unknown): Promise<string>;
+	passkeyRegisterStart(grant: string): Promise<{ ceremonyId: string; options: unknown; prfSalt: Uint8Array }>;
+	passkeyRegisterFinish(ceremonyId: string, credential: unknown, name: string, prfOutput: Uint8Array | null, grant: string): Promise<{ passkeyId: string; signInOnly: boolean }>;
+	passkeys(): Promise<{ id: string; name: string; signInOnly: boolean; methodId: string | null }[]>;
+	removePasskey(passkeyId: string, grant: string): Promise<RotationDto>;
 	revokeDevice(deviceId: string, grant: string): Promise<RotationDto>;
 	confirmPending(id: string, grant: string): Promise<void>;
 	cancelPending(id: string, grant: string): Promise<void>;
@@ -101,6 +106,8 @@ export interface VaultRouteDeps {
 	options: () => VaultOptionsLike;
 	/** The client's `checkPassword`, with the fork's offline policy. */
 	checkPassword: (password: string) => Promise<PasswordCheckResult>;
+	/** The passkey ceremony (the Electron passkey window on desktop). Absent: passkeys are unavailable. */
+	passkeys?: PasskeyPort;
 	/** Owns the SyncEngine: started after unlock, stopped on sign-out. */
 	sync: { start(vault: VaultLike): void | Promise<void>; stop(): void | Promise<void>; status(): SyncStatus; syncNow(): Promise<SyncStatus> };
 	restorer: (vault: VaultLike) => RestorerLike;
@@ -128,6 +135,10 @@ export function toRouteError(e: unknown): RouteError {
 	if (x?.name === "ApiError" && typeof x.status === "number" && typeof x.code === "string") {
 		const msg = typeof x.body?.["message"] === "string" ? (x.body["message"] as string) : x.code;
 		return new RouteError(x.status, x.code, msg);
+	}
+	if (e instanceof PasskeyError) {
+		const status = e.code === "passkey_unavailable" ? 503 : e.code === "passkey_failed" ? 502 : 409;
+		return new RouteError(status, e.code, e.message);
 	}
 	if (x?.name === "SyncthingFolderError") return new RouteError(409, "syncthing_folder", x.message);
 	if (x?.name === "NetworkError") return new RouteError(503, "network", "The vault server is not reachable");
@@ -160,10 +171,6 @@ function parseAt(req: object): Date {
 
 export function toBase64(bytes: Uint8Array): string {
 	return Buffer.from(bytes).toString("base64");
-}
-
-function fromBase64(s: string): Uint8Array {
-	return new Uint8Array(Buffer.from(s, "base64"));
 }
 
 // ---------------------------------------------------------------- routes
@@ -202,6 +209,11 @@ export function createVaultRoutes(deps: VaultRouteDeps): VaultRoutes {
 	let signup: { session: SignupSessionLike; display?: { recoveryKey: SecretText; backupCodes: SecretText[] } } | null = null;
 	let lockedSession: { session: unknown; email: string } | null = null;
 	const grants = new Map<string, { grant: string; expires: number }>();
+	const passkeyPort: PasskeyPort = deps.passkeys ?? {
+		availability: () => ({ available: false, reason: "bridge_missing" }),
+		create: () => Promise.reject(new PasskeyError("passkey_unavailable")),
+		get: () => Promise.reject(new PasskeyError("passkey_unavailable")),
+	};
 	const approvals = new Map<string, { secret: Uint8Array; publicKey?: Uint8Array }>();
 	const joiners = new Map<string, JoinerLike>();
 
@@ -301,14 +313,15 @@ export function createVaultRoutes(deps: VaultRouteDeps): VaultRoutes {
 		async signIn(req) {
 			return adopt(await deps.Vault.signIn(deps.options(), str(req, "email"), str(req, "password")));
 		},
-		async passkeySignInStart(req) {
-			return deps.Vault.passkeySignInStart(deps.options(), str(req, "email"));
-		},
-		async passkeySignInFinish(req) {
-			const prf = typeof req.prfOutput === "string" && req.prfOutput ? fromBase64(req.prfOutput) : null;
-			const r = await deps.Vault.passkeySignInFinish(deps.options(), str(req, "ceremonyId"), req.credential, prf);
+		async passkeySignIn(req) {
+			const email = str(req, "email");
+			if (!passkeyPort.availability().available) throw new PasskeyError("passkey_unavailable");
+			const start = await deps.Vault.passkeySignInStart(deps.options(), email);
+			const c = await passkeyPort.get(start.options);
+			// with a PRF output the vault unlocks; without one the session needs another unlock method
+			const r = await deps.Vault.passkeySignInFinish(deps.options(), start.ceremonyId, c.credential, c.prfOutput);
 			if (r.status === "unlocked") return adopt(r.vault);
-			lockedSession = { session: r.session, email: str(req, "email").trim().toLowerCase() };
+			lockedSession = { session: r.session, email: email.trim().toLowerCase() };
 			return sessionDto();
 		},
 		async unlockWithPassword(req) {
@@ -335,16 +348,17 @@ export function createVaultRoutes(deps: VaultRouteDeps): VaultRoutes {
 		async reauthRecovery(req) {
 			return keep(await needVault().reauthRecovery(str(req, "secret")), "recovery");
 		},
-		async reauthPasskeyStart() {
-			return needVault().reauthPasskeyStart();
-		},
-		async reauthPasskeyFinish(req) {
-			return keep(await needVault().reauthPasskeyFinish(str(req, "ceremonyId"), req.credential), "passkey");
+		async reauthPasskey() {
+			const v = needVault();
+			const start = await v.reauthPasskeyStart();
+			const c = await passkeyPort.get(start.options);
+			return keep(await v.reauthPasskeyFinish(start.ceremonyId, c.credential), "passkey");
 		},
 
 		// account
 		async account() {
-			return needVault().account();
+			const a = await needVault().account();
+			return { ...a, passkeyUsable: a.passkeys > 0 && passkeyPort.availability().available };
 		},
 		async changePassword(req) {
 			return needVault().changePassword(str(req, "password"), takeGrant(str(req, "reauthId")));
@@ -372,6 +386,30 @@ export function createVaultRoutes(deps: VaultRouteDeps): VaultRoutes {
 			vault = null;
 			grants.clear();
 			return {};
+		},
+
+		// passkeys
+		async passkeyAvailability() {
+			return passkeyPort.availability();
+		},
+		async passkeys() {
+			const rows = await needVault().passkeys();
+			return { availability: passkeyPort.availability(), passkeys: rows.map((p) => ({ id: p.id, name: p.name, signInOnly: p.signInOnly })) };
+		},
+		async passkeyRegister(req) {
+			const v = needVault();
+			const name = str(req, "name").trim().slice(0, 64);
+			if (!name) throw new RouteError(400, "bad_request", "name is required");
+			if (!passkeyPort.availability().available) throw new PasskeyError("passkey_unavailable");
+			// one grant covers both calls of the registration
+			const grant = takeGrant(str(req, "reauthId"));
+			const start = await v.passkeyRegisterStart(grant);
+			const c = await passkeyPort.create(start.options, start.prfSalt);
+			const done = await v.passkeyRegisterFinish(start.ceremonyId, c.credential, name, c.prfOutput, grant);
+			return { id: done.passkeyId, name, signInOnly: done.signInOnly };
+		},
+		async passkeyRemove(req) {
+			return needVault().removePasskey(str(req, "passkeyId"), takeGrant(str(req, "reauthId")));
 		},
 
 		// devices

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createVaultApi, errorCode, VaultApiError } from "../src/core/vault/api.ts";
 import type { AccountResponse, DeviceRow, SyncStatus } from "../src/core/vault/deps.ts";
+import { PasskeyError, type CeremonyOutcome, type PasskeyPort } from "../src/server/vault/passkey-ipc.ts";
 import { createVaultRoutes, toRouteError, type JoinerLike, type RestorerLike, type RotationDto, type VaultLike, type VaultRouteDeps, type VaultStatics } from "../src/server/vault/routes.ts";
 
 const secret = (s: string) => ({ display: () => s });
@@ -61,6 +62,24 @@ class FakeVault implements VaultLike {
 	async reauthPasskeyFinish() {
 		return "grant-pk";
 	}
+	async passkeyRegisterStart(grant: string) {
+		this.grantsSeen.push(grant);
+		return { ceremonyId: "reg1", options: { publicKey: { challenge: "x" } }, prfSalt: new Uint8Array([7, 7]) };
+	}
+	async passkeyRegisterFinish(_c: string, credential: unknown, name: string, prf: Uint8Array | null, grant: string) {
+		this.grantsSeen.push(grant);
+		this.calls.push(`passkeyFinish ${name} prf=${prf ? prf.length : "none"} cred=${JSON.stringify(credential)}`);
+		return { passkeyId: "pk2", signInOnly: prf === null };
+	}
+	passkeyRows = [{ id: "pk1", name: "Laptop", signInOnly: false, methodId: "m1" }];
+	async passkeys() {
+		return this.passkeyRows;
+	}
+	async removePasskey(id: string, grant: string) {
+		this.grantsSeen.push(grant);
+		this.calls.push(`removePasskey ${id}`);
+		return this.rotation;
+	}
 	async revokeDevice(id: string, grant: string) {
 		this.grantsSeen.push(grant);
 		this.calls.push(`revoke ${id}`);
@@ -112,16 +131,38 @@ class FakeVault implements VaultLike {
 	}
 }
 
+/** A passkey port that records its requests and answers with the next queued outcome or error. */
+class FakePasskeys implements PasskeyPort {
+	available = true;
+	requests: { op: "create" | "get"; options: unknown; salt?: Uint8Array | undefined }[] = [];
+	next: CeremonyOutcome | PasskeyError = { credential: { id: "cred" }, prfOutput: new Uint8Array(32).fill(5), prfEnabled: true };
+	availability() {
+		return this.available ? ({ available: true } as const) : ({ available: false, reason: "bridge_missing" } as const);
+	}
+	private answer(op: "create" | "get", options: unknown, salt?: Uint8Array): Promise<CeremonyOutcome> {
+		this.requests.push({ op, options, salt });
+		return this.next instanceof PasskeyError ? Promise.reject(this.next) : Promise.resolve(this.next);
+	}
+	create(options: unknown, salt: Uint8Array) {
+		return this.answer("create", options, salt);
+	}
+	get(options: unknown, salt?: Uint8Array) {
+		return this.answer("get", options, salt);
+	}
+}
+
 interface World {
 	routes: ReturnType<typeof createVaultRoutes>;
 	vault: FakeVault;
 	log: string[];
 	sync: { started: number; stopped: number };
 	clock: { t: number };
+	passkeys: FakePasskeys;
 }
 
 function world(over: Partial<VaultStatics> = {}): World {
 	const vault = new FakeVault();
+	const passkeys = new FakePasskeys();
 	const log: string[] = [];
 	const sync = { started: 0, stopped: 0 };
 	const clock = { t: 1_000_000 };
@@ -166,9 +207,10 @@ function world(over: Partial<VaultStatics> = {}): World {
 		restorer: () => restorer,
 		leaveVault: async (o) => ({ unpushed: o.dryRun ? 3 : 0 }),
 		exportReminder: { get: () => reminder, set: (b) => void (reminder = b) },
+		passkeys,
 		now: () => clock.t,
 	};
-	return { routes: createVaultRoutes(deps), vault, log, sync, clock };
+	return { routes: createVaultRoutes(deps), vault, log, sync, clock, passkeys };
 }
 
 async function call(w: World, method: string, path: string, body?: unknown, query?: Record<string, string>) {
@@ -221,20 +263,89 @@ test("password sign-in: wrong password is 401 login_failed", async () => {
 	assert.equal(w.sync.started, 0);
 });
 
-test("passkey sign-in: with PRF unlocks, without PRF needs unlock then password", async () => {
+test("passkey sign-in: the server runs the ceremony; with PRF it unlocks, without PRF it needs unlock then password", async () => {
 	const w = world();
-	const start = await call(w, "POST", "/sign-in/passkey/start", { email: "learner@example.org" });
-	assert.equal((start.body as { ceremonyId: string }).ceremonyId, "c1");
-	const noPrf = await call(w, "POST", "/sign-in/passkey/finish", { email: "Learner@Example.org", ceremonyId: "c1", credential: {}, prfOutput: null });
+	w.passkeys.next = { credential: { id: "c" }, prfOutput: null, prfEnabled: false };
+	const noPrf = await call(w, "POST", "/sign-in/passkey", { email: "Learner@Example.org" });
 	assert.deepEqual(noPrf.body, { state: "needs_unlock", email: "learner@example.org" });
+	assert.deepEqual(w.passkeys.requests, [{ op: "get", options: { challenge: "x" }, salt: undefined }]);
 	assert.equal(w.sync.started, 0);
 	const unlock = await call(w, "POST", "/unlock/password", { password: "pw" });
 	assert.equal((unlock.body as { state: string }).state, "signed_in");
 	assert.equal(w.sync.started, 1);
 	const w2 = world();
-	const withPrf = await call(w2, "POST", "/sign-in/passkey/finish", { email: "a@b.co", ceremonyId: "c1", credential: {}, prfOutput: "AAAA" });
+	const withPrf = await call(w2, "POST", "/sign-in/passkey", { email: "a@b.co" });
 	assert.equal((withPrf.body as { state: string }).state, "signed_in");
 	assert.equal((await call(world(), "POST", "/unlock/password", { password: "pw" })).status, 409);
+});
+
+test("passkey sign-in: unavailable bridge is 503, a closed window 409, neither starts sync", async () => {
+	const w = world();
+	w.passkeys.available = false;
+	const r = await call(w, "POST", "/sign-in/passkey", { email: "a@b.co" });
+	assert.deepEqual([r.status, (r.body as { error: string }).error], [503, "passkey_unavailable"]);
+	assert.equal(w.passkeys.requests.length, 0);
+	const w2 = world();
+	w2.passkeys.next = new PasskeyError("passkey_cancelled");
+	const c = await call(w2, "POST", "/sign-in/passkey", { email: "a@b.co" });
+	assert.deepEqual([c.status, (c.body as { error: string }).error], [409, "passkey_cancelled"]);
+	assert.equal(w2.sync.started, 0);
+	assert.deepEqual((await call(w2, "GET", "/passkeys/availability")).body, { available: true });
+	assert.deepEqual((await call(w, "GET", "/passkeys/availability")).body, { available: false, reason: "bridge_missing" });
+});
+
+test("passkey re-authentication: the ceremony stays on the server and yields a handle, not a credential", async () => {
+	const w = world();
+	await call(w, "POST", "/sign-in/password", { email: "learner@example.org", password: "pw" });
+	const r = await call(w, "POST", "/reauth/passkey");
+	assert.equal(r.status, 200);
+	const body = r.body as { reauthId: string; strength: string };
+	assert.equal(body.strength, "passkey");
+	assert.doesNotMatch(JSON.stringify(r.body), /grant-pk|cred|prf/i);
+	assert.equal((await call(w, "POST", "/account/password", { password: "a-new-long-password", reauthId: body.reauthId })).status, 200);
+	assert.deepEqual(w.vault.grantsSeen, ["grant-pk"]);
+});
+
+test("passkeys: list, register with one grant for both calls, and the response carries no credential or PRF", async () => {
+	const w = world();
+	await call(w, "POST", "/sign-in/password", { email: "learner@example.org", password: "pw" });
+	const list = await call(w, "GET", "/passkeys");
+	assert.deepEqual(list.body, { availability: { available: true }, passkeys: [{ id: "pk1", name: "Laptop", signInOnly: false }] });
+	assert.equal((await call(w, "POST", "/passkeys", { name: "Key", reauthId: "nope" })).status, 403);
+	const { reauthId } = (await call(w, "POST", "/reauth/password", { password: "good" })).body as { reauthId: string };
+	const r = await call(w, "POST", "/passkeys", { name: "  Phone key  ", reauthId });
+	assert.deepEqual(r.body, { id: "pk2", name: "Phone key", signInOnly: false });
+	assert.deepEqual(w.vault.grantsSeen, ["grant-pw", "grant-pw"], "one grant, used for start and finish");
+	assert.equal(w.passkeys.requests.at(-1)?.op, "create");
+	assert.deepEqual([...(w.passkeys.requests.at(-1)?.salt ?? [])], [7, 7]);
+	assert.match(w.vault.calls.at(-1) ?? "", /passkeyFinish Phone key prf=32/);
+	assert.equal((await call(w, "POST", "/passkeys", { name: "Again", reauthId })).status, 403, "the grant is single-use");
+});
+
+test("passkeys: a key without PRF registers as sign-in only; a cancelled window registers nothing", async () => {
+	const w = world();
+	await call(w, "POST", "/sign-in/password", { email: "learner@example.org", password: "pw" });
+	w.passkeys.next = { credential: {}, prfOutput: null, prfEnabled: false };
+	const g = (await call(w, "POST", "/reauth/password", { password: "good" })).body as { reauthId: string };
+	assert.equal(((await call(w, "POST", "/passkeys", { name: "Plain key", reauthId: g.reauthId })).body as { signInOnly: boolean }).signInOnly, true);
+	w.passkeys.next = new PasskeyError("passkey_cancelled");
+	const g2 = (await call(w, "POST", "/reauth/password", { password: "good" })).body as { reauthId: string };
+	const c = await call(w, "POST", "/passkeys", { name: "x", reauthId: g2.reauthId });
+	assert.equal(c.status, 409);
+	assert.equal(w.vault.calls.filter((x) => x.startsWith("passkeyFinish")).length, 1);
+	w.passkeys.available = false;
+	const g3 = (await call(w, "POST", "/reauth/password", { password: "good" })).body as { reauthId: string };
+	assert.equal((await call(w, "POST", "/passkeys", { name: "x", reauthId: g3.reauthId })).status, 503);
+	assert.equal((await call(w, "POST", "/passkeys", { name: " ", reauthId: g3.reauthId })).status, 400);
+});
+
+test("passkeys: remove needs a grant and returns the rotation (applied or waiting 24 h)", async () => {
+	const w = world();
+	await call(w, "POST", "/sign-in/password", { email: "learner@example.org", password: "pw" });
+	assert.equal((await call(w, "DELETE", "/passkeys/pk1", { reauthId: "nope" })).status, 403);
+	const g = (await call(w, "POST", "/reauth/password", { password: "good" })).body as { reauthId: string };
+	assert.deepEqual((await call(w, "DELETE", "/passkeys/pk1", { reauthId: g.reauthId })).body, { status: "applied", generation: 2 });
+	assert.ok(w.vault.calls.includes("removePasskey pk1"));
 });
 
 test("recovery: signed in but must set a password, sync stays off until it is set", async () => {

@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useReducer, type Dispatch } from "react";
-import { errorCode, type VaultApi } from "@/src/core";
+import { errorCode, type PasskeyAvailabilityDto, type VaultApi } from "@/src/core";
 import { initialSignIn, reduceSignIn, unlockChoices, type SignInEvent, type SignInState, type UnlockChoice } from "@/src/core";
 import { strings } from "@/src/core";
-import { getCredentialWithPrf } from "./hooks.ts";
+import { usePasskeyAvailability } from "./hooks.ts";
 import { Button, ErrorLine, Field, TextInput } from "./ui.tsx";
 
 const choiceLabel: Record<UnlockChoice, string> = {
@@ -19,7 +19,9 @@ export interface SignInActions {
 	unlock(): void;
 }
 
-export function SignInView({ state, dispatch, actions }: { state: SignInState; dispatch: Dispatch<SignInEvent>; actions: SignInActions }) {
+/** `passkey`: whether the ceremony can run here; null while unknown, undefined for "always" (tests). */
+export function SignInView({ state, dispatch, actions, passkey = { available: true } }: { state: SignInState; dispatch: Dispatch<SignInEvent>; actions: SignInActions; passkey?: PasskeyAvailabilityDto | null }) {
+	const passkeyOff = passkey === null || !passkey.available;
 	return (
 		<div data-testid="signin" data-step={state.step} className="flex flex-col gap-4">
 			{state.step === "form" ? (
@@ -41,9 +43,18 @@ export function SignInView({ state, dispatch, actions }: { state: SignInState; d
 					<Button type="submit" disabled={state.busy || !state.email || !state.password}>
 						{state.busy && !state.passkeyWaiting ? strings.common.working : strings.signin.signIn}
 					</Button>
-					<Button variant="secondary" disabled={state.busy || !state.email} onClick={actions.passkey}>
+					<Button variant="secondary" disabled={state.busy || !state.email || passkeyOff} onClick={actions.passkey}>
 						{state.passkeyWaiting ? strings.signin.passkeyWorking : strings.signin.withPasskey}
 					</Button>
+					{passkey === null ? (
+						<p data-testid="passkey-unavailable" className="text-xs text-muted-foreground">
+							{strings.signin.passkeyChecking}
+						</p>
+					) : !passkey.available ? (
+						<p data-testid="passkey-unavailable" className="text-xs text-muted-foreground">
+							{strings.signin.passkeyUnavailable[passkey.reason]}
+						</p>
+					) : null}
 					<Button variant="link" onClick={() => dispatch({ type: "forgot_password" })}>
 						{strings.signin.orRecover}
 					</Button>
@@ -102,17 +113,11 @@ export function SignIn({ api, onSignedIn, onHandoff, initialEmail }: { api: Vaul
 			if (state.step !== "form") return;
 			const email = state.email.trim();
 			dispatch({ type: "passkey_started" });
-			void (async () => {
-				try {
-					const start = await api.passkeySignInStart({ email });
-					const { credential, prfOutput } = await getCredentialWithPrf(start.options);
-					// with PRF the server unlocks; without it the session needs another unlock method
-					dispatch({ type: "session", session: await api.passkeySignInFinish({ email, ceremonyId: start.ceremonyId, credential, prfOutput }) });
-				} catch (e) {
-					if (e instanceof Error && e.name === "NotAllowedError") dispatch({ type: "passkey_cancelled" });
-					else dispatch({ type: "failed", code: errorCode(e) });
-				}
-			})();
+			// the ceremony runs in the server process and the desktop passkey window; with PRF the
+			// server unlocks, without it the session needs another unlock method
+			api.passkeySignIn({ email })
+				.then((session) => dispatch({ type: "session", session }))
+				.catch((e) => dispatch({ type: "failed", code: errorCode(e) }));
 		},
 		unlock() {
 			if (state.step !== "needs_unlock") return;
@@ -122,5 +127,6 @@ export function SignIn({ api, onSignedIn, onHandoff, initialEmail }: { api: Vaul
 				.catch((e) => dispatch({ type: "failed", code: errorCode(e) }));
 		},
 	};
-	return <SignInView state={state} dispatch={dispatch} actions={actions} />;
+	const passkey = usePasskeyAvailability(api);
+	return <SignInView state={state} dispatch={dispatch} actions={actions} passkey={passkey} />;
 }

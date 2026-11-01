@@ -4,7 +4,7 @@
 
 export * from "./models/index.ts";
 export { strings, errorText } from "./strings.ts";
-export { routeTable, type VaultContract, type RouteName, type SessionDto, type RotationDto } from "./contract.ts";
+export { routeTable, type VaultContract, type RouteName, type SessionDto, type RotationDto, type AccountDto, type PasskeyAvailabilityDto, type PasskeyRow } from "./contract.ts";
 export { createVaultApi, errorCode, VaultApiError, type VaultApi } from "./api.ts";
 export * from "./format.ts";
 export type * from "./deps.ts";
