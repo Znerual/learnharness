@@ -11,3 +11,4 @@ export * from "./history.ts";
 export * from "./exportReminder.ts";
 export * from "./account.ts";
 export * from "./deleteAccount.ts";
+export * from "./passkeys.ts";

@@ -3,7 +3,7 @@
 // (one-time link, hidden while billing is disabled in the beta), and changing the password.
 
 import type { RotationDto } from "../contract.ts";
-import type { AccountResponse, PendingAction } from "../deps.ts";
+import type { AccountResponse, EmergencyKit, PendingAction } from "../deps.ts";
 import { strings } from "../strings.ts";
 import { newPasswordView, type BreachState, type NewPasswordView, type PasswordCheckResult } from "./password.ts";
 import { initialReauth, reduceReauth, type ReauthEvent, type ReauthState } from "./reauth.ts";
@@ -59,7 +59,7 @@ export type RegenerateState =
 	| { step: "idle" }
 	| { step: "reauth"; kind: RegenerateKind; reauth: ReauthState }
 	| { step: "working"; kind: RegenerateKind }
-	| { step: "show"; kind: RegenerateKind; recoveryKey?: string; backupCodes?: string[]; pending: PendingAction | null; acknowledged: boolean }
+	| { step: "show"; kind: RegenerateKind; recoveryKey?: string; kit?: EmergencyKit; backupCodes?: string[]; pending: PendingAction | null; acknowledged: boolean }
 	| { step: "done"; kind: RegenerateKind; pending: PendingAction | null }
 	| { step: "failed"; kind: RegenerateKind; error: string };
 
@@ -67,7 +67,7 @@ export type RegenerateEvent =
 	| { type: "start"; kind: RegenerateKind; passkeys: number }
 	| { type: "reauth"; event: ReauthEvent }
 	| { type: "submitted" }
-	| { type: "result"; rotation: RotationDto; recoveryKey?: string; backupCodes?: string[] }
+	| { type: "result"; rotation: RotationDto; recoveryKey?: string; kit?: EmergencyKit; backupCodes?: string[] }
 	| { type: "acknowledged"; value: boolean }
 	| { type: "finish" }
 	| { type: "failed"; code: string }
@@ -88,7 +88,7 @@ export function reduceRegenerate(s: RegenerateState, e: RegenerateEvent): Regene
 			if (e.type === "result")
 				return {
 					step: "show", kind: s.kind, pending: e.rotation.status === "pending" ? e.rotation.pendingAction : null, acknowledged: false,
-					...(e.recoveryKey ? { recoveryKey: e.recoveryKey } : {}), ...(e.backupCodes ? { backupCodes: e.backupCodes } : {}),
+					...(e.recoveryKey ? { recoveryKey: e.recoveryKey } : {}), ...(e.kit ? { kit: e.kit } : {}), ...(e.backupCodes ? { backupCodes: e.backupCodes } : {}),
 				};
 			return s;
 		case "show":
@@ -101,8 +101,8 @@ export function reduceRegenerate(s: RegenerateState, e: RegenerateEvent): Regene
 }
 
 /** The one-time secrets are visible only while the "show" step is open. */
-export function regenerateSecrets(s: RegenerateState): { recoveryKey?: string; backupCodes?: string[] } | null {
-	return s.step === "show" ? { ...(s.recoveryKey ? { recoveryKey: s.recoveryKey } : {}), ...(s.backupCodes ? { backupCodes: s.backupCodes } : {}) } : null;
+export function regenerateSecrets(s: RegenerateState): { recoveryKey?: string; kit?: EmergencyKit; backupCodes?: string[] } | null {
+	return s.step === "show" ? { ...(s.recoveryKey ? { recoveryKey: s.recoveryKey } : {}), ...(s.kit ? { kit: s.kit } : {}), ...(s.backupCodes ? { backupCodes: s.backupCodes } : {}) } : null;
 }
 
 // ---------------------------------------------------------------- change password

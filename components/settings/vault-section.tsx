@@ -9,12 +9,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createVaultApi, reauthPasskeys, type AccountDto } from "@/src/core";
 import { Button } from "@/components/ui/button";
+import { ChangePasswordEntry } from "@/components/vault/ChangePassword";
 import { Devices } from "@/components/vault/Devices";
 import { DeleteAccount } from "@/components/vault/DeleteAccount";
 import { ExportSettings } from "@/components/vault/ExportReminder";
 import { History } from "@/components/vault/History";
 import { ManagePlan } from "@/components/vault/AccountNotices";
+import { Passkeys } from "@/components/vault/Passkeys";
 import { PairingApprover, PairingJoiner } from "@/components/vault/Pairing";
+import { Regenerate } from "@/components/vault/Regenerate";
 import { Recover } from "@/components/vault/Recover";
 import { SignIn } from "@/components/vault/SignIn";
 import { SignUp } from "@/components/vault/SignUp";
@@ -31,6 +34,8 @@ export function VaultSection() {
 	const [email, setEmail] = useState("");
 	const [adding, setAdding] = useState(false);
 	const [account, setAccount] = useState<AccountDto | null>(null);
+	const [accountVersion, setAccountVersion] = useState(0);
+	const reloadAccount = useCallback(() => setAccountVersion((v) => v + 1), []);
 
 	const toAccount = useCallback(() => setScreen("account"), []);
 	const onNeeds = useCallback((s: "sign_in" | "unlock" | "set_password") => setScreen(s === "set_password" ? "new_password" : "signin"), []);
@@ -48,7 +53,7 @@ export function VaultSection() {
 		return () => {
 			live = false;
 		};
-	}, [screen]);
+	}, [screen, accountVersion]);
 
 	const tabs = useMemo(
 		() => [
@@ -70,6 +75,13 @@ export function VaultSection() {
 					<>
 						<SettingsGroup label="Plan">
 							<ManagePlan api={api} account={account} openUrl={(url) => window.open(url, "_blank", "noopener")} />
+						</SettingsGroup>
+						<SettingsGroup label="Sign-in">
+							<ChangePasswordEntry api={api} account={account} />
+							<Passkeys api={api} onChanged={reloadAccount} />
+						</SettingsGroup>
+						<SettingsGroup label="Recovery">
+							<Regenerate api={api} account={account} />
 						</SettingsGroup>
 						<SettingsGroup label="Devices">
 							{adding ? (
