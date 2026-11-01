@@ -107,7 +107,7 @@ export function DictationEngineRows() {
 						onKeyDown={(e) => {
 							if (e.key === "Enter") void saveLocal();
 						}}
-						placeholder="http://localhost:8110/v1"
+						placeholder="http://localhost:8000/v1"
 						aria-label="Local speech-to-text base URL"
 						data-testid="local-stt-url"
 						autoFocus

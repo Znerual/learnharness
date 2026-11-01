@@ -3,7 +3,7 @@
  * renderer splits a reply into spoken blocks (core/speech-script.ts) and
  * POSTs one block at a time to /api/tts/speak; this turns the block's
  * math into words and forwards the text to the configured
- * OpenAI-compatible endpoint (<url>/audio/speech, e.g. AudioAgent's Kokoro
+ * OpenAI-compatible endpoint (<url>/audio/speech, e.g. a Kokoro
  * sidecar) with the optional LH_TTS_KEY as the bearer — the key never
  * reaches the renderer (the dictation routes' rule). The audio streams
  * back untouched.
@@ -119,7 +119,7 @@ export async function synthesizeSpeech(segments: SpeechSegment[], fetchFn: typeo
 
 export type SpeechVoices = { ok: true; voices: string[] } | { ok: false; status: number; error: string };
 
-/** The endpoint's voice names (AudioAgent's GET /v1/audio/voices). */
+/** The endpoint's voice names (GET <url>/audio/voices — optional). */
 export async function listSpeechVoices(fetchFn: typeof fetch = fetch): Promise<SpeechVoices> {
 	const config = speechConfig();
 	if (!config.url) return { ok: false, status: 503, error: "Read-aloud needs a text-to-speech URL" };

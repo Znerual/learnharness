@@ -47,7 +47,7 @@ export function isValidEndpointId(id: string): boolean {
 	return ENDPOINT_ID_RE.test(id);
 }
 
-/** The id a fresh endpoint derives from its name ("AIT Ross" → "ait-ross"). */
+/** The id a fresh endpoint derives from its name ("Lab GPU" → "lab-gpu"). */
 export function slugifyEndpointName(name: string): string {
 	return name
 		.toLowerCase()
@@ -61,8 +61,8 @@ export function slugifyEndpointName(name: string): string {
 const KEY_VAR_PREFIX = "LH_ENDPOINT_";
 const KEY_VAR_SUFFIX = "_KEY";
 
-/** The auth.json / env var holding an endpoint's key ("ait-ross" →
- *  LH_ENDPOINT_AIT_ROSS_KEY). */
+/** The auth.json / env var holding an endpoint's key ("lab-gpu" →
+ *  LH_ENDPOINT_LAB_GPU_KEY). */
 export function endpointKeyVar(id: string): string {
 	return `${KEY_VAR_PREFIX}${id.toUpperCase().replace(/-/g, "_")}${KEY_VAR_SUFFIX}`;
 }

@@ -3,7 +3,7 @@
  * replies are spoken. Its own section, separate from dictation (owner
  * ruling) — text-to-speech may live on a different server than
  * speech-to-text. The endpoint is OpenAI-compatible `/audio/speech`
- * (e.g. AudioAgent's Kokoro sidecar); the optional key lives in auth.json
+ * (e.g. a Kokoro server, docs/local-speech.md); the optional key lives in auth.json
  * as LH_TTS_KEY, never here. `autoRead` is the composer toggle, persisted
  * globally (owner ruling).
  *

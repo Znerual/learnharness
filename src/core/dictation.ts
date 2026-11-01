@@ -2,7 +2,7 @@
  * DICTATION ENGINE SETTINGS (local-STT wave, owner 2026-10-24): which
  * speech-to-text engine dictation runs on. An EXPLICIT choice (owner
  * ruling) — "deepgram" (the cloud default, streaming) or "local" (an
- * OpenAI-compatible `/audio/transcriptions` endpoint, e.g. AudioAgent);
+ * OpenAI-compatible `/audio/transcriptions` endpoint, docs/local-speech.md);
  * no silent fallback between them. The local endpoint's optional key
  * lives in auth.json as LH_STT_KEY, never here. `language` is Deepgram's
  * (one of Nova-3's codes, below); the local engine detects the language.
@@ -22,7 +22,7 @@ export interface DictationSettings {
 	 *  dictation POSTs to <localUrl>/audio/transcriptions. */
 	localUrl?: string;
 	/** Sent as the request's `model` field (servers that host several
-	 *  models pick by it; AudioAgent ignores it). */
+	 *  models pick by it; others ignore it). */
 	localModel?: string;
 	/** Deepgram's language (app-wide, shared by every composer). */
 	language?: DictationLanguage;

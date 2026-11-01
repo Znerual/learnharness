@@ -124,7 +124,7 @@ export function SpeechRows() {
 							value={url}
 							onChange={(e) => setUrl(e.target.value)}
 							onKeyDown={onEnter}
-							placeholder="http://localhost:8110/v1"
+							placeholder="http://localhost:8000/v1"
 							aria-label="Text-to-speech base URL"
 							data-testid="speech-url"
 							autoFocus

@@ -69,16 +69,16 @@ function legacyEndpoint(baseUrl = "http://127.0.0.1:9/v1") {
 
 describe("naming per entry", () => {
 	it("derives ids from names; 'custom' keeps upstream's key and binding", () => {
-		assert.equal(core.slugifyEndpointName("AIT LM Studio"), "ait-lm-studio");
-		assert.ok(core.isValidEndpointId("ait-ross"));
+		assert.equal(core.slugifyEndpointName("Lab LM Studio"), "lab-lm-studio");
+		assert.ok(core.isValidEndpointId("lab-gpu"));
 		assert.ok(!core.isValidEndpointId("-x"));
-		assert.equal(customKeyVar("ait-ross"), "LH_ENDPOINT_AIT_ROSS_KEY");
+		assert.equal(customKeyVar("lab-gpu"), "LH_ENDPOINT_LAB_GPU_KEY");
 		assert.equal(customKeyVar("custom"), "CUSTOM_OPENAI_API_KEY");
 		assert.equal(customBindingVar("custom"), "__learnharness_custom_provider_binding");
-		assert.equal(customBindingVar("ait-ross"), "__learnharness_custom_provider_binding:ait-ross");
+		assert.equal(customBindingVar("lab-gpu"), "__learnharness_custom_provider_binding:lab-gpu");
 	});
 	it("every entry's key and binding stay out of the generic key API", () => {
-		for (const name of ["LH_ENDPOINT_AIT_ROSS_KEY", "CUSTOM_OPENAI_API_KEY", "__learnharness_custom_provider_binding:x"]) {
+		for (const name of ["LH_ENDPOINT_LAB_GPU_KEY", "CUSTOM_OPENAI_API_KEY", "__learnharness_custom_provider_binding:x"]) {
 			assert.ok(isCustomAuthVar(name), name);
 			assert.ok(!keys.isWritableAuthKey(name), name);
 			assert.equal(keys.saveKey(name, "sk-x").ok, false);

@@ -281,12 +281,12 @@ export interface CustomModelOverride {
 /** One custom endpoint's stored config (the `customProviders` list —
  *  custom-endpoints wave: upstream's single endpoint, one per entry). */
 export interface CustomProviderSettings {
-	/** The pi-ai provider id ("ait-lmstudio"), derived from the name when the
+	/** The pi-ai provider id ("lm-studio"), derived from the name when the
 	 *  endpoint is added (core/endpoints.ts slugifyEndpointName) and never
 	 *  changed after; "custom" for the endpoint upstream's single
 	 *  `customProvider` became. Model selections name it. */
 	id: string;
-	/** The display name ("AIT LM Studio"). */
+	/** The display name ("LM Studio"). */
 	name: string;
 	/** How thinking reaches the server (core/endpoints.ts). Absent =
 	 *  "openai": pi's reasoning_effort with every effort level. */
