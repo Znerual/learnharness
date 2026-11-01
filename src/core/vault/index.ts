@@ -8,3 +8,4 @@ export { routeTable, type VaultContract, type RouteName, type SessionDto, type R
 export { createVaultApi, errorCode, VaultApiError, type VaultApi } from "./api.ts";
 export * from "./format.ts";
 export type * from "./deps.ts";
+export type { MergeReport, MigrationReport, MigrationStateDto, MovedAsideDto, SyncthingSwitchPlan, JoinChoice } from "./migration.ts";

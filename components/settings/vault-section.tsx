@@ -18,6 +18,7 @@ import { ManagePlan } from "@/components/vault/AccountNotices";
 import { Passkeys } from "@/components/vault/Passkeys";
 import { Join } from "@/components/vault/Join";
 import { LeaveVault } from "@/components/vault/LeaveVault";
+import { MigrationCheck, MovedAside } from "@/components/vault/Migration";
 import { PairingApprover, PairingJoiner } from "@/components/vault/Pairing";
 import { Regenerate } from "@/components/vault/Regenerate";
 import { Recover } from "@/components/vault/Recover";
@@ -130,6 +131,7 @@ export function VaultSection() {
 						<SettingsGroup label="Export">
 							<ExportSettings api={api} account={account} />
 						</SettingsGroup>
+						<MovedAside api={api} Group={SettingsGroup} />
 						<SettingsGroup label="Leave">
 							<LeaveVault api={api} onLeft={signedOut} />
 						</SettingsGroup>
@@ -144,6 +146,7 @@ export function VaultSection() {
 
 	return (
 		<div className="flex flex-col gap-4" data-testid="vault-signed-out">
+			<MigrationCheck api={api} />
 			<div className="flex flex-wrap gap-2">
 				{tabs.map(([id, label]) => (
 					<Button key={id} variant={screen === id ? "default" : "outline"} size="sm" onClick={() => setScreen(id)}>

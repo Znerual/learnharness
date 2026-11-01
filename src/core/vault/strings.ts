@@ -347,7 +347,37 @@ export const strings = {
 		confirmTitle: "This device already has learning data",
 		confirmBody: (count: number) => `This vault already holds data, and this device holds ${count} ${count === 1 ? "file" : "files"} of its own. If you use the vault, your local files move to a folder named pre-vault-<date> inside this device's local data folder, and the vault's data replaces them. Nothing is deleted.`,
 		confirmUse: "Use the vault",
+		confirmMerge: "Merge with the vault",
+		mergeHelp: "Merge keeps the vault's version of each session and adds the sessions that are only here. A version that differs stays beside the session as a conflict copy, so you can pick one.",
 		confirmCancel: "Cancel and sign out",
+	},
+
+	migration: {
+		title: "Before you sign in",
+		dataTitle: "The data on this device",
+		counts: (c: { sessions: number; jobs: number; conflicts: number }) =>
+			`${c.sessions} ${c.sessions === 1 ? "session" : "sessions"}, ${c.jobs} ${c.jobs === 1 ? "job" : "jobs"}${c.conflicts > 0 ? `, ${c.conflicts} conflict ${c.conflicts === 1 ? "copy" : "copies"}` : ""}.`,
+		ready: "This data is ready for the vault.",
+		willChange: "On the first sign-in LearnHarness first copies this folder to a backup on this device, then updates it. Nothing is deleted.",
+		backupAt: (dir: string) => `Last backup: ${dir}`,
+		conflictsNote: (n: number) => `${n} Syncthing conflict ${n === 1 ? "copy" : "copies"} found. Session copies stay in the session list, where you can pick a version. Other copies move to the conflicts folder.`,
+		unreadable: (n: number) => `${n} ${n === 1 ? "file" : "files"} could not be read and will be set aside.`,
+		blocked: "This data was saved by a newer LearnHarness. Update the app first. Nothing was changed.",
+		syncthingTitle: "This folder is shared with Syncthing",
+		syncthingHelp: "The vault and Syncthing must not share one folder. Do these steps first.",
+		syncthingFound: (names: string) => `Found: ${names}.`,
+		syncthingOutside: "Syncthing marks a folder above this one. Remove that marker by hand, then check again.",
+		syncthingDone: "I removed it everywhere",
+		syncthingRecheck: "Check again",
+		syncthingMoved: "Syncthing's marker files are moved aside and kept. You can sign in now.",
+		asideTitle: "Files moved aside when you joined",
+		aside: (n: { name: string; sessions: number; files: number }) => `${n.name}: ${n.sessions} ${n.sessions === 1 ? "session" : "sessions"}, ${n.files} ${n.files === 1 ? "file" : "files"}`,
+		asideHelp: "These are the files of this device that the vault replaced. Merging adds what the vault lacks. Nothing here is changed or deleted.",
+		merge: "Merge into the vault",
+		merging: "Merging...",
+		merged: "Merged",
+		mergeResult: (r: { sessions: number; conflicts: number; graph: number }) =>
+			`Added ${r.sessions} ${r.sessions === 1 ? "session" : "sessions"} and ${r.graph} graph ${r.graph === 1 ? "line" : "lines"}. ${r.conflicts} conflict ${r.conflicts === 1 ? "copy" : "copies"} to review.`,
 	},
 
 	scan: {
@@ -404,6 +434,7 @@ export const strings = {
 
 	errors: {
 		generic: "Something went wrong. Try again.",
+		data_newer: "This data was saved by a newer LearnHarness. Update the app, then try again. Nothing was changed.",
 		syncthing_folder: "This data folder is shared with Syncthing. Stop Syncthing for it on every device and remove its .stfolder, then try again.",
 		vault_unavailable: "The vault is not available in this build.",
 		network: "We could not reach the vault server. Check your connection and try again.",

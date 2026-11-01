@@ -15,6 +15,10 @@ import { join } from "node:path";
 import { checkPassword, MemoryKeyStorage, Restorer, Vault, type KeyStorage } from "@znerual/learnharness-vault-client";
 
 import { PATHS } from "../../../config.ts";
+import type { JoinChoice, MigrationStateDto } from "../../core/vault/migration.ts";
+import { listMovedAside, mergePreVault } from "../migration/merge.ts";
+import { planSwitch, setAsideMarkers } from "../migration/syncthing.ts";
+import { readJournal, scanDataFolder, upgradeDataFolder } from "../migration/upgrade.ts";
 import { emit } from "../../core/events.ts";
 import { promptOverrides as plainPromptOverrides } from "../../store/prompt-overrides.ts";
 import { plainStores, type Stores } from "../stores.ts";
@@ -113,23 +117,61 @@ async function planStart(vault: Vault): Promise<{ firstStart: boolean; localFile
  * That second case needs the learner's answer ("Use the vault", `choice`), asked by the join screen
  * before the sync starts (routes.ts `begin` and `joinConfirm`): without it this refuses and moves nothing.
  */
-async function bootstrap(wired: WiredVault<Stores>, vault: Vault, choice: "use-vault" | undefined): Promise<void> {
+async function bootstrap(wired: WiredVault<Stores>, vault: Vault, choice: JoinChoice | undefined): Promise<void> {
 	const done = readBootstrap();
 	if (done?.accountId === vault.accountId) return;
 	// Outbox and state of another account (or a half-finished first start) must not leak into this one.
 	rmSync(join(PATHS.local, "vault"), { recursive: true, force: true });
 	await wired.engine.init();
+	// Older data first (backup, format upgrade, conflict copies): docs/vault-migration.md. It throws for data of a newer build.
+	const device = plainStores.deviceStore.getDevice();
+	upgradeDataFolder({ dataDir: PATHS.data, localDir: PATHS.local }, { device });
+	let preVaultDir: string | null = null;
 	if ((await wired.host.listAllFiles()).length > 0) {
 		try {
 			await seedFirstDevice({ vault, engine: wired.engine });
 		} catch (e) {
 			if (!(e instanceof VaultNotEmptyError)) throw e;
-			if (choice !== "use-vault") throw new JoinChoiceRequiredError();
-			await joinWithExistingData({ vault, engine: wired.engine, host: wired.host, deviceId: plainStores.deviceStore.getDevice().id, choice });
+			if (choice !== "use-vault" && choice !== "merge") throw new JoinChoiceRequiredError();
+			preVaultDir = (await joinWithExistingData({ vault, engine: wired.engine, host: wired.host, deviceId: device.id, choice: "use-vault" })).preVaultDir;
 		}
 	}
+	// Recorded before the merge: a restart after this must not join (and move files aside) a second time.
 	mkdirSync(join(PATHS.local, "vault"), { recursive: true });
 	writeFileSync(join(PATHS.local, "vault", BOOTSTRAP_FILE), JSON.stringify({ accountId: vault.accountId }));
+	if (choice === "merge" && preVaultDir) {
+		try {
+			await mergeInto(wired, preVaultDir);
+		} catch (e) {
+			// the moved-aside folder is untouched, so Settings -> Vault can merge it again
+			console.error("[vault] merging the moved-aside data failed:", e);
+		}
+	}
+}
+
+/** Folds a moved-aside folder into the live data folder (migration/merge.ts), then syncs. */
+async function mergeInto(wired: WiredVault<Stores>, fromDir: string) {
+	const report = await mergePreVault({
+		dataDir: PATHS.data,
+		localDir: PATHS.local,
+		fromDir,
+		deviceId: plainStores.deviceStore.getDevice().id,
+		sink: wired.engine,
+		changed: (paths) => wired.host.applied(paths.map((path) => ({ path, kind: /^graph\/.*\.jsonl$/.test(path) ? "seg" : "doc", deleted: false }))),
+	});
+	await wired.engine.sync();
+	return report;
+}
+
+async function migrationState(): Promise<MigrationStateDto> {
+	const paths = { dataDir: PATHS.data, localDir: PATHS.local };
+	const journal = readJournal(paths);
+	return {
+		report: scanDataFolder(paths),
+		syncthing: planSwitch(PATHS.data),
+		lastUpgrade: journal?.finishedAt ? { at: journal.finishedAt, backupDir: journal.backupDir } : null,
+		movedAside: listMovedAside(PATHS.local),
+	};
 }
 
 export async function createVaultRuntime(serverUrl: string): Promise<VaultRoutes> {
@@ -184,6 +226,19 @@ export async function createVaultRuntime(serverUrl: string): Promise<VaultRoutes
 				await wired.engine.sync();
 				return wired.engine.status();
 			},
+		},
+		migration: {
+			report: migrationState,
+			setAsideSyncthing: async () => {
+				const r = setAsideMarkers({ dataDir: PATHS.data, localDir: PATHS.local });
+				return { moved: r.moved.map((m) => m.name), remaining: r.remaining };
+			},
+			merge: (name) =>
+				serialized(async () => {
+					if (!wired) throw new Error("the vault is not syncing");
+					if (!/^pre-vault-\d{8}(-\d+)?$/.test(name) || !listMovedAside(PATHS.local).some((m) => m.name === name)) throw new Error("no such moved-aside folder");
+					return mergeInto(wired, join(PATHS.local, name));
+				}),
 		},
 		restorer: (vault) => {
 			if (!wired) throw new Error("the vault is not syncing");

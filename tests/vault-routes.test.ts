@@ -160,17 +160,17 @@ interface World {
 	passkeys: FakePasskeys;
 	/** What `sync.plan` answers; null: not a first start. */
 	plan: { value: StartPlan | null };
-	starts: { choice?: "use-vault" | undefined }[];
+	starts: { choice?: "use-vault" | "merge" | undefined }[];
 }
 
-function world(over: Partial<VaultStatics> = {}): World {
+function world(over: Partial<VaultStatics> = {}, migration?: VaultRouteDeps["migration"]): World {
 	const vault = new FakeVault();
 	const passkeys = new FakePasskeys();
 	const log: string[] = [];
 	const sync = { started: 0, stopped: 0 };
 	const clock = { t: 1_000_000 };
 	const plan: { value: StartPlan | null } = { value: null };
-	const starts: { choice?: "use-vault" | undefined }[] = [];
+	const starts: { choice?: "use-vault" | "merge" | undefined }[] = [];
 	let confirmed: string | null = null;
 	const joiner: JoinerLike = { pairingId: "jp", code: "654321", qr: "lhv1-pair:j", text: "J".repeat(52), finish: async () => vault };
 	const Vault: VaultStatics = {
@@ -218,6 +218,7 @@ function world(over: Partial<VaultStatics> = {}): World {
 			syncNow: async () => status,
 			plan: async () => plan.value ?? { firstStart: false, localFiles: 0, vaultHasRecords: false },
 		},
+		...(migration ? { migration } : {}),
 		restorer: () => restorer,
 		leaveVault: async (o) => ({ unpushed: o.dryRun ? 3 : 0 }),
 		exportReminder: { get: () => reminder, set: (b) => void (reminder = b) },
@@ -654,4 +655,39 @@ test("joining: signing out while the question is open stops everything; an offli
 test("a start that would move local files without the learner's answer is a 409 join_choice_required", () => {
 	const e = toRouteError(Object.assign(new Error("ask first"), { name: "JoinChoiceRequiredError" }));
 	assert.deepEqual([e.status, e.code], [409, "join_choice_required"]);
+});
+
+// ---------------------------------------------------------------- moving local data in (docs/vault-migration.md)
+
+test("joining: the merge choice reaches the start like use-vault does", async () => {
+	const w = world();
+	w.plan.value = { firstStart: true, localFiles: 4, vaultHasRecords: true };
+	await call(w, "POST", "/sign-in/password", { email: "learner@example.org", password: "pw" });
+	assert.equal((await call(w, "POST", "/session/join", { choice: "merge" })).status, 200);
+	assert.deepEqual(w.starts, [{ choice: "merge" }]);
+});
+
+test("migration routes: report and Syncthing set-aside work signed out; merge needs a session and a name; no deps means 503", async () => {
+	const calls: string[] = [];
+	const state = { report: { layout: "older", graphFormat: 1, counts: { sessions: 1, jobs: 0, ledgerFiles: 0, prompts: 0, conflicts: 0 }, steps: [], conflicts: [], unreadable: [], blocked: null, syncthing: [], needed: true }, syncthing: { needed: false, markers: [], steps: [] }, lastUpgrade: null, movedAside: [{ name: "pre-vault-20261101", sessions: 2, files: 5, merged: false }] };
+	const w = world({}, {
+		report: async () => state as never,
+		setAsideSyncthing: async () => (calls.push("aside"), { moved: [".stfolder"], remaining: [] }),
+		merge: async (name) => (calls.push(`merge ${name}`), { from: name } as never),
+	});
+	assert.deepEqual((await call(w, "GET", "/migration/report")).body, state);
+	assert.equal((await call(w, "POST", "/migration/syncthing/set-aside", {})).status, 400, "the learner's confirmation is required");
+	assert.deepEqual((await call(w, "POST", "/migration/syncthing/set-aside", { confirmed: true })).body, { moved: [".stfolder"], remaining: [] });
+	assert.equal((await call(w, "POST", "/migration/merge", { name: "pre-vault-20261101" })).status, 401);
+	await call(w, "POST", "/sign-in/password", { email: "learner@example.org", password: "pw" });
+	assert.equal((await call(w, "POST", "/migration/merge", {})).status, 400);
+	assert.equal((await call(w, "POST", "/migration/merge", { name: "pre-vault-20261101" })).status, 200);
+	assert.deepEqual(calls, ["aside", "merge pre-vault-20261101"]);
+	const none = world();
+	assert.equal((await call(none, "GET", "/migration/report")).status, 503);
+});
+
+test("a newer app's data answers data_newer", () => {
+	const e = Object.assign(new Error("newer"), { name: "MigrationRefusedError" });
+	assert.deepEqual([toRouteError(e).status, toRouteError(e).code], [409, "data_newer"]);
 });

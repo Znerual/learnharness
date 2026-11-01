@@ -14,6 +14,7 @@
 
 import { routeTable, type HttpMethod, type OneTimeSecrets, type ReauthStrength, type RotationDto, type RouteErrorBody, type RouteName, type SessionDto, type VaultContract } from "../../core/vault/contract.ts";
 import type { AccountResponse, DeviceRow, EmergencyKit, SyncStatus } from "../../core/vault/deps.ts";
+import type { JoinChoice, MergeReport, MigrationStateDto } from "../../core/vault/migration.ts";
 import type { PasswordCheckResult } from "../../core/vault/models/password.ts";
 import { PasskeyError, type PasskeyPort } from "./passkey-ipc.ts";
 
@@ -124,11 +125,17 @@ export interface VaultRouteDeps {
 	 * first start never moves local files (it refuses when it would have to).
 	 */
 	sync: {
-		start(vault: VaultLike, o?: { choice?: "use-vault" }): void | Promise<void>;
+		start(vault: VaultLike, o?: { choice?: JoinChoice }): void | Promise<void>;
 		stop(): void | Promise<void>;
 		status(): SyncStatus;
 		syncNow(): Promise<SyncStatus>;
 		plan?(vault: VaultLike): Promise<StartPlan>;
+	};
+	/** Moving local data into the vault (docs/vault-migration.md). Absent: the routes answer 503. */
+	migration?: {
+		report(): Promise<MigrationStateDto>;
+		setAsideSyncthing(): Promise<{ moved: string[]; remaining: string[] }>;
+		merge(name: string): Promise<MergeReport>;
 	};
 	restorer: (vault: VaultLike) => RestorerLike;
 	/** The client's `leaveVault(dataDir, storage, opts)`, bound to this installation. */
@@ -161,6 +168,7 @@ export function toRouteError(e: unknown): RouteError {
 		return new RouteError(status, e.code, e.message);
 	}
 	if (x?.name === "SyncthingFolderError") return new RouteError(409, "syncthing_folder", x.message);
+	if (x?.name === "MigrationRefusedError") return new RouteError(409, "data_newer", x.message);
 	if (x?.name === "JoinChoiceRequiredError") return new RouteError(409, "join_choice_required", x.message);
 	if (x?.name === "NetworkError") return new RouteError(503, "network", "The vault server is not reachable");
 	if (x?.name === "VaultError" && typeof x.code === "string") {
@@ -243,6 +251,11 @@ export function createVaultRoutes(deps: VaultRouteDeps): VaultRoutes {
 	function needVault(): VaultLike {
 		if (!vault) throw new RouteError(401, "no_session", "Not signed in");
 		return vault;
+	}
+
+	function needMigration(): NonNullable<VaultRouteDeps["migration"]> {
+		if (!deps.migration) throw new RouteError(503, "vault_unavailable", "Moving data is not available here");
+		return deps.migration;
 	}
 
 	function sessionDto(): SessionDto {
@@ -332,8 +345,8 @@ export function createVaultRoutes(deps: VaultRouteDeps): VaultRoutes {
 				}
 				return sessionDto();
 			}
-			if (choice !== "use-vault") throw new RouteError(400, "bad_request", "choice must be use-vault or cancel");
-			await deps.sync.start(v, { choice: "use-vault" });
+			if (choice !== "use-vault" && choice !== "merge") throw new RouteError(400, "bad_request", "choice must be use-vault, merge or cancel");
+			await deps.sync.start(v, { choice });
 			joining = null;
 			return sessionDto();
 		},
@@ -546,6 +559,19 @@ export function createVaultRoutes(deps: VaultRouteDeps): VaultRoutes {
 			joiners.delete(id);
 			// a new device always gets the "Joining the vault of ..." screen before it syncs
 			return adopt(v, { announce: true });
+		},
+
+		// moving local data into the vault
+		async migrationReport() {
+			return needMigration().report();
+		},
+		async migrationSyncthingSetAside(req) {
+			if ((req as { confirmed?: unknown }).confirmed !== true) throw new RouteError(400, "bad_request", "confirmed must be true");
+			return needMigration().setAsideSyncthing();
+		},
+		async migrationMerge(req) {
+			needVault();
+			return needMigration().merge(str(req, "name"));
 		},
 
 		// sync

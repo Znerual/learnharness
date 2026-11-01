@@ -9,6 +9,9 @@
 
 import type { AccountResponse, DeviceRow, EmergencyKit, PendingAction, SyncStatus, Version } from "./deps.ts";
 import type { PasswordCheckResult } from "./models/password.ts";
+import type { JoinChoice, MergeReport, MigrationStateDto } from "./migration.ts";
+
+export type * from "./migration.ts";
 
 export type HttpMethod = "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
 
@@ -69,7 +72,7 @@ export interface VaultContract {
 	session: { req: Empty; res: SessionDto };
 	open: { req: Empty; res: SessionDto };
 	signOut: { req: Empty; res: Empty };
-	joinConfirm: { req: { choice: "use-vault" | "cancel" }; res: SessionDto };
+	joinConfirm: { req: { choice: JoinChoice | "cancel" }; res: SessionDto };
 	leaveVault: { req: { dryRun?: boolean }; res: { unpushed: number } };
 
 	// sign-up
@@ -121,6 +124,13 @@ export interface VaultContract {
 	pairJoinerShow: { req: Empty; res: { pairingId: string; qr: string; text: string; code: string } };
 	pairJoin: { req: { code: string }; res: { pairingId: string; code: string } };
 	pairFinish: { req: { pairingId: string }; res: SessionDto };
+
+	// moving local data into the vault (docs/vault-migration.md); the first two work signed out
+	migrationReport: { req: Empty; res: MigrationStateDto };
+	/** After the learner removed the folder from Syncthing on every device: moves Syncthing's markers out of the way (nothing is deleted). */
+	migrationSyncthingSetAside: { req: { confirmed: true }; res: { moved: string[]; remaining: string[] } };
+	/** Merges a moved-aside `pre-vault-<date>` folder into the vault's data. Needs a running sync. */
+	migrationMerge: { req: { name: string }; res: MergeReport };
 
 	// sync
 	syncStatus: { req: Empty; res: SyncStatus };
@@ -188,6 +198,10 @@ export const routeTable: { [K in RouteName]: { method: HttpMethod; path: string 
 	pairJoinerShow: { method: "POST", path: "/pairing/joiner/show" },
 	pairJoin: { method: "POST", path: "/pairing/joiner/join" },
 	pairFinish: { method: "POST", path: "/pairing/:pairingId/finish" },
+
+	migrationReport: { method: "GET", path: "/migration/report" },
+	migrationSyncthingSetAside: { method: "POST", path: "/migration/syncthing/set-aside" },
+	migrationMerge: { method: "POST", path: "/migration/merge" },
 
 	syncStatus: { method: "GET", path: "/sync/status" },
 	syncNow: { method: "POST", path: "/sync/now" },
