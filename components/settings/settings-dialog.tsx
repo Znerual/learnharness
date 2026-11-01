@@ -54,6 +54,9 @@ import { KeysSection } from "./keys-section.tsx";
 import { Hint } from "@/components/ui/hint";
 import { AppearanceSection, GraphSection } from "./appearance-section.tsx";
 import { KeyboardSection } from "./keyboard-section.tsx";
+import { VaultSection } from "./vault-section.tsx";
+import { VaultBoot } from "@/components/vault/vault-boot";
+import { useVaultAvailable } from "@/components/vault/available";
 import { ChatGPTUIProvider } from "./chatgpt-connection.tsx";
 import { NativeSubscriptionUIProvider } from "./subscription-connections.tsx";
 
@@ -69,6 +72,8 @@ const SECTIONS = [
 	{ id: "graph", label: "Graph" },
 	{ id: "keyboard", label: "Keyboard", hint: "Stored on this device" },
 	{ id: "general", label: "General" },
+	// Only while the vault is available (a vault server is configured and the private client is installed).
+	{ id: "vault", label: "Vault" },
 ] as const;
 type SectionId = (typeof SECTIONS)[number]["id"];
 
@@ -103,6 +108,7 @@ export function SettingsDialogProvider({
 	return (
 		<ChatGPTUIProvider><NativeSubscriptionUIProvider><DialogContext.Provider value={{ open }}>
 			{children}
+			<VaultBoot />
 			{show && (
 				<SettingsDialog onClose={() => setShow(false)} initialSection={landOn} initialRow={landOnRow} />
 			)}
@@ -192,7 +198,8 @@ export function SettingsDialogBody({
 	const [active, setActive] = useState<SectionId>(initialSection);
 	const android = useAndroidShell();
 	const sessionStats = useSessionStats();
-	const sections = SECTIONS.filter((s) => s.id !== "session" || (android && sessionStats));
+	const vaultAvailable = useVaultAvailable();
+	const sections = SECTIONS.filter((s) => (s.id !== "session" || (android && sessionStats)) && (s.id !== "vault" || vaultAvailable));
 	// Leaving the session with the dialog open drops This session — land on Providers.
 	useEffect(() => {
 		if (active === "session" && !sessionStats) setActive("keys");
@@ -445,6 +452,11 @@ export function SettingsDialogBody({
 											void write("graph", next)
 										}
 									/>
+								</SettingsSection>
+							)}
+							{active === "vault" && vaultAvailable && (
+								<SettingsSection title="Vault" testid="section-vault">
+									<VaultSection />
 								</SettingsSection>
 							)}
 							{active === "keyboard" && (
