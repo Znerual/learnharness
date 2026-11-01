@@ -68,6 +68,8 @@ const SECTIONS = [
 	{ id: "session", label: "This session" },
 	{ id: "keys", label: "Providers" },
 	{ id: "agent", label: "Agent" },
+	{ id: "dictation", label: "Dictation" },
+	{ id: "readAloud", label: "Read aloud" },
 	{ id: "appearance", label: "Appearance" },
 	{ id: "graph", label: "Graph" },
 	{ id: "keyboard", label: "Keyboard", hint: "Stored on this device" },
@@ -77,8 +79,8 @@ const SECTIONS = [
 ] as const;
 type SectionId = (typeof SECTIONS)[number]["id"];
 
-/** `open(section?, row?)` — the optional ROW deep-links into the Keys
- *  section with that row unfolded (zero-keys wave: the dictation error's
+/** `open(section?, row?)` — the optional ROW deep-links into a Keys-store
+ *  tab (keys, dictation or readAloud) with that row unfolded (zero-keys wave: the dictation error's
  *  click lands on the Deepgram row). `row` is the KEY ID (the env-var
  *  name, e.g. DEEPGRAM_API_KEY — KeysSection's openRow state), not the
  *  row's testid. */
@@ -404,6 +406,16 @@ export function SettingsDialogBody({
 							{active === "keys" && (
 								<SettingsSection title="Providers" testid="section-keys">
 									<KeysSection initialRow={initialRow ?? undefined} />
+								</SettingsSection>
+							)}
+							{active === "dictation" && (
+								<SettingsSection title="Dictation" testid="section-dictation">
+									<KeysSection view="dictation" initialRow={initialRow ?? undefined} />
+								</SettingsSection>
+							)}
+							{active === "readAloud" && (
+								<SettingsSection title="Read aloud" testid="section-read-aloud">
+									<KeysSection view="read-aloud" initialRow={initialRow ?? undefined} />
 								</SettingsSection>
 							)}
 							{active === "agent" && (
