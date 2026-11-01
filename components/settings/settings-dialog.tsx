@@ -79,6 +79,21 @@ const SECTIONS = [
 ] as const;
 type SectionId = (typeof SECTIONS)[number]["id"];
 
+/** On the phone (owner, 2026-11-01): the most used tabs first, Graph last,
+ *  shortcuts hidden (no hardware keyboard), shorter name for This session. */
+const ANDROID_ORDER: readonly SectionId[] = ["session", "keys", "agent", "dictation", "readAloud", "appearance", "general", "vault", "graph"];
+const ANDROID_LABEL: Partial<Record<SectionId, string>> = { session: "Session" };
+
+/** The tabs to show. Pure — exported for tests. */
+export function visibleSections(opts: { android: boolean; session: boolean; vault: boolean }): { id: SectionId; label: string }[] {
+	const shown = SECTIONS.filter((s) => (s.id !== "session" || (opts.android && opts.session)) && (s.id !== "vault" || opts.vault));
+	if (!opts.android) return shown.map(({ id, label }) => ({ id, label }));
+	return ANDROID_ORDER.flatMap((id) => {
+		const s = shown.find((x) => x.id === id);
+		return s ? [{ id, label: ANDROID_LABEL[id] ?? s.label }] : [];
+	});
+}
+
 /** `open(section?, row?)` — the optional ROW deep-links into a Keys-store
  *  tab (keys, dictation or readAloud) with that row unfolded (zero-keys wave: the dictation error's
  *  click lands on the Deepgram row). `row` is the KEY ID (the env-var
@@ -201,7 +216,16 @@ export function SettingsDialogBody({
 	const android = useAndroidShell();
 	const sessionStats = useSessionStats();
 	const vaultAvailable = useVaultAvailable();
-	const sections = SECTIONS.filter((s) => (s.id !== "session" || (android && sessionStats)) && (s.id !== "vault" || vaultAvailable));
+	const sections = visibleSections({ android, session: !!sessionStats, vault: vaultAvailable });
+	// A deep link to a tab hidden here (Keyboard on the phone) lands on Providers.
+	useEffect(() => {
+		if (android && active === "keyboard") setActive("keys");
+	}, [android, active]);
+	// A deep link to a tab out of view in the sideways row scrolls it in.
+	useEffect(() => {
+		if (!android) return;
+		document.querySelector(`[data-testid="settings-nav-${active}"]`)?.scrollIntoView?.({ inline: "center", block: "nearest" });
+	}, [android, active]);
 	// Leaving the session with the dialog open drops This session — land on Providers.
 	useEffect(() => {
 		if (active === "session" && !sessionStats) setActive("keys");
