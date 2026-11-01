@@ -14,7 +14,7 @@
  */
 
 import { LOCAL_STT_KEY_ID, resolveDictation } from "../core/dictation.ts";
-import { resolveSpeech, SPEECH_KEY_ID, type OnDeviceModel } from "../core/speech.ts";
+import { resolveSpeech, SPEECH_KEY_ID, type OnDeviceModel, type SpeechBenchmarkResult } from "../core/speech.ts";
 import { settingsStore } from "../store/settings.ts";
 import { keyValue } from "./keys.ts";
 
@@ -53,6 +53,32 @@ async function call(method: "GET" | "POST" | "DELETE", path: string, fetchFn: ty
 /** The phone's speech models and their states. */
 export function listSpeechModels(fetchFn: typeof fetch = fetch): Promise<SpeechModelsResult> {
 	return call("GET", "/models", fetchFn);
+}
+
+export type SpeechBenchmarkCall =
+	| { ok: true; result: SpeechBenchmarkResult | null }
+	| { ok: false; status: number; error: string };
+
+/** A run loads every model on every provider, one after another: minutes on a slow phone. */
+const BENCHMARK_TIMEOUT_MS = 5 * 60_000;
+
+/** The phone's last speed check (GET) or a new one (POST, owner 2026-11-01). */
+export async function speechBenchmark(method: "GET" | "POST", fetchFn: typeof fetch = fetch): Promise<SpeechBenchmarkCall> {
+	const target = server();
+	if (!target) return { ok: false, status: 404, error: "No speech server is set" };
+	let res: Response;
+	try {
+		res = await fetchFn(`${target.url}/benchmark`, {
+			method,
+			headers: target.key ? { Authorization: `Bearer ${target.key}` } : {},
+			signal: AbortSignal.timeout(method === "POST" ? BENCHMARK_TIMEOUT_MS : TIMEOUT_MS),
+		});
+	} catch {
+		return { ok: false, status: 502, error: `The speech server is unreachable (${target.url})` };
+	}
+	const body = (await res.json().catch(() => null)) as { result?: SpeechBenchmarkResult | null; error?: { message?: string } } | null;
+	if (!res.ok) return { ok: false, status: res.status === 404 ? 404 : 502, error: body?.error?.message ?? `HTTP ${res.status}` };
+	return { ok: true, result: body?.result ?? null };
 }
 
 /** Download (POST) or remove (DELETE) one model; answers the new list. */

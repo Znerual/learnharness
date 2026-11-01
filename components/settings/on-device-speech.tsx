@@ -9,7 +9,8 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { SPEECH_LANGUAGE_LABEL, isSpeechLanguage, type OnDeviceModel } from "@/src/core";
+import { Loader2Icon } from "lucide-react";
+import { SPEECH_LANGUAGE_LABEL, isSpeechLanguage, type OnDeviceModel, type SpeechBenchmarkResult } from "@/src/core";
 import { notifySettingsSaved } from "@/components/settings-signal";
 import { SettingsGroup } from "./controls.tsx";
 
@@ -32,6 +33,67 @@ export function modelStateLine(model: OnDeviceModel): string {
 		default:
 			return modelSize(model.bytes);
 	}
+}
+
+/** The benchmark's verdict in words. Pure — exported for tests. */
+export function benchmarkLine(result: SpeechBenchmarkResult | null): string {
+	if (!result) return "Not run yet — voice mode appears once a run finds this phone fast enough.";
+	const speed = (part: { provider: string; rtf: number } | null, name: string) =>
+		part ? `${name} ${part.rtf.toFixed(2)} s per second of audio (${part.provider === "nnapi" ? "GPU/NPU" : "CPU"})` : `${name} failed`;
+	const verdict = result.voiceMode ? "Fast enough for voice mode" : "Too slow for voice mode";
+	return `${verdict}: ${speed(result.dictation, "dictation")}, ${speed(result.voice, "read-aloud")}.`;
+}
+
+/** Settings row: run the phone's speed check, which decides whether voice mode is offered. */
+function BenchmarkRow() {
+	const [result, setResult] = useState<SpeechBenchmarkResult | null | undefined>(undefined);
+	const [running, setRunning] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+
+	const call = useCallback(async (method: "GET" | "POST") => {
+		const res = await fetch("/api/speech-benchmark", { method }).catch(() => null);
+		const body = (await res?.json().catch(() => ({}))) as { result?: SpeechBenchmarkResult | null; error?: string } | undefined;
+		if (!res?.ok) {
+			setError(body?.error ?? "The phone's speech server did not answer.");
+			return;
+		}
+		setError(null);
+		setResult(body?.result ?? null);
+	}, []);
+
+	useEffect(() => {
+		void call("GET");
+	}, [call]);
+
+	async function run() {
+		setRunning(true);
+		await call("POST");
+		setRunning(false);
+		// Voice mode's toggle re-reads whether this phone offers it.
+		notifySettingsSaved("speech");
+	}
+
+	if (result === undefined && !error) return null;
+	return (
+		<div className="flex items-center justify-between gap-3 px-1 py-1.5" data-testid="speech-benchmark">
+			<span className="min-w-0 flex-1">
+				<span className="block font-ui text-xs text-foreground">Voice mode speed check</span>
+				<span className="block font-mono text-[11px] text-muted-foreground" data-testid="speech-benchmark-result">
+					{running ? "Running — this takes about a minute…" : error ?? benchmarkLine(result ?? null)}
+				</span>
+			</span>
+			<button
+				type="button"
+				onClick={() => void run()}
+				disabled={running}
+				data-testid="speech-benchmark-run"
+				className="flex shrink-0 items-center gap-1 text-xs text-foreground underline-offset-2 hover:underline disabled:opacity-50"
+			>
+				{running && <Loader2Icon className="size-3 animate-spin" aria-hidden />}
+				{result ? "Run again" : "Run"}
+			</button>
+		</div>
+	);
 }
 
 function modelName(model: OnDeviceModel): string {
@@ -109,6 +171,7 @@ export function OnDeviceSpeechGroup() {
 					) : null}
 				</div>
 			))}
+			<BenchmarkRow />
 			<p className="px-1 text-[11px] leading-relaxed text-muted-foreground/70">
 				Models download over Wi-Fi only and run on this phone. Dictation recognizes German and English by itself; read-aloud uses the voice of the language chosen under Read aloud.
 			</p>

@@ -38,7 +38,7 @@
  */
 
 import { useEffect, useRef, useSyncExternalStore } from "react";
-import { SquareIcon, Volume2Icon, VolumeXIcon } from "lucide-react";
+import { Loader2Icon, SquareIcon, Volume2Icon, VolumeXIcon } from "lucide-react";
 import {
 	closedMarkdown,
 	isSpeechLanguage,
@@ -78,9 +78,22 @@ export interface ReadAloudState {
 	paused: boolean;
 	/** Voice mode reads every live reply, whatever `autoRead` says. */
 	voiceAutoRead: boolean;
+	/** Speech is queued but its next block is still being synthesized: the
+	 *  buttons show a spinner, since the first block can take seconds while
+	 *  the phone loads its voice model (owner, 2026-11-01). */
+	waiting: boolean;
 }
 
-let state: ReadAloudState = { owner: null, error: null, ready: false, autoRead: false, speed: 1, paused: false, voiceAutoRead: false };
+let state: ReadAloudState = {
+	owner: null,
+	error: null,
+	ready: false,
+	autoRead: false,
+	speed: 1,
+	paused: false,
+	voiceAutoRead: false,
+	waiting: false,
+};
 const listeners = new Set<() => void>();
 
 function set(patch: Partial<ReadAloudState>): void {
@@ -208,7 +221,10 @@ async function pump(): Promise<void> {
 			prefetch();
 			const entry = queue.shift();
 			if (!entry) break;
-			const url = await load(entry);
+			set({ waiting: true });
+			const url = await load(entry).finally(() => {
+				if (gen === generation) set({ waiting: false });
+			});
 			if (gen !== generation) {
 				URL.revokeObjectURL(url);
 				break;
@@ -255,7 +271,7 @@ export function stopReadAloud(): void {
 	lastEnded = null;
 	if (state.owner) muted.add(state.owner);
 	pendingQuestions.clear();
-	if (state.owner !== null || state.paused) set({ owner: null, paused: false });
+	if (state.owner !== null || state.paused || state.waiting) set({ owner: null, paused: false, waiting: false });
 }
 
 /** A barge-in (voice mode): cut the playing block and hold the queue. */
@@ -522,7 +538,7 @@ const TOGGLE_CLASS =
 /** The composer's auto-read toggle, beside the mic. While speech plays it
  *  is a stop button; ⌘⇧S toggles auto-read from anywhere in the session. */
 export function ReadAloudToggle() {
-	const { owner, error, ready, autoRead } = useReadAloud();
+	const { owner, error, ready, autoRead, waiting } = useReadAloud();
 	const { open: openSettings } = useSettingsDialog();
 
 	useEffect(() => {
@@ -544,7 +560,7 @@ export function ReadAloudToggle() {
 					data-testid="read-aloud-toggle"
 					className={`${TOGGLE_CLASS} border-transparent bg-destructive/10 font-medium text-destructive hover:bg-destructive/20`}
 				>
-					<SquareIcon className="size-3 fill-current" />
+					{waiting ? <Loader2Icon className="size-3 animate-spin" data-testid="read-aloud-waiting" /> : <SquareIcon className="size-3 fill-current" />}
 				</button>
 			</Hint>
 		);
@@ -611,7 +627,7 @@ export function ReadAloudSpeed() {
  *  (its wrapper carries `group/turn`); stays shown while that turn speaks
  *  (click again stops). */
 export function ReadAloudButton({ turn }: { turn: ReplyTurn }) {
-	const { owner, ready } = useReadAloud();
+	const { owner, ready, waiting } = useReadAloud();
 	const { open: openSettings } = useSettingsDialog();
 	if (!turn.text.trim()) return null;
 	const playing = owner === turn.key;
@@ -629,7 +645,13 @@ export function ReadAloudButton({ turn }: { turn: ReplyTurn }) {
 					}}
 					className="flex size-6 items-center justify-center rounded-sm text-muted-foreground/70 transition-colors hover:bg-accent hover:text-foreground"
 				>
-					{playing ? <SquareIcon className="size-3 fill-current" /> : <Volume2Icon className="size-3.5" />}
+					{playing && waiting ? (
+						<Loader2Icon className="size-3.5 animate-spin" data-testid="read-aloud-waiting" />
+					) : playing ? (
+						<SquareIcon className="size-3 fill-current" />
+					) : (
+						<Volume2Icon className="size-3.5" />
+					)}
 				</button>
 			</Hint>
 		</div>

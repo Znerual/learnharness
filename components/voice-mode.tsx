@@ -9,9 +9,12 @@
  *
  * The bridge, both ways:
  * - page → app: `LHAndroid.voiceModeStart()`, `voiceModeStop()`,
- *   `voiceModeActive()`.
+ *   `voiceModeActive()`, `voiceModeSupported()` (a benchmark in Settings →
+ *   On-device speech found the phone fast enough; until then the toggle is
+ *   hidden, owner 2026-11-01).
  * - app → page: `lhVoice.started()`, `lhVoice.ended(reason)`,
- *   `lhVoice.speechStarted()` (barge-in), and `command(name)`,
+ *   `lhVoice.speechStarted()` (barge-in), `transcribing()` (an utterance
+ *   ended), and `command(name)`,
  *   `text(transcript)`, `noise()` — each answers true when the page acted,
  *   false when it refused (the app plays the matching earcon).
  *
@@ -20,10 +23,11 @@
  */
 
 import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
-import { AudioLinesIcon } from "lucide-react";
+import { AudioLinesIcon, Loader2Icon } from "lucide-react";
 import { isVoiceCommand, voiceAction, type VoiceContext, type VoiceEvent } from "@/src/core";
 import { Hint } from "@/components/ui/hint";
 import { appendToPrimaryInput } from "@/components/dictation";
+import { onSettingsSaved } from "@/components/settings-signal";
 import {
 	pauseReadAloud,
 	readAloudReading,
@@ -41,9 +45,11 @@ export interface VoiceModeState {
 	phase: "off" | "starting" | "on";
 	/** Why voice mode last ended or failed to start, shown on the toggle. */
 	error: string | null;
+	/** Utterances the app is transcribing right now. */
+	transcribing: number;
 }
 
-let state: VoiceModeState = { available: false, phase: "off", error: null };
+let state: VoiceModeState = { available: false, phase: "off", error: null, transcribing: 0 };
 const listeners = new Set<() => void>();
 
 /** Change the state; auto-read follows it, on exactly while voice mode is on. */
@@ -63,6 +69,12 @@ interface AndroidVoiceBridge {
 	voiceModeStart(): string;
 	voiceModeStop(): void;
 	voiceModeActive(): boolean;
+	/** Absent in app builds before the benchmark: those never offer voice mode. */
+	voiceModeSupported?(): boolean;
+}
+
+function supported(android: AndroidVoiceBridge): boolean {
+	return typeof android.voiceModeSupported === "function" && android.voiceModeSupported();
 }
 
 function bridge(): AndroidVoiceBridge | null {
@@ -185,6 +197,7 @@ interface PageVoiceHandlers {
 	started(): void;
 	ended(reason?: string): void;
 	speechStarted(): void;
+	transcribing(): void;
 	command(name: string): boolean;
 	text(transcript: string): boolean;
 	noise(): boolean;
@@ -200,15 +213,26 @@ function install(): void {
 	const handlers: PageVoiceHandlers = {
 		started: () => update({ phase: "on", error: null }),
 		// A reading paused by a barge-in stays paused (the toggle's stop ends it).
-		ended: (reason) => update({ phase: "off", error: reason || null }),
+		ended: (reason) => update({ phase: "off", error: reason || null, transcribing: 0 }),
 		speechStarted: () => pauseReadAloud(),
-		command: (name) => isVoiceCommand(name) && handleVoiceEvent({ type: "command", command: name }),
-		text: (transcript) => handleVoiceEvent({ type: "text", text: transcript }),
-		noise: () => handleVoiceEvent({ type: "noise" }),
+		transcribing: () => update({ transcribing: state.transcribing + 1 }),
+		command: (name) => transcribed(isVoiceCommand(name) && handleVoiceEvent({ type: "command", command: name })),
+		text: (transcript) => transcribed(handleVoiceEvent({ type: "text", text: transcript })),
+		noise: () => transcribed(handleVoiceEvent({ type: "noise" })),
 	};
 	(window as { lhVoice?: PageVoiceHandlers }).lhVoice = handlers;
 	// A reloaded page finds voice mode still on in the app.
-	update({ available: true, phase: android.voiceModeActive() ? "on" : "off" });
+	update({ available: supported(android), phase: android.voiceModeActive() ? "on" : "off" });
+	// A benchmark run in Settings may change whether this phone offers it.
+	onSettingsSaved((section) => {
+		if (section === "speech") update({ available: supported(android) || state.phase !== "off" });
+	});
+}
+
+/** One utterance's transcription arrived; passes the page's answer through. */
+function transcribed(acted: boolean): boolean {
+	update({ transcribing: Math.max(0, state.transcribing - 1) });
+	return acted;
 }
 
 export function startVoiceMode(): void {
@@ -239,6 +263,7 @@ export function VoiceModeToggle() {
 	const { available, phase, error } = useVoiceMode();
 	if (!available) return null;
 	const on = phase !== "off";
+	// Starting loads the dictation model first: seconds on a phone.
 	const label = error ?? (phase === "on" ? "Voice mode is on" : phase === "starting" ? "Voice mode is starting" : "Voice mode");
 	return (
 		<Hint label={label} side="top">
@@ -259,7 +284,11 @@ export function VoiceModeToggle() {
 							: "border-border/50 bg-card/50 text-muted-foreground/70 hover:border-border hover:text-muted-foreground"
 				}`}
 			>
-				<AudioLinesIcon className={`size-3.5 ${phase === "starting" ? "animate-pulse" : ""}`} />
+				{phase === "starting" ? (
+					<Loader2Icon className="size-3.5 animate-spin" data-testid="voice-mode-starting" />
+				) : (
+					<AudioLinesIcon className="size-3.5" />
+				)}
 			</button>
 		</Hint>
 	);
@@ -267,10 +296,16 @@ export function VoiceModeToggle() {
 
 /** In place of the dictation mic while voice mode listens: the app holds the microphone. */
 export function VoiceModeStatus() {
+	const { phase, transcribing } = useVoiceMode();
+	const label = phase === "starting" ? "Starting…" : transcribing > 0 ? "Transcribing…" : "Listening";
 	return (
 		<div className="flex h-7 items-center gap-1.5 text-xs text-muted-foreground" data-testid="voice-mode-status">
-			<span className="size-1.5 shrink-0 animate-pulse rounded-full bg-primary" aria-hidden />
-			Listening
+			{phase === "starting" || transcribing > 0 ? (
+				<Loader2Icon className="size-3 shrink-0 animate-spin" aria-hidden />
+			) : (
+				<span className="size-1.5 shrink-0 animate-pulse rounded-full bg-primary" aria-hidden />
+			)}
+			{label}
 		</div>
 	);
 }

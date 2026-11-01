@@ -116,6 +116,17 @@ export function sanitizeSpeech(raw: Record<string, unknown>): SpeechSettings {
 
 /** One on-device speech model, as the Android app's speech server reports
  *  it (GET <url>/models — src/server/speech-models.ts). */
+/** The phone's last speed check (Android app, owner 2026-11-01): how fast
+ *  each model ran per second of audio, where it runs ("cpu" or "nnapi"),
+ *  and whether voice mode is offered. */
+export interface SpeechBenchmarkResult {
+	/** ISO time of the run. */
+	at: string;
+	dictation: { provider: string; rtf: number } | null;
+	voice: { provider: string; rtf: number } | null;
+	voiceMode: boolean;
+}
+
 export interface OnDeviceModel {
 	id: string;
 	kind: "dictation" | "voice";
