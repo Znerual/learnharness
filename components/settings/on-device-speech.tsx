@@ -31,8 +31,13 @@ export function modelStateLine(model: OnDeviceModel): string {
 		case "failed":
 			return `Download failed — ${model.error ?? "try again"}`;
 		default:
-			return modelSize(model.bytes);
+			return `Not downloaded — ${modelSize(model.bytes)}`;
 	}
+}
+
+/** The voice model an NPU voice reads from: the same Piper voice, found by its label. Pure — exported for tests. */
+export function npuVoiceModel(v: NpuSpeechStatus["voices"][number], models: OnDeviceModel[]): OnDeviceModel | undefined {
+	return models.find((m) => m.kind === "voice" && m.label === v.label);
 }
 
 const PROVIDER_LABEL: Record<string, string> = { cpu: "CPU", nnapi: "NNAPI", gpu: "GPU", npu: "NPU" };
@@ -113,7 +118,7 @@ function BenchmarkRow() {
 export function npuVoiceLine(v: NpuSpeechStatus["voices"][number]): string {
 	switch (v.state) {
 		case "voice-missing":
-			return "Download this voice first";
+			return "Not downloaded";
 		case "off":
 			return "Off";
 		case "waiting":
@@ -132,7 +137,7 @@ export function npuVoiceLine(v: NpuSpeechStatus["voices"][number]): string {
 }
 
 /** Settings row: NPU speech (experimental), only on a phone whose chip supports it. */
-function NpuSpeechRow() {
+function NpuSpeechRow({ models, onChange }: { models: OnDeviceModel[]; onChange: (id: string, method: "POST" | "DELETE") => Promise<void> }) {
 	const [npu, setNpu] = useState<NpuSpeechStatus | null>(null);
 	const [error, setError] = useState<string | null>(null);
 
@@ -147,9 +152,11 @@ function NpuSpeechRow() {
 		setNpu(body);
 	}, []);
 
+	// Read again when a voice finishes downloading or is removed.
+	const readyVoices = models.filter((m) => m.kind === "voice" && m.state === "ready").map((m) => m.id).join(",");
 	useEffect(() => {
 		void call();
-	}, [call]);
+	}, [call, readyVoices]);
 
 	// Follow the preparation while a voice downloads, compiles or tests.
 	const busy = npu?.voices.some((v) => v.state === "waiting" || v.state === "downloading" || v.state === "compiling" || v.state === "testing") ?? false;
@@ -160,6 +167,8 @@ function NpuSpeechRow() {
 	}, [busy, call]);
 
 	if (!npu?.offered) return null;
+	const noVoice = npu.voices.length > 0 && npu.voices.every((v) => v.state === "voice-missing");
+	const rows = npu.enabled || noVoice ? npu.voices : [];
 	return (
 		<div className="px-1 py-1.5" data-testid="npu-speech">
 			<label className="flex items-center justify-between gap-3">
@@ -179,14 +188,32 @@ function NpuSpeechRow() {
 					className="size-4 accent-foreground"
 				/>
 			</label>
-			{npu.enabled &&
-				npu.voices
-					.filter((v) => v.state !== "voice-missing")
-					.map((v) => (
-						<span key={v.voice} className="mt-1 block truncate font-mono text-[11px] text-muted-foreground" data-testid={`npu-voice-${v.voice}`}>
-							{v.label} · {npuVoiceLine(v)}
+			{noVoice && (
+				<p className="mt-1 text-[11px] text-muted-foreground" data-testid="npu-no-voice">
+					{npu.enabled ? "NPU speech needs a Piper voice." : "Turning this on needs a Piper voice."} Download one:
+				</p>
+			)}
+			{rows.map((v) => {
+				const model = v.state === "voice-missing" ? npuVoiceModel(v, models) : undefined;
+				const canDownload = model && (model.state === "missing" || model.state === "failed");
+				return (
+					<span key={v.voice} className="mt-1 flex items-center justify-between gap-3" data-testid={`npu-voice-${v.voice}`}>
+						<span className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground">
+							{v.label} · {model ? modelStateLine(model) : v.state === "voice-missing" ? "Not downloaded — see the voices above" : npuVoiceLine(v)}
 						</span>
-					))}
+						{canDownload && (
+							<button
+								type="button"
+								onClick={() => void onChange(model.id, "POST")}
+								data-testid={`npu-voice-download-${v.voice}`}
+								className="shrink-0 text-xs text-foreground underline-offset-2 hover:underline"
+							>
+								Download
+							</button>
+						)}
+					</span>
+				);
+			})}
 			{error && (
 				<p role="alert" className="mt-1 text-xs text-red-500">
 					{error}
@@ -268,12 +295,12 @@ export function OnDeviceSpeechGroup({ part }: { part: "dictation" | "read-aloud"
 							data-testid={`speech-model-download-${model.id}`}
 							className="shrink-0 text-xs text-foreground underline-offset-2 hover:underline"
 						>
-							Download
+							{model.state === "failed" ? "Retry" : "Download"}
 						</button>
 					) : null}
 				</div>
 			))}
-			{part === "dictation" ? <BenchmarkRow /> : <NpuSpeechRow />}
+			{part === "dictation" ? <BenchmarkRow /> : <NpuSpeechRow models={models} onChange={change} />}
 			<p className="px-1 text-[11px] leading-relaxed text-muted-foreground/70">
 				{part === "dictation"
 					? "Models download over Wi-Fi only and run on this phone. Dictation recognizes German and English by itself."
