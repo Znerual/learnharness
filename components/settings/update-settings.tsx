@@ -14,6 +14,8 @@ export type UpdateState = {
 
 export const APP_VERSION = process.env.LH_VERSION ?? "";
 const HOMEPAGE = process.env.LH_HOMEPAGE ?? "";
+/** A Vault release's notes page (LH_RELEASE_NOTES_URL at build time); replaces the GitHub tag link. */
+const RELEASE_NOTES_URL = process.env.LH_RELEASE_NOTES ?? "";
 export const MANUAL_UPDATE_HINT = "Checking downloads available updates. Downloaded updates install when you quit the app.";
 export const AUTO_UPDATE_HINT = "Check at startup and every 24 hours. Turning this off does not stop updates already in progress or ready to install.";
 const UPDATE_ERROR = "Couldn’t check for updates. Try again later.";
@@ -62,11 +64,13 @@ export function UpdateSettings({
 	onAutoUpdateChange,
 	version = APP_VERSION,
 	homepage = HOMEPAGE,
+	releaseNotesUrl = RELEASE_NOTES_URL,
 }: {
 	autoUpdate: boolean;
 	onAutoUpdateChange: (on: boolean) => void;
 	version?: string;
 	homepage?: string;
+	releaseNotesUrl?: string;
 }) {
 	const { state, failed } = useUpdateState();
 	const [checkFailed, setCheckFailed] = useState(false);
@@ -75,7 +79,7 @@ export function UpdateSettings({
 	const busy = state?.status === "checking" || state?.status === "downloading";
 	const status = state?.status === "downloaded" ? updateStatusText(state)
 		: failed || checkFailed ? UPDATE_ERROR : updateStatusText(state);
-	const releaseNotes = version && homepage ? `${homepage}/releases/tag/v${version}` : null;
+	const releaseNotes = releaseNotesUrl || (version && homepage ? `${homepage}/releases/tag/v${version}` : null);
 	const check = () => {
 		setCheckFailed(false);
 		void window.lh?.checkForUpdates?.().catch(() => setCheckFailed(true));

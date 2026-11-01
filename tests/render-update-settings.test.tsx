@@ -74,17 +74,24 @@ afterEach(async () => {
 describe("version and contextual copy", () => {
 	it("build metadata comes from package.json and exposes only public version/homepage values", () => {
 		const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
-		assert.deepEqual(nextConfig.env, { LH_VERSION: pkg.version, LH_HOMEPAGE: pkg.homepage });
+		assert.deepEqual(nextConfig.env, { LH_VERSION: pkg.version, LH_HOMEPAGE: pkg.homepage, LH_RELEASE_NOTES: "" });
 	});
 
 	it("a Vault release build shows its own number and no release-notes link (LH_BUILD_VERSION)", () => {
-		const out = execFileSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", "const c = (await import('./next.config.ts')).default; console.log(JSON.stringify(c.env));"], {
-			cwd: new URL("..", import.meta.url), env: { ...process.env, LH_BUILD_VERSION: "0.4.2101" }, encoding: "utf8",
-		});
-		assert.deepEqual(JSON.parse(out.trim().split("\n").at(-1) as string), { LH_VERSION: "0.4.2101", LH_HOMEPAGE: "" });
-		const html = renderToStaticMarkup(<UpdateSettings autoUpdate onAutoUpdateChange={() => {}} version="0.4.2101" homepage="" />);
+		const env = (extra: Record<string, string>) => {
+			const out = execFileSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", "const c = (await import('./next.config.ts')).default; console.log(JSON.stringify(c.env));"], {
+				cwd: new URL("..", import.meta.url), env: { ...process.env, LH_BUILD_VERSION: "0.4.2101", ...extra }, encoding: "utf8",
+			});
+			return JSON.parse(out.trim().split("\n").at(-1) as string);
+		};
+		assert.deepEqual(env({}), { LH_VERSION: "0.4.2101", LH_HOMEPAGE: "", LH_RELEASE_NOTES: "" });
+		assert.deepEqual(env({ LH_RELEASE_NOTES_URL: "https://learn-vault.example/releases/" }), { LH_VERSION: "0.4.2101", LH_HOMEPAGE: "", LH_RELEASE_NOTES: "https://learn-vault.example/releases/" });
+		assert.equal(env({ LH_RELEASE_NOTES_URL: "javascript:alert(1)" }).LH_RELEASE_NOTES, "", "only https notes pages");
+		const html = renderToStaticMarkup(<UpdateSettings autoUpdate onAutoUpdateChange={() => {}} version="0.4.2101" homepage="" releaseNotesUrl="" />);
 		assert.match(html, /Version 0\.4\.2101/);
 		assert.doesNotMatch(html, /release-notes/);
+		const linked = renderToStaticMarkup(<UpdateSettings autoUpdate onAutoUpdateChange={() => {}} version="0.4.2101" homepage="" releaseNotesUrl="https://learn-vault.example/releases/" />);
+		assert.match(linked, /href="https:\/\/learn-vault\.example\/releases\/"[^>]*data-testid="release-notes"/);
 	});
 
 	it("never claims live/latest information and keeps updater errors generic", () => {

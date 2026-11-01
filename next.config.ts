@@ -25,9 +25,14 @@ const nextConfig: NextConfig = {
 	// Public build metadata only; no new runtime Electron version API. A Vault release
 	// (learnharness-vault deploy/lan/release-vault-build.sh) builds with LH_BUILD_VERSION, its own
 	// release number; it has no GitHub release, so no homepage (and no release-notes link) either.
+	// LH_RELEASE_NOTES_URL (https only) is its notes page on the vault host.
 	env: process.env.LH_BUILD_VERSION?.trim()
-		? { LH_VERSION: process.env.LH_BUILD_VERSION.trim(), LH_HOMEPAGE: "" }
-		: { LH_VERSION: pkg.version, LH_HOMEPAGE: pkg.homepage },
+		? {
+			LH_VERSION: process.env.LH_BUILD_VERSION.trim(),
+			LH_HOMEPAGE: "",
+			LH_RELEASE_NOTES: /^https:\/\/[^\s"<>]+$/.test(process.env.LH_RELEASE_NOTES_URL ?? "") ? (process.env.LH_RELEASE_NOTES_URL as string) : "",
+		}
+		: { LH_VERSION: pkg.version, LH_HOMEPAGE: pkg.homepage, LH_RELEASE_NOTES: "" },
 	// Leave multipart headroom above the 25 MiB file allowance. This is a
 	// proxy buffer, not a rejection gate: the import route also bounds reads,
 	// validates actual file bytes and handles incomplete multipart bodies.
