@@ -1,6 +1,7 @@
 // Sync status banner (#35, ADR 0007): every SyncState with plain text, the number of changes
 // waiting, and the last successful sync.
 
+import type { SessionDto } from "../contract.ts";
 import type { SyncStatus } from "../deps.ts";
 import { relativeTime } from "../format.ts";
 import { strings } from "../strings.ts";
@@ -55,5 +56,40 @@ export function syncBanner(s: SyncStatus, o: BannerOptions): SyncBanner {
 			return { ...base, action: "sign_in", actionLabel: strings.sync.signIn, level: "banner", tone: "error", title: strings.sync.revokedTitle, body: strings.sync.revokedBody, blocked: true };
 		case "needs_unlock":
 			return { ...base, action: "unlock", actionLabel: strings.sync.unlock, level: "banner", tone: "warning", title: strings.sync.needsUnlockTitle, body: strings.sync.needsUnlockBody, blocked: true };
+	}
+}
+
+/** What the app shell shows: only things that need the learner's eyes. Quiet states render nothing. */
+export interface ShellBanner {
+	/** Changes when the problem changes, so a dismissed banner stays away until something else is wrong. */
+	key: string;
+	tone: BannerTone;
+	title: string;
+	body: string;
+	/** True when changes are not leaving this device. */
+	blocked: boolean;
+}
+
+/**
+ * The shell banner for the session and the sync status. Null while signed out, idle or syncing:
+ * the Vault section of Settings has the full status line; the shell stays quiet. Every banner links
+ * to Settings → Vault, where the action (unlock, sign in again, manage plan) lives.
+ */
+export function shellBanner(session: SessionDto, status: SyncStatus | null, o: BannerOptions): ShellBanner | null {
+	switch (session.state) {
+		case "signed_out":
+			return null;
+		case "joining":
+			return { key: "joining", tone: "warning", title: strings.banner.joiningTitle, body: strings.banner.joiningBody, blocked: true };
+		case "must_set_password":
+			return { key: "must_set_password", tone: "warning", title: strings.banner.mustSetPasswordTitle, body: strings.banner.mustSetPasswordBody, blocked: true };
+		case "needs_unlock":
+			return { key: "needs_unlock", tone: "warning", title: strings.sync.needsUnlockTitle, body: strings.sync.needsUnlockBody, blocked: true };
+		case "signed_in": {
+			if (!status) return null;
+			const b = syncBanner(status, o);
+			if (b.level === "line") return null;
+			return { key: status.state, tone: b.tone, title: b.title, body: b.body, blocked: b.blocked };
+		}
 	}
 }

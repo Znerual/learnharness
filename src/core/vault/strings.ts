@@ -365,6 +365,11 @@ export const strings = {
 
 	banner: {
 		open: "Open vault settings",
+		dismiss: "Dismiss",
+		joiningTitle: "Finish joining the vault",
+		joiningBody: "This device is signed in but does not sync until you answer in Settings.",
+		mustSetPasswordTitle: "Choose a new password to start syncing",
+		mustSetPasswordBody: "You recovered your account on this device. Sync stays off until you set a new password.",
 	},
 
 	delete: {
