@@ -33,14 +33,17 @@ import {
 	CUSTOM_MODEL_DEFAULT_CONTEXT_WINDOW,
 	CUSTOM_MODEL_DEFAULT_MAX_TOKENS,
 	CUSTOM_PROVIDER,
+	DEFAULT_ENDPOINT_THINKING_FORMAT,
+	ENDPOINT_THINKING_FORMATS,
+	ENDPOINT_THINKING_FORMAT_LABEL,
 	isEndpointKeyVar,
 	normalizeBaseUrl,
 	type AuthKeyStatus,
 	type CustomModel,
 	type CustomModelOverride,
+	type EndpointThinkingFormat,
 } from "@/src/core";
 import { SettingsGroup } from "./controls.tsx";
-import { EndpointsGroup } from "./endpoints-group.tsx";
 import { DictationEngineRows } from "./dictation-engine.tsx";
 import { SpeechRows } from "./speech-rows.tsx";
 import { SubscriptionConnections } from "./subscription-connections.tsx";
@@ -63,8 +66,11 @@ interface KeysResponse {
 	providers?: ProviderKeyInfo[];
 }
 
-/** The custom endpoint's non-secret status (GET /api/custom-provider). */
+/** One custom endpoint's non-secret status (GET /api/custom-providers[/id]). */
 interface CustomStatus {
+	id: string;
+	name: string;
+	thinkingFormat: EndpointThinkingFormat;
 	keyReuseRequired: boolean;
 	revision: string;
 	authMode: "keyless" | "apiKey";
@@ -77,11 +83,25 @@ interface CustomStatus {
 	keyPresent: boolean;
 }
 
-async function readCustomStatus(inspectKey = false): Promise<CustomStatus> {
-	const response = await fetch(`/api/custom-provider${inspectKey ? "?authMode=apiKey" : ""}`);
+const customStatusOf = (cp: Partial<CustomStatus>, revision: string): CustomStatus => ({
+	id: cp.id ?? "", name: cp.name ?? "", thinkingFormat: cp.thinkingFormat ?? DEFAULT_ENDPOINT_THINKING_FORMAT,
+	keyReuseRequired: Boolean(cp.keyReuseRequired), revision, authMode: cp.authMode ?? "keyless", keySource: cp.keySource ?? "none",
+	baseUrl: cp.baseUrl ?? "", models: cp.models ?? [], overrides: cp.overrides ?? {}, manualModels: cp.manualModels ?? [], keyPresent: Boolean(cp.keyPresent),
+});
+
+/** Every custom endpoint's status, in stored order. */
+async function readCustomStatuses(): Promise<CustomStatus[]> {
+	const response = await fetch("/api/custom-providers");
 	if (!response.ok) throw new Error("Unable to load custom configuration.");
-	const cp = await response.json() as Partial<CustomStatus>;
-	return { keyReuseRequired: Boolean(cp.keyReuseRequired), revision: response.headers.get("etag") ?? "", authMode: cp.authMode ?? "keyless", keySource: cp.keySource ?? "none", baseUrl: cp.baseUrl ?? "", models: cp.models ?? [], overrides: cp.overrides ?? {}, manualModels: cp.manualModels ?? [], keyPresent: Boolean(cp.keyPresent) };
+	const body = await response.json() as { providers?: Partial<CustomStatus>[] };
+	return (body.providers ?? []).map((cp) => customStatusOf(cp, cp.revision ?? ""));
+}
+
+/** One custom endpoint's status; `inspectKey` resolves its effective key. */
+async function readCustomStatus(id: string, inspectKey = false): Promise<CustomStatus> {
+	const response = await fetch(`/api/custom-providers/${encodeURIComponent(id)}${inspectKey ? "?authMode=apiKey" : ""}`);
+	if (!response.ok) throw new Error("Unable to load custom configuration.");
+	return customStatusOf(await response.json() as Partial<CustomStatus>, response.headers.get("etag") ?? "");
 }
 
 /** The curated tools group, pinned by id (the catalog owns the copy;
@@ -90,7 +110,7 @@ async function readCustomStatus(inspectKey = false): Promise<CustomStatus> {
  *  section can never drift from core/auth-keys.ts again. */
 const TOOL_IDS = AUTH_KEYS.map((k) => k.id) as readonly string[];
 
-/** The custom endpoint's synthetic Add-provider entry (offered only while unconfigured). */
+/** The custom endpoints' synthetic Add-provider entry (always offered — one more endpoint each time). */
 export const CUSTOM_PROVIDER_INFO: ProviderKeyInfo = {
 	id: CUSTOM_PROVIDER.id,
 	envVar: CUSTOM_PROVIDER.envVar,
@@ -411,16 +431,17 @@ export function KeysSection({
 	/** The paste editor for a freshly chosen Add-provider target. */
 	const [adding, setAdding] = useState<ProviderKeyInfo | null>(null);
 	const [addError, setAddError] = useState<string | null>(null);
-	/** The custom endpoint's status + whether its connect editor is open. */
-	const [custom, setCustom] = useState<CustomStatus | null>(null);
-	const [addingCustom, setAddingCustom] = useState(false);
+	/** The custom endpoints' statuses + whose connect editor is open (its id,
+	 *  or NEW_CUSTOM for one being added). */
+	const [customs, setCustoms] = useState<CustomStatus[]>([]);
+	const [openCustom, setOpenCustom] = useState<string | null>(null);
 
 	// Escape folds any open editor (unfolded row or the Add-provider paste)
 	// WITHOUT closing the dialog. Claimed at document CAPTURE phase — the
 	// only stopPropagation that outruns both the input's React handler and
 	// the dialog's window-level listener.
 	useEffect(() => {
-		if (openRow === null && adding === null && !addingCustom) return;
+		if (openRow === null && adding === null && openCustom === null) return;
 		const onKeyDown = (e: KeyboardEvent) => {
 			if (e.key !== "Escape") return;
 			// A language dropdown above this editor in the dismissal stack owns
@@ -430,11 +451,11 @@ export function KeysSection({
 			e.stopPropagation();
 			setOpenRow(null);
 			setAdding(null);
-			setAddingCustom(false);
+			setOpenCustom(null);
 		};
 		document.addEventListener("keydown", onKeyDown, true);
 		return () => document.removeEventListener("keydown", onKeyDown, true);
-	}, [openRow, adding, addingCustom]);
+	}, [openRow, adding, openCustom]);
 
 	const reload = async () => {
 		try {
@@ -446,10 +467,10 @@ export function KeysSection({
 		} finally {
 			setLoading(false);
 		}
-		// Best-effort and independent: the custom endpoint's status must never
+		// Best-effort and independent: the custom endpoints' status must never
 		// blank the provider-key list above if its fetch fails.
 		try {
-			setCustom(await readCustomStatus());
+			setCustoms(await readCustomStatuses());
 		} catch {
 			/* custom status unavailable — leave it unset */
 		}
@@ -490,12 +511,12 @@ export function KeysSection({
 		notifySettingsSaved("keys");
 	}
 
-	/** Forget the custom endpoint (config + key server-side), same rhythm as
+	/** Forget one custom endpoint (config + key server-side), same rhythm as
 	 *  deleteKey: fire, re-read, broadcast so the catalog narrows everywhere. */
-	async function disconnectCustom(revision: string): Promise<string | null> {
-		const res = await fetch("/api/custom-provider", { method: "DELETE", headers: { "content-type": "application/json", "if-match": revision }, body: JSON.stringify({}) }).catch(() => null);
+	async function disconnectCustom(id: string, revision: string): Promise<string | null> {
+		const res = await fetch(`/api/custom-providers/${encodeURIComponent(id)}`, { method: "DELETE", headers: { "content-type": "application/json", "if-match": revision }, body: JSON.stringify({}) }).catch(() => null);
 		if (!res?.ok) return res ? ((await res.json().catch(() => ({}))).error ?? "Disconnect failed.") : "Disconnect failed. Check your connection.";
-		setAddingCustom(false);
+		setOpenCustom(null);
 		await reload();
 		notifySettingsSaved("keys");
 		return null;
@@ -557,48 +578,54 @@ export function KeysSection({
 						testid={`key-${status.id.toLowerCase()}`}
 					/>
 				))}
-				{custom?.baseUrl && (
-					<CustomEndpointRow
-						status={custom}
-						expanded={addingCustom}
-						onToggle={() => setAddingCustom((v) => !v)}
-					/>
-				)}
-				{addingCustom && (
+				{customs.filter((c) => c.baseUrl).map((c) => (
+					<div key={c.id} data-endpoint-id={c.id}>
+						<CustomEndpointRow
+							status={c}
+							expanded={openCustom === c.id}
+							onToggle={() => setOpenCustom((v) => (v === c.id ? null : c.id))}
+						/>
+						{openCustom === c.id && (
+							<CustomEndpointEditor
+								status={c}
+								onReload={async () => { await reload(); setOpenCustom(null); }}
+								onSaved={async () => {
+									setOpenCustom(null);
+									await reload();
+									notifySettingsSaved("keys");
+								}}
+								onPinsSaved={async () => {
+									await reload();
+									notifySettingsSaved("keys");
+								}}
+								onDelete={(revision) => disconnectCustom(c.id, revision)}
+								onCancel={() => setOpenCustom(null)}
+							/>
+						)}
+					</div>
+				))}
+				{openCustom === NEW_CUSTOM && (
 					<CustomEndpointEditor
-						revision0={custom?.revision ?? ""}
-						authMode0={custom?.authMode ?? "keyless"}
-						keySource0={custom?.keySource ?? "none"}
-						keyReuseRequired0={custom?.keyReuseRequired ?? false}
-						onReload={async () => { await reload(); setAddingCustom(false); }}
-						baseUrl0={custom?.baseUrl ?? ""}
-						keyPresent={custom?.keyPresent ?? false}
-						models={custom?.models ?? []}
-						overrides={custom?.overrides ?? {}}
-						manualModels0={custom?.manualModels ?? []}
+						onReload={async () => { await reload(); setOpenCustom(null); }}
 						onSaved={async () => {
-							setAddingCustom(false);
+							setOpenCustom(null);
 							await reload();
 							notifySettingsSaved("keys");
 						}}
-						onPinsSaved={async () => {
-							await reload();
-							notifySettingsSaved("keys");
-						}}
-						onDelete={disconnectCustom}
-						onCancel={() => setAddingCustom(false)}
+						onPinsSaved={reload}
+						onCancel={() => setOpenCustom(null)}
 					/>
 				)}
 				{providers !== undefined && (
 					<AddProviderRow
-						addable={custom?.baseUrl ? addable : [...addable, CUSTOM_PROVIDER_INFO]}
+						addable={[...addable, CUSTOM_PROVIDER_INFO]}
 						onPick={(p) => {
 							setAddError(null);
 							if (p.id === CUSTOM_PROVIDER.id) {
 								setAdding(null);
-								setAddingCustom(true);
+								setOpenCustom(NEW_CUSTOM);
 							} else {
-								setAddingCustom(false);
+								setOpenCustom(null);
 								setAdding(p);
 							}
 						}}
@@ -625,14 +652,6 @@ export function KeysSection({
 				<SubscriptionConnections />
 			</SettingsGroup>
 			)}
-
-			<EndpointsGroup
-				keyStatuses={statuses}
-				onKeysChanged={async () => {
-					await reload();
-					notifySettingsSaved("keys");
-				}}
-			/>
 
 			<SettingsGroup label="External CLI" testid="group-external-cli">
 				<ClaudeCodeInstallationStatus />
@@ -719,21 +738,18 @@ function AddProviderEditor({
 	);
 }
 
-/** One donor editor for first setup and Settings; setup omits offline pin and
- * disconnect controls, while authentication/revisions/manual IDs stay identical. */
+/** The open-editor marker for an endpoint being added (no id yet). */
+const NEW_CUSTOM = "\u0000new";
+
+/** One donor editor for first setup and Settings; setup adds a new endpoint
+ * and omits offline pin and disconnect controls, while authentication and
+ * manual IDs stay identical. */
 export function CustomEndpointSetup({ onSaved }: { onSaved: () => void | Promise<void> }) {
-	const [status, setStatus] = useState<CustomStatus | null>(null);
-	const [error, setError] = useState(false);
-	async function reload() {
-		try { setStatus(await readCustomStatus()); setError(false); }
-		catch { setError(true); }
-	}
-	useEffect(() => { void reload(); }, []);
-	if (!status || error) return <div className="text-xs">{error ? "Unable to load custom configuration." : "Loading custom configuration…"}{error && <button onClick={() => void reload()}>Retry</button>}</div>;
-	return <CustomEndpointEditor key={status.revision} setup revision0={status.revision} authMode0={status.authMode} keySource0={status.keySource} keyReuseRequired0={status.keyReuseRequired} baseUrl0={status.baseUrl} keyPresent={status.keyPresent} models={status.models} overrides={status.overrides} manualModels0={status.manualModels} onSaved={onSaved} onPinsSaved={reload} onReload={reload} onCancel={reload} />;
+	const [round, setRound] = useState(0);
+	return <CustomEndpointEditor key={round} setup onSaved={onSaved} onPinsSaved={() => undefined} onReload={() => setRound((r) => r + 1)} onCancel={() => setRound((r) => r + 1)} />;
 }
 
-/** The custom endpoint's status row (shown once configured); clicking re-opens the editor. */
+/** One custom endpoint's status row (shown once configured); clicking re-opens its editor. */
 function CustomEndpointRow({
 	status,
 	expanded,
@@ -754,7 +770,7 @@ function CustomEndpointRow({
 				onClick={onToggle}
 				className="flex w-full items-center justify-between gap-3 rounded-sm px-1 py-1.5 text-left cursor-pointer transition-colors hover:bg-accent/50"
 			>
-				<span className="font-ui text-xs text-foreground">Custom endpoint</span>
+				<span className="font-ui text-xs text-foreground">{status.name || CUSTOM_PROVIDER.label}</span>
 				<span data-testid="custom-endpoint-status" className="max-w-[60%] truncate font-mono text-[11px] text-muted-foreground">
 					{line}
 				</span>
@@ -802,42 +818,45 @@ function pinsPayload(drafts: Record<string, PinDraft>): Record<string, CustomMod
 /** testids must survive ids carrying slashes, colons, dots. */
 const pinTestid = (prefix: string, id: string) => `${prefix}-${id.replace(/[^a-z0-9-]/gi, "_")}`;
 
-/** The custom endpoint's connect editor: base URL + key → POST /api/custom-provider
- *  (validate + discover + register), and the per-model limits form → PATCH (pins,
- *  no probe, so it works with the local server switched off). Image capability is
- *  detected automatically. */
+/** One custom endpoint's connect editor: name + base URL + key + thinking format →
+ *  POST /api/custom-providers (add; the id comes from the name) or
+ *  /api/custom-providers/[id] (validate + discover + register), and the
+ *  per-model limits form → PATCH (pins, thinking format and name, no probe, so
+ *  it works with the local server switched off). Image capability is detected
+ *  automatically. Without `status` it adds a new endpoint. */
 function CustomEndpointEditor({
 	setup = false,
-	revision0, authMode0, keySource0, keyReuseRequired0, onReload,
-	baseUrl0,
-	keyPresent: initialKeyPresent,
-	models,
-	overrides,
-	manualModels0,
+	status,
+	onReload,
 	onSaved,
 	onPinsSaved,
 	onCancel,
 	onDelete,
 }: {
 	setup?: boolean;
-	revision0: string;
-	authMode0: "keyless" | "apiKey";
-	keySource0: "env" | "file" | "none";
-	keyReuseRequired0: boolean;
+	/** The stored endpoint; absent while adding one. */
+	status?: CustomStatus;
 	onReload: () => void | Promise<void>;
-	baseUrl0: string;
-	keyPresent: boolean;
-	/** The discovered models — one limits row each. */
-	models: readonly CustomModel[];
-	/** Their stored user pins. */
-	overrides: Record<string, CustomModelOverride>;
-	manualModels0: readonly string[];
 	onSaved: () => void | Promise<void>;
 	/** Pins saved — the editor stays open (a form, not a connect). */
 	onPinsSaved: () => void | Promise<void>;
 	onCancel: () => void;
 	onDelete?: (revision: string) => Promise<string | null>;
 }) {
+	const id = status?.id;
+	const revision0 = status?.revision ?? "";
+	const authMode0 = status?.authMode ?? "keyless";
+	const keySource0 = status?.keySource ?? "none";
+	const keyReuseRequired0 = status?.keyReuseRequired ?? false;
+	const baseUrl0 = status?.baseUrl ?? "";
+	const initialKeyPresent = status?.keyPresent ?? false;
+	// The discovered models — one limits row each — and their stored user pins.
+	const models = status?.models ?? [];
+	const overrides = status?.overrides ?? {};
+	const manualModels0 = status?.manualModels ?? [];
+	const endpointUrl = id ? `/api/custom-providers/${encodeURIComponent(id)}` : "/api/custom-providers";
+	const [name, setName] = useState(status?.name ?? "");
+	const [thinkingFormat, setThinkingFormat] = useState<EndpointThinkingFormat>(status?.thinkingFormat ?? DEFAULT_ENDPOINT_THINKING_FORMAT);
 	const [revision, setRevision] = useState(revision0);
 	const [authMode, setAuthMode] = useState(authMode0);
 	const [keySource, setKeySource] = useState(keySource0);
@@ -846,10 +865,10 @@ function CustomEndpointEditor({
 	const [authLoading, setAuthLoading] = useState(false);
 	const [reuseKey, setReuseKey] = useState(false);
 	useEffect(() => {
-		if (authMode !== "apiKey") return;
+		if (authMode !== "apiKey" || !id) return;
 		let cancelled = false;
 		setAuthLoading(true);
-		readCustomStatus(true).then((status) => {
+		readCustomStatus(id, true).then((status) => {
 			if (cancelled) return;
 			setKeySource(status.keySource);
 			setKeyPresent(status.keyPresent);
@@ -858,7 +877,7 @@ function CustomEndpointEditor({
 		}).catch(() => { if (!cancelled) setError("Unable to inspect effective key. Reload configuration and retry."); })
 			.finally(() => { if (!cancelled) setAuthLoading(false); });
 		return () => { cancelled = true; };
-	}, [authMode]);
+	}, [authMode, id]);
 	const [baseUrl, setBaseUrl] = useState(baseUrl0);
 	const [key, setKey] = useState("");
 	const [keyTouched, setKeyTouched] = useState(false);
@@ -872,22 +891,23 @@ function CustomEndpointEditor({
 	const [pinsBusy, setPinsBusy] = useState(false);
 	const [pinsError, setPinsError] = useState<string | null>(null);
 	const changedTarget = normalizeBaseUrl(baseUrl) !== normalizeBaseUrl(baseUrl0);
-	const canConnect = Boolean(baseUrl.trim()) && (authMode === "keyless" || (!authLoading && ((Boolean(key.trim()) && keySource !== "env") || (keyPresent && (!(changedTarget || keyReuseRequired) || reuseKey)))));
+	const canConnect = Boolean(name.trim()) && Boolean(baseUrl.trim()) && (authMode === "keyless" || (!authLoading && ((Boolean(key.trim()) && keySource !== "env") || (keyPresent && (!(changedTarget || keyReuseRequired) || reuseKey)))));
 
 	const draftOf = (m: CustomModel): PinDraft => drafts[m.id] ?? pinDraft(overrides[m.id]);
 	const setDraft = (m: CustomModel, patch: Partial<PinDraft>) =>
 		setDrafts((prev) => ({ ...prev, [m.id]: { ...draftOf(m), ...patch } }));
 	const current = Object.fromEntries(models.map((m) => [m.id, draftOf(m)])) as Record<string, PinDraft>;
-	const dirty = JSON.stringify(pinsPayload(current)) !== baseline;
+	const offlineDirty = Boolean(status) && (thinkingFormat !== status?.thinkingFormat || (Boolean(name.trim()) && name.trim() !== status?.name));
+	const dirty = JSON.stringify(pinsPayload(current)) !== baseline || offlineDirty;
 
 	async function savePins() {
 		if (pinsBusy || busy || !dirty) return;
 		setPinsBusy(true);
 		setPinsError(null);
-		const res = await fetch("/api/custom-provider", {
+		const res = await fetch(endpointUrl, {
 			method: "PATCH",
 			headers: { "content-type": "application/json", "if-match": revision },
-			body: JSON.stringify({ overrides: pinsPayload(current) }),
+			body: JSON.stringify({ overrides: pinsPayload(current), thinkingFormat, ...(name.trim() ? { name: name.trim() } : {}) }),
 		}).catch(() => null);
 		if (!res || !res.ok) {
 			const b = (await res?.json().catch(() => ({}))) as { error?: string } | undefined;
@@ -909,10 +929,10 @@ function CustomEndpointEditor({
 		if (busy || pinsBusy || !canConnect) return;
 		setBusy(true);
 		setError(null);
-		const res = await fetch("/api/custom-provider", {
+		const res = await fetch(endpointUrl, {
 			method: "POST",
 			headers: { "content-type": "application/json", "if-match": revision },
-			body: JSON.stringify({ baseUrl, authMode, reuseKey, manualModels, ...(authMode === "apiKey" && keyTouched && key.trim() && keySource !== "env" ? { key } : {}) }),
+			body: JSON.stringify({ name: name.trim(), thinkingFormat, baseUrl, authMode, reuseKey, manualModels, ...(authMode === "apiKey" && keyTouched && key.trim() && keySource !== "env" ? { key } : {}) }),
 		}).catch(() => null);
 		if (!res || !res.ok) {
 			const b = (await res?.json().catch(() => ({}))) as { error?: string } | undefined;
@@ -926,8 +946,19 @@ function CustomEndpointEditor({
 
 	return (
 		<div data-testid="custom-endpoint-editor" className="flex flex-col gap-2 rounded-sm px-1 py-1.5">
+			<input
+				type="text"
+				value={name}
+				onChange={(e) => setName(e.target.value)}
+				placeholder="Name, e.g. LM Studio"
+				aria-label="Custom endpoint name"
+				data-testid="custom-name-input"
+				disabled={busy}
+				autoFocus={!id}
+				className="h-7 min-w-0 rounded-sm border border-border bg-background px-1.5 font-ui text-xs text-foreground outline-none placeholder:text-muted-foreground/60 focus:border-muted-foreground/50"
+			/>
 			<div className="flex items-center gap-2">
-				<span className="shrink-0 font-ui text-xs text-foreground">Custom endpoint</span>
+				<span className="shrink-0 font-ui text-xs text-foreground">Base URL</span>
 				<input
 					type="text"
 					value={baseUrl}
@@ -936,7 +967,7 @@ function CustomEndpointEditor({
 					aria-label="Custom endpoint base URL"
 					data-testid="custom-baseurl-input"
 					disabled={busy}
-					autoFocus
+					autoFocus={Boolean(id)}
 					className="h-7 min-w-0 flex-1 rounded-sm border border-border bg-background px-1.5 font-mono text-xs text-foreground outline-none placeholder:text-muted-foreground/60 focus:border-muted-foreground/50"
 				/>
 			</div>
@@ -950,6 +981,11 @@ function CustomEndpointEditor({
 				disabled={busy}
 				className="h-7 min-w-0 rounded-sm border border-border bg-background px-1.5 font-mono text-xs text-foreground outline-none placeholder:text-muted-foreground/60 focus:border-muted-foreground/50"
 			/>
+			<label className="flex items-center gap-2 text-xs">Thinking
+				<select aria-label="Custom endpoint thinking format" data-testid="custom-thinking-format" value={thinkingFormat} disabled={busy || pinsBusy} onChange={(e) => setThinkingFormat(e.target.value as EndpointThinkingFormat)}>
+					{ENDPOINT_THINKING_FORMATS.map((f) => <option key={f} value={f}>{ENDPOINT_THINKING_FORMAT_LABEL[f]}</option>)}
+				</select>
+			</label>
 			<label className="flex items-center gap-2 text-xs">Authentication
 				<select aria-label="Custom endpoint authentication" data-testid="custom-auth-mode" value={authMode} disabled={busy || pinsBusy} onChange={(e) => { setAuthMode(e.target.value as "keyless" | "apiKey"); setReuseKey(false); }}>
 					<option value="keyless">Keyless</option><option value="apiKey">API key</option>
@@ -1005,7 +1041,7 @@ function CustomEndpointEditor({
 					</button>
 				)}
 			</div>
-			{!setup && models.length > 0 && (
+			{!setup && status && (models.length > 0 || offlineDirty) && (
 				<div className="flex flex-col gap-1" data-testid="custom-pins">
 					<div className="flex max-h-56 flex-col gap-1 overflow-y-auto pr-1">
 						{models.map((m) => {

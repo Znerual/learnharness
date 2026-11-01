@@ -19,8 +19,8 @@
 
 import { clampThinkingLevel, getSupportedThinkingLevels, type Api, type Model } from "@earendil-works/pi-ai";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import { builtinProviderIds, piModels } from "../agent/models.ts";
-import { customProviderAvailable } from "./custom-provider.ts";
+import { piModels } from "../agent/models.ts";
+import { customProviderAvailable, customProviders } from "./custom-provider.ts";
 import { chatGPTConnected, chatGPTModel, chatGPTModels, refreshChatGPTModels } from "../agent/chatgpt-bridge.ts";
 import { NATIVE_SUBSCRIPTIONS } from "../core/contracts/subscriptions.ts";
 import { nativeSubscriptionId, nativeSubscriptionConnected, nativeSubscriptionModel, nativeSubscriptionModels, refreshSubscriptionModels } from "../agent/subscription-bridge.ts";
@@ -51,7 +51,8 @@ import type {
 } from "../core/contracts/models.ts";
 import type { EffectiveModelSpec, EffectiveSlot } from "../core/settings-resolution.ts";
 import { AUTH_PROVIDER_KEYS, CUSTOM_PROVIDER } from "../core/auth-keys.ts";
-import { endpointKeyVar, type EndpointsSettings } from "../core/endpoints.ts";
+import { isOnOffThinkingFormat } from "../core/endpoints.ts";
+import { customKeyVar } from "../core/custom-provider-auth.ts";
 import { claudeCodeAvailable } from "./claude-code-config.ts";
 import { CLAUDE_CODE_PROVIDER } from "../agent/claude-code/constants.ts";
 import {
@@ -154,30 +155,21 @@ export function catalogProviders(): CatalogProvider[] {
 		envVar: p.envVar,
 		keyPresent: keyValue(p.envVar) !== undefined,
 	}));
-	// Custom endpoints (custom-endpoints wave, 2026-10-24): the key is
-	// optional, so a stored endpoint always federates.
-	const custom: CatalogProvider[] = customEndpoints().map((e) => ({
-		id: e.id,
-		envVar: endpointKeyVar(e.id),
-		keyPresent: true,
+	// The custom endpoints: a row each only when usable (base URL set).
+	// keyPresent reflects usability, not key presence (keyless local servers
+	// are allowed).
+	const custom: CatalogProvider[] = customProviders().filter((cp) => customProviderUsable(cp)).map((cp) => ({
+		id: cp.id,
+		envVar: customKeyVar(cp.id),
+		keyPresent: customProviderAvailable(cp.id),
 		custom: true,
 	}));
 	const subscriptions: CatalogProvider[] = [
 		{ id: "chatgpt", envVar: "", keyPresent: chatGPTConnected() },
 		{ id: CLAUDE_CODE_PROVIDER, envVar: "", keyPresent: claudeCodeAvailable() },
 		...NATIVE_SUBSCRIPTIONS.map((p) => ({ id: p.logicalId, envVar: "", keyPresent: nativeSubscriptionConnected(p.providerId) })),
-		// The custom endpoint: a row only when usable (base URL set). keyPresent
-		// reflects usability, not key presence (keyless local servers are allowed).
-		...(customProviderUsable(effectiveSettings().customProvider)
-			? [{ id: CUSTOM_PROVIDER.id, envVar: CUSTOM_PROVIDER.envVar, keyPresent: customProviderAvailable() }]
-			: []),
 	];
 	return [...builtin, ...custom, ...subscriptions].sort((a, b) => a.id.localeCompare(b.id));
-}
-
-/** The stored custom endpoints, read fresh. */
-function customEndpoints() {
-	return settingsStore.readSettings()?.endpoints?.list ?? [];
 }
 
 /** The providers whose key is present — the picker federates exactly
@@ -234,12 +226,16 @@ export function catalogContextLimits(): Map<string, number> {
  *  pins (the settings UI's per-role default captions). */
 export function modelCatalog(): ModelCatalogResponse {
 	const keyed = keyedProviderIds();
-	const customIds = new Set(customEndpoints().map((e) => e.id));
+	// Custom endpoint models: unpriced (not $0), and ON/OFF thinking for
+	// the Qwen thinking formats (custom-endpoints wave).
+	const formats = new Map(customProviders().map((cp) => [cp.id, cp.thinkingFormat]));
 	const models = piModels()
 		.getProviders()
 		.filter((p) => keyed.has(p.id))
 		.flatMap((p) => piModels().getModels(p.id))
-		.map((m) => (customIds.has(m.provider) ? { ...toModelDto(m), custom: true } : toModelDto(m)))
+		.map((m) => (formats.has(m.provider)
+			? { ...toModelDto(m), cost: null, custom: true, ...(isOnOffThinkingFormat(formats.get(m.provider)) ? { onOffThinking: true } : {}) }
+			: toModelDto(m)))
 		.sort((a, b) => (a.provider === b.provider ? a.id.localeCompare(b.id) : a.provider.localeCompare(b.provider)))
 		.concat([...chatGPTModels(), ...nativeSubscriptionModels()].map((m) => toModelDto(m)));
 	return {
@@ -293,19 +289,6 @@ export function unavailableSessionModel(settings: ChatSettings | undefined): { p
 	// A missing key is the key gate's refusal (it opens Keys, not the picker).
 	if (isSubscriptionProvider(model.provider) || !providerKeyPresent(model.provider)) return null;
 	return validateChatSettings({ model }).ok ? null : model;
-}
-
-/** The endpoints section's catalog gate (custom-endpoints wave,
- *  2026-10-24): an endpoint id must not shadow a builtin pi-ai provider
- *  (the parser checked shapes; this checks the catalog). */
-export function validateEndpointsSettings(settings: EndpointsSettings): SettingsValidation {
-	const builtin = builtinProviderIds();
-	for (const endpoint of settings.list ?? []) {
-		if (builtin.has(endpoint.id)) {
-			return { ok: false, error: `Endpoint id "${endpoint.id}" is a builtin provider — choose another` };
-		}
-	}
-	return { ok: true };
 }
 
 /** Validate introduced/replaced model selections, not unchanged saved pins.

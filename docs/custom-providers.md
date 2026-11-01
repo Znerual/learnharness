@@ -1,33 +1,48 @@
 # Custom and local models
 
-LearnHarness supports **one custom OpenAI-compatible endpoint with multiple models**.
+LearnHarness supports **any number of custom OpenAI-compatible endpoints, each with
+multiple models**. Every endpoint is its own provider; everything below holds per endpoint.
 The setup and Settings UI are based on PR #62 by Daniel Buckner and Abhishek Thakur.
 Pi owns inference, message conversion, tools, streaming, and reasoning-effort handling.
 
 ## Configure an endpoint
 
 1. Open **Settings → Providers → + Add a provider → Custom endpoint**. The same
-   editor is available from the first-run provider picker.
-2. Enter the server's complete API base URL, for example
+   editor is available from the first-run provider picker. It is offered again
+   for every further endpoint.
+2. Name the endpoint, for example `LM Studio`. The name gives the endpoint its
+   provider id (`lm-studio`), which model selections refer to; it cannot be a
+   built-in provider's id or another endpoint's, and it never changes after.
+   Renaming later changes only the label.
+3. Enter the server's complete API base URL, for example
    `http://localhost:11434/v1`. LearnHarness does **not** append `/v1`.
-3. Choose **Keyless** or **API key**:
+4. Choose **Keyless** or **API key**:
    - **Keyless** never uses a saved or environment custom-provider key for
      authentication. Pi's OpenAI client receives an internal dummy credential.
-   - **API key** uses the effective `CUSTOM_OPENAI_API_KEY`. A real environment
+   - **API key** uses the endpoint's effective key: `LH_ENDPOINT_<ID>_KEY`
+     (`LH_ENDPOINT_LM_STUDIO_KEY`), or `CUSTOM_OPENAI_API_KEY` for the endpoint
+     with id `custom` (an endpoint from before endpoints became a list). A real environment
      value wins over a file-saved value; the editor identifies environment ownership.
      Any nonempty trimmed custom key is accepted—there is no arbitrary length floor.
    - Changing the URL requires a new effective key or explicit consent to reuse
      the existing effective key. A key is never silently forwarded to a new URL.
      Clearing authentication selects Keyless.
-4. Enter optional **model IDs**, separated by commas or whitespace. This supports
+5. Enter optional **model IDs**, separated by commas or whitespace. This supports
    servers whose chat endpoint works but whose `/models` endpoint is absent.
-5. Click **Connect**, then choose models for Strong, Cheap, and Vision.
+6. Choose how **thinking** reaches the server: `reasoning_effort` (the default,
+   every effort level), `chat_template_kwargs.enable_thinking` (Qwen on vLLM /
+   LM Studio) or top-level `enable_thinking` — these two are on/off only, the
+   pickers show "on" — or never send thinking parameters.
+7. Click **Connect**, then choose models for Strong, Cheap, and Vision.
 
 HTTP and HTTPS, including localhost/private-network servers, are supported. URLs
 with embedded credentials, query strings, or fragments are rejected. Put a key in
 the authentication field, not the URL. Discovery redirects are rejected.
 
-Connect requests `GET <base>/models`. Discovery metadata wins over duplicate manually
+Connect requests `GET <base>/models` and, for a base URL ending in `/v1`, LM Studio's
+`<root>/api/v0/models` (context lengths, vision, embedding models — those are left out).
+vLLM's `max_model_len` counts as the context, also when an Open WebUI gateway nests it
+under `openai`. With an on/off thinking format every model is taken to support thinking. Discovery metadata wins over duplicate manually
 entered IDs. A failed probe can fall back to entered IDs; a failed probe for the
 same URL preserves its previous model snapshot and pins. A different URL starts
 with its own models. **401/403 always fails**, even with entered IDs. Response-size,
@@ -76,10 +91,11 @@ real-model image-understanding quality.
 
 ## Credentials, reloads, and concurrent editing
 
-Nonsecret configuration is stored in the existing `settings.json.customProvider`;
-file-saved credentials use the existing `auth.json` key seam. A reserved internal
-string entry, `__learnharness_custom_provider_binding`, binds authorization to the
-endpoint, mode, and a random nonsecret `credentialBindingId` in custom settings.
+Nonsecret configuration is stored in `settings.json.customProviders`, one entry per
+endpoint; file-saved credentials use the existing `auth.json` key seam. A reserved internal
+string entry per endpoint, `__learnharness_custom_provider_binding:<id>` (without the
+suffix for `custom`), binds authorization to the
+endpoint, mode, and a random nonsecret `credentialBindingId` in its settings entry.
 The file key and its binding are published in one existing atomic auth-map write.
 The internal entry is not an environment variable or an editable/displayed key.
 Neither keys nor raw upstream errors are returned by the custom-provider API.
@@ -129,5 +145,15 @@ profile reset, history rewrite, or silent model remapping. Existing development
 profiles need manual endpoint configuration and model reselection. Unbound early
 GUI development configurations also require explicit reconnect/new-key entry or
 the existing reuse-consent checkbox, even at the same URL; they are never silently
-trusted or migrated. This release
-supports one OpenAI-compatible custom endpoint, not multiple arbitrary protocols.
+trusted or migrated. Custom endpoints speak the OpenAI-compatible protocol only.
+
+A `settings.json.customProvider` (one endpoint) becomes the `customProviders` entry
+`custom` on the first start, keeping its binding. The fork's earlier `endpoints` list
+becomes entries with the same ids, so model selections keep working; each one's
+`LH_ENDPOINT_<ID>_KEY` is bound to its URL at that moment, since it already ran
+against exactly that URL.
+
+The HTTP surface is `GET /api/custom-providers` (every endpoint's status),
+`POST /api/custom-providers` (add one) and `GET`/`POST`/`PATCH`/`DELETE`
+`/api/custom-providers/<id>` (status, connect, offline edits of pins, thinking
+format and name, disconnect), each mutation guarded by that endpoint's ETag.

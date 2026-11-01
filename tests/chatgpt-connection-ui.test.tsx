@@ -77,7 +77,7 @@ test("Providers is the first/default page; General is last and other pages keep 
  assert.doesNotMatch(html, />Model providers<\/button>/);
 });
 
-test("Providers has its ordered sections including External CLI (fork: + Custom endpoints, Read aloud); unknown variables stay masked/read-only at the end of Model API keys", async () => {
+test("Providers has its ordered sections including External CLI (fork: + Read aloud); unknown variables stay masked/read-only at the end of Model API keys", async () => {
  globalThis.fetch = async (url) => {
   if (url === "/api/claude-code") return Response.json({ state: "not-found", version: null, minimumVersion: "2.1.259" });
   assert.equal(url, "/api/keys");
@@ -85,7 +85,7 @@ test("Providers has its ordered sections including External CLI (fork: + Custom 
  };
  fixture(); await mount(<KeysSection />);
  const headings = [...document.querySelectorAll('[data-testid^="group-"] > p')].map((el) => el.textContent);
- assert.deepEqual(headings, ["Model API keys", "Subscriptions", "Custom endpoints", "External CLI", "Dictation", "Read aloud", "Search"]);
+ assert.deepEqual(headings, ["Model API keys", "Subscriptions", "External CLI", "Dictation", "Read aloud", "Search"]);
  assert(byTest("claude-code-installation").closest('[data-testid="group-external-cli"]'));
  assert(byTest("key-deepgram_api_key").closest('[data-testid="group-dictation"]'));
  assert(byTest("key-lh_stt_key").closest('[data-testid="group-dictation"]'));

@@ -44,13 +44,14 @@ if (mode === "inspect") {
 	const { keyStatuses } = await import("../../src/server/keys.ts");
 	console.log(JSON.stringify({ enabled, reason, requests, statusIds: keyStatuses().map(row => row.id), metadataInEnv: process.env.__learnharness_custom_provider_binding !== undefined }));
 } else {
-	const route = await import("../../app/api/custom-provider/route.ts");
-	const get = route.GET(new Request("http://localhost/api/custom-provider"));
+	const route = await import("../../app/api/custom-providers/[id]/route.ts");
+	const ctx = { params: Promise.resolve({ id: "custom" }) };
+	const get = await route.GET(new Request("http://localhost/api/custom-providers/custom"), ctx);
 	const payload = action === "keyless" ? { baseUrl: "http://second.invalid/v1", authMode: "keyless" }
 		: action === "envMove" ? { baseUrl: "http://second.invalid/v1", authMode: "apiKey", reuseKey: true }
 		: action === "reuse" ? { baseUrl: "http://first.invalid/v1", authMode: "apiKey", reuseKey: true }
 		: { baseUrl: "http://second.invalid/v1", authMode: "apiKey", key: "fixture-new-key" };
-	const request = new Request("http://localhost/api/custom-provider", { method: action === "disconnect" ? "DELETE" : "POST", headers: { origin: "http://localhost", "content-type": "application/json", "if-match": get.headers.get("etag")! }, body: JSON.stringify(payload) });
-	const result = await route.POST(request);
+	const request = new Request("http://localhost/api/custom-providers/custom", { method: action === "disconnect" ? "DELETE" : "POST", headers: { origin: "http://localhost", "content-type": "application/json", "if-match": get.headers.get("etag")! }, body: JSON.stringify(payload) });
+	const result = await (action === "disconnect" ? route.DELETE : route.POST)(request, ctx);
 	console.log(JSON.stringify({ status: result.status, body: await result.json(), requests }));
 }

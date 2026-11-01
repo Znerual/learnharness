@@ -16,7 +16,7 @@
  */
 
 import { useEffect, useState } from "react";
-import { CUSTOM_PROVIDER, MODEL_SLOTS, type AuthKeyStatus, type ModelCatalogResponse } from "@/src/core";
+import { CUSTOM_PROVIDER, MODEL_SLOTS, isEndpointKeyVar, type AuthKeyStatus, type ModelCatalogResponse } from "@/src/core";
 import { classifyKeys, type ProviderKeyInfo } from "@/components/settings/keys-section";
 import { useModelCatalog } from "@/components/model-catalog";
 
@@ -28,16 +28,13 @@ import { useModelCatalog } from "@/components/model-catalog";
 export function hasProviderKey(
 	statuses: readonly AuthKeyStatus[],
 	providers: readonly ProviderKeyInfo[] | undefined,
-	/** Stored custom endpoints (2026-10-24) — a model source each, key optional. */
-	customEndpoints = 0,
 ): boolean {
 	// A stored custom-endpoint key counts too: classifyKeys drops it from
 	// providerRows (it has its own dedicated row), but a connected custom
 	// endpoint IS a way to run inference, so it clears the zero-keys gate.
 	return (
-		customEndpoints > 0 ||
 		classifyKeys(statuses, providers).providerRows.some((s) => s.present) ||
-		statuses.some((s) => s.id === CUSTOM_PROVIDER.envVar && s.present)
+		statuses.some((s) => (s.id === CUSTOM_PROVIDER.envVar || isEndpointKeyVar(s.id)) && s.present)
 	);
 }
 

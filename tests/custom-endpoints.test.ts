@@ -1,20 +1,20 @@
 /**
- * Custom OpenAI-compatible endpoints (custom-endpoints wave, owner
- * 2026-10-24). Pinned:
- *  - the pure layer: slug/key rules, URL normalization, the detection
- *    parsers over REAL server listings (vLLM, LM Studio — trimmed copies),
- *    the override merge, the read-side sanitizer;
- *  - the strict section parser and the builtin-collision gate;
- *  - federation: a stored endpoint joins the picker (key optional), its
- *    models carry `custom`, slots may pin them, its key var is writable;
- *  - the engine: on/off thinking (off|high only), the chosen format on
- *    the wire, the endpoint key as the bearer — end to end against a
- *    local fake server;
- *  - detection over a fake fetch (LM Studio enrichment, refusals).
+ * Custom endpoints as a LIST (custom-endpoints wave, owner 2026-10-24,
+ * rebuilt on upstream's custom provider 2026-10-30). Upstream's own guarantees
+ * (binding, consent, ETags, limits) are pinned per entry by the
+ * custom-provider-* tests; this file pins what the list adds:
+ *  - the id / key / binding naming per entry ("custom" keeps upstream's);
+ *  - the thinking formats on the pi model (ON/OFF for Qwen, none, openai);
+ *  - discovery's LM Studio / vLLM / Open WebUI facts;
+ *  - adding an endpoint (id from the name, builtin and duplicate refusals);
+ *  - the one-time migration of the fork's `endpoints` section and of
+ *    upstream's single `customProvider`, with keys bound to their URLs;
+ *  - federation of a migrated endpoint and its key on the wire, end to end
+ *    against a local fake server.
  *
- * LH_DATA_DIR / LH_AUTH_FILE redirect to a fresh tmp dir BEFORE the
- * server modules load (both seams are module-load bound). All keys are
- * throwaway test strings.
+ * LH_DATA_DIR / LH_LOCAL_DIR / LH_AUTH_FILE redirect to a fresh tmp dir
+ * BEFORE the server modules load (the seams are module-load bound). All keys
+ * are throwaway test strings.
  */
 
 import assert from "node:assert/strict";
@@ -27,229 +27,141 @@ import { after, before, describe, it } from "node:test";
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), "lh-custom-endpoints-"));
 process.env.LH_DATA_DIR = TMP;
+process.env.LH_LOCAL_DIR = TMP;
 process.env.LH_AUTH_FILE = path.join(TMP, "auth.json");
 delete process.env.LH_ENDPOINT_TEST_VLLM_KEY;
+const SETTINGS_FILE = path.join(TMP, "settings.json");
+const AUTH_FILE = path.join(TMP, "auth.json");
 
 const core = await import("../src/core/endpoints.ts");
-const { parseEndpointsSettingsBody } = await import("../src/server/settings-body.ts");
-const { sanitizeUserSettings } = await import("../src/core/settings.ts");
-const settings = await import("../src/core/settings.ts");
-const { writeSettings } = await import("../src/store/settings.ts");
+const { customBindingVar, customKeyVar, isCustomAuthVar } = await import("../src/core/custom-provider-auth.ts");
+const { buildOpenAiCompatibleProvider, customProviderAvailable, discoverModels, syncCustomProvider } = await import("../src/server/custom-provider.ts");
+const { migrateCustomEndpoints } = await import("../src/server/custom-provider-migration.ts");
 const catalog = await import("../src/server/model-catalog.ts");
 const keys = await import("../src/server/keys.ts");
-const { detectEndpointModels } = await import("../src/server/endpoints.ts");
-const { customEndpointModel, piEngineForSpec, piModels } = await import("../src/agent/models.ts");
+const { piEngineForSpec } = await import("../src/agent/models.ts");
 const { getSupportedThinkingLevels, normalizeContext } = await import("@earendil-works/pi-ai");
-const { endpointStatusLine, withOverride } = await import("../components/settings/endpoints-group.tsx");
-const { classifyKeys } = await import("../components/settings/keys-section.tsx");
-const { hasProviderKey } = await import("../components/setup-cta.tsx");
 const { thinkingLabel } = await import("../components/thinking-default.ts");
+const route = await import("../app/api/custom-providers/route.ts");
 
-after(() => fs.rmSync(TMP, { recursive: true, force: true }));
+const realFetch = globalThis.fetch;
+after(() => {
+	globalThis.fetch = realFetch;
+	fs.rmSync(TMP, { recursive: true, force: true });
+});
 
-// Trimmed copies of the real listings (2026-10-24).
-const VLLM_MODELS = {
-	object: "list",
-	data: [{ id: "qwen3.8-27b", object: "model", owned_by: "vllm", root: "nicosuter/Qwen3.8-27B-AWQ", max_model_len: 65536 }],
-};
-const LMS_MODELS = {
-	data: [
-		{ id: "qwen3.8-27b@q6_k_xl", object: "model", owned_by: "organization_owner" },
-		{ id: "gpt-oss-20b", object: "model", owned_by: "organization_owner" },
-		{ id: "text-embedding-qwen3-embedding-8b@q8_0", object: "model", owned_by: "organization_owner" },
-	],
-	object: "list",
-};
-const LMS_V0_MODELS = {
-	data: [
-		{ id: "qwen3.8-27b@q6_k_xl", type: "vlm", state: "loaded", max_context_length: 262144 },
-		{ id: "gpt-oss-20b", type: "llm", state: "not-loaded", max_context_length: 131072 },
-		{ id: "text-embedding-qwen3-embedding-8b@q8_0", type: "embeddings", max_context_length: 40960 },
-	],
-};
+const readJson = (file: string) => JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, unknown>;
+const writeJson = (file: string, value: unknown) => fs.writeFileSync(file, JSON.stringify(value, null, "\t"));
 
-function endpoint(overrides: Partial<import("../src/core/endpoints.ts").CustomEndpoint> = {}) {
+/** The fork's legacy `endpoints` entry, as the 2026-10-24 app stored it. */
+function legacyEndpoint(baseUrl = "http://127.0.0.1:9/v1") {
 	return {
 		id: "test-vllm",
 		name: "Test vLLM",
-		baseUrl: "http://127.0.0.1:9/v1",
-		thinkingFormat: "qwen-chat-template" as const,
-		models: core.parseModelListing(VLLM_MODELS),
-		...overrides,
+		baseUrl,
+		thinkingFormat: "qwen-chat-template",
+		models: [
+			{ id: "qwen3.8-27b", contextWindow: 65536, maxTokens: 16384, vision: false, reasoning: true },
+			{ id: "gemma-4", contextWindow: 262144, maxTokens: 16384, vision: false, reasoning: true, overrides: { vision: true, contextWindow: 131072 } },
+		],
 	};
 }
 
-describe("slug, key and URL rules", () => {
-	it("derives ids from names and validates them", () => {
-		assert.equal(core.slugifyEndpointName("AIT Ross (vLLM)"), "ait-ross-vllm");
-		assert.equal(core.slugifyEndpointName("  ---  "), "");
+describe("naming per entry", () => {
+	it("derives ids from names; 'custom' keeps upstream's key and binding", () => {
+		assert.equal(core.slugifyEndpointName("AIT LM Studio"), "ait-lm-studio");
 		assert.ok(core.isValidEndpointId("ait-ross"));
-		assert.ok(!core.isValidEndpointId("-ait"));
-		assert.ok(!core.isValidEndpointId("AIT"));
-		assert.ok(!core.isValidEndpointId(""));
+		assert.ok(!core.isValidEndpointId("-x"));
+		assert.equal(customKeyVar("ait-ross"), "LH_ENDPOINT_AIT_ROSS_KEY");
+		assert.equal(customKeyVar("custom"), "CUSTOM_OPENAI_API_KEY");
+		assert.equal(customBindingVar("custom"), "__learnharness_custom_provider_binding");
+		assert.equal(customBindingVar("ait-ross"), "__learnharness_custom_provider_binding:ait-ross");
 	});
-	it("names the key var after the id and recognizes it", () => {
-		assert.equal(core.endpointKeyVar("ait-ross"), "LH_ENDPOINT_AIT_ROSS_KEY");
-		assert.ok(core.isEndpointKeyVar("LH_ENDPOINT_AIT_ROSS_KEY"));
-		assert.ok(!core.isEndpointKeyVar("OPENAI_API_KEY"));
-	});
-	it("normalizes base URLs and refuses unusable ones", () => {
-		assert.equal(settings.normalizeBaseUrl(" http://10.0.0.5:8012/v1/ "), "http://10.0.0.5:8012/v1");
-		assert.equal(settings.normalizeBaseUrl("ftp://x/v1"), "");
-		assert.equal(settings.normalizeBaseUrl("http://x/v1?a=1"), "");
-		assert.equal(settings.normalizeBaseUrl("not a url"), "");
-		assert.equal(core.lmStudioV0Url("http://h:1/v1"), "http://h:1/api/v0");
-		assert.equal(core.lmStudioV0Url("http://h:1/api"), null);
+	it("every entry's key and binding stay out of the generic key API", () => {
+		for (const name of ["LH_ENDPOINT_AIT_ROSS_KEY", "CUSTOM_OPENAI_API_KEY", "__learnharness_custom_provider_binding:x"]) {
+			assert.ok(isCustomAuthVar(name), name);
+			assert.ok(!keys.isWritableAuthKey(name), name);
+			assert.equal(keys.saveKey(name, "sk-x").ok, false);
+		}
 	});
 });
 
-describe("detection parsers", () => {
-	it("reads vLLM's max_model_len", () => {
-		const [m, ...rest] = core.parseModelListing(VLLM_MODELS) as [import("../src/core/endpoints.ts").EndpointModel];
-		assert.equal(rest.length, 0);
-		assert.deepEqual(m, { id: "qwen3.8-27b", contextWindow: 65536, maxTokens: 16384, vision: false, reasoning: true });
-	});
-	it("enriches LM Studio listings and drops embedding models", () => {
-		const models = core.parseModelListing(LMS_MODELS, core.parseLmStudioModels(LMS_V0_MODELS));
-		assert.deepEqual(
-			models.map((m) => [m.id, m.contextWindow, m.vision]),
-			[
-				["gpt-oss-20b", 131072, false],
-				["qwen3.8-27b@q6_k_xl", 262144, true],
-			],
-		);
-	});
-	it("reads the context Open WebUI nests under `openai`", () => {
-		const [m] = core.parseModelListing({
-			data: [{ id: "qwen3.8-27b", owned_by: "openai", openai: { id: "qwen3.8-27b", max_model_len: 262144 } }],
-		});
-		assert.equal(m?.contextWindow, 262144);
-		assert.equal(m?.maxTokens, 16384);
-	});
-	it("falls back without server facts and survives junk", () => {
-		const m = core.parseModelListing({ data: [{ id: "llama" }] })[0]!;
-		assert.equal(m.contextWindow, core.FALLBACK_CONTEXT_WINDOW);
-		assert.equal(m.maxTokens, 16384);
-		assert.deepEqual(core.parseModelListing(null), []);
-		assert.deepEqual(core.parseModelListing({ data: [{}, 3, { id: "" }] }), []);
-		assert.equal(core.parseLmStudioModels({ data: "x" }).size, 0);
-	});
-	it("re-detection keeps overrides by id and drops vanished models", () => {
-		const stored: import("../src/core/endpoints.ts").EndpointModel[] = [
-			{ id: "a", contextWindow: 1000, maxTokens: 500, vision: false, reasoning: true, overrides: { vision: true } },
-			{ id: "gone", contextWindow: 1000, maxTokens: 500, vision: false, reasoning: true },
-		];
-		const fresh = [{ id: "a", contextWindow: 4000, maxTokens: 2000, vision: false, reasoning: true }] as const;
-		const merged = core.mergeDetectedModels(stored, fresh);
-		assert.deepEqual(merged, [{ ...fresh[0], overrides: { vision: true } }]);
-		assert.deepEqual(core.effectiveModelValues(merged[0]!), { contextWindow: 4000, maxTokens: 2000, vision: true, reasoning: true });
-	});
-	it("withOverride sets differing values and clears equal ones", () => {
-		const m = { id: "a", contextWindow: 1000, maxTokens: 500, vision: false, reasoning: true };
-		const edited = withOverride(m, "contextWindow", 2000);
-		assert.deepEqual(edited.overrides, { contextWindow: 2000 });
-		assert.equal(withOverride(edited, "contextWindow", 1000).overrides, undefined);
-	});
-});
-
-describe("the endpoints settings section", () => {
-	it("parses a well-formed section strictly", () => {
-		const parsed = parseEndpointsSettingsBody({ list: [endpoint({ baseUrl: "http://h:1/v1/" })] });
-		assert.ok(parsed.ok);
-		assert.equal(parsed.settings.list![0]!.baseUrl, "http://h:1/v1");
-		assert.deepEqual(parseEndpointsSettingsBody({}), { ok: true, settings: {} });
-	});
-	it("rejects bad ids, URLs, formats, duplicates and malformed models", () => {
-		const bad = (e: object) => parseEndpointsSettingsBody({ list: [e] });
-		assert.ok(!bad(endpoint({ id: "Bad Id" })).ok);
-		assert.ok(!bad(endpoint({ baseUrl: "file:///x" })).ok);
-		assert.ok(!bad({ ...endpoint(), thinkingFormat: "deepseek" }).ok);
-		assert.ok(!bad({ ...endpoint(), models: [{ id: "m", contextWindow: 0, maxTokens: 1, vision: false, reasoning: true }] }).ok);
-		assert.ok(!bad({ ...endpoint(), models: [{ id: "m", contextWindow: 1, maxTokens: 1, vision: false, reasoning: true, overrides: { vision: "yes" } }] }).ok);
-		assert.ok(!parseEndpointsSettingsBody({ list: [endpoint(), endpoint()] }).ok);
-	});
-	it("refuses ids that shadow a builtin provider", () => {
-		assert.ok(!catalog.validateEndpointsSettings({ list: [endpoint({ id: "openai" })] }).ok);
-		assert.ok(catalog.validateEndpointsSettings({ list: [endpoint()] }).ok);
-	});
-	it("the record sanitizer keeps good endpoints and drops junk", () => {
-		const record = sanitizeUserSettings({
-			version: 1,
-			endpoints: { list: [endpoint(), { id: "x" }, endpoint({ thinkingFormat: "bogus" as never, id: "other" })] },
-		});
-		assert.deepEqual(
-			record?.endpoints?.list?.map((e) => [e.id, e.thinkingFormat]),
-			[
-				["test-vllm", "qwen-chat-template"],
-				["other", "qwen-chat-template"],
-			],
-		);
-	});
-});
-
-describe("the pi model a custom endpoint runs as", () => {
-	it("offers exactly off|high thinking, the chosen format, zero cost", () => {
-		const model = customEndpointModel(endpoint(), endpoint().models[0]!);
+describe("the thinking format on the pi model", () => {
+	const build = (thinkingFormat?: "openai" | "qwen-chat-template" | "none") =>
+		buildOpenAiCompatibleProvider({ id: "t", name: "T", thinkingFormat, baseUrl: "http://h/v1", models: [{ id: "m", reasoning: true }] }).getModels()[0]!;
+	it("the Qwen formats are ON/OFF, sent as pi's thinkingFormat, without the developer role", () => {
+		const model = build("qwen-chat-template");
 		assert.deepEqual(getSupportedThinkingLevels(model), ["off", "high"]);
-		assert.equal(model.compat?.thinkingFormat, "qwen-chat-template");
-		assert.equal(model.compat?.supportsDeveloperRole, false);
-		assert.deepEqual(model.cost, { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
-		assert.deepEqual(model.input, ["text"]);
+		const compat = model.compat as { thinkingFormat?: string; supportsDeveloperRole?: boolean } | undefined;
+		assert.equal(compat?.thinkingFormat, "qwen-chat-template");
+		assert.equal(compat?.supportsDeveloperRole, false);
+		assert.equal(model.provider, "t");
 	});
-	it("'none' means no thinking control at all; vision overrides reach the input list", () => {
-		const e = endpoint({ thinkingFormat: "none" });
-		const model = customEndpointModel(e, { ...e.models[0]!, overrides: { vision: true } });
-		assert.deepEqual(getSupportedThinkingLevels(model), ["off"]);
-		assert.deepEqual(model.input, ["text", "image"]);
+	it("'none' offers no thinking; 'openai' (and absent) keeps upstream's every effort level", () => {
+		assert.deepEqual(getSupportedThinkingLevels(build("none")), ["off"]);
+		assert.equal(build("openai").compat, undefined);
+		assert.ok(getSupportedThinkingLevels(build()).includes("medium"));
 	});
-});
-
-describe("federation through the settings record", () => {
-	before(() => writeSettings({ version: 1, endpoints: { list: [endpoint()] } }));
-
-	it("joins the picker with no key, marked custom", () => {
-		const { models, providers } = catalog.modelCatalog();
-		const row = providers.find((p) => p.id === "test-vllm");
-		assert.deepEqual(row, { id: "test-vllm", envVar: "LH_ENDPOINT_TEST_VLLM_KEY", keyPresent: true, custom: true });
-		const entry = models.find((m) => m.provider === "test-vllm");
-		assert.equal(entry?.id, "qwen3.8-27b");
-		assert.equal(entry?.custom, true);
-		assert.deepEqual(entry?.supportedLevels, ["off", "high"]);
-		assert.equal(catalog.catalogContextLimits().get("test-vllm:qwen3.8-27b"), 65536);
-	});
-	it("slots may pin its models; the key gate counts it configured", () => {
-		assert.ok(catalog.validateModelsSettings({ strong: { model: { provider: "test-vllm", id: "qwen3.8-27b" } } }).ok);
-		assert.ok(!catalog.validateModelsSettings({ strong: { model: { provider: "test-vllm", id: "nope" } } }).ok);
-		assert.equal(keys.providerKeyPresent("test-vllm"), true);
-		assert.deepEqual(keys.customEndpointIds(), ["test-vllm"]);
-	});
-	it("its key var is writable with paste hygiene only, and stays out of loose key rows", () => {
-		assert.ok(keys.isWritableAuthKey("LH_ENDPOINT_TEST_VLLM_KEY"));
-		assert.ok(!keys.saveKey("LH_ENDPOINT_TEST_VLLM_KEY", "has space").ok);
-		const saved = keys.saveKey("LH_ENDPOINT_TEST_VLLM_KEY", "short");
-		assert.ok(saved.ok);
-		const statuses = keys.keyStatuses();
-		const { providerRows, unknownRows } = classifyKeys(statuses, keys.providerKeyList());
-		assert.ok(![...providerRows, ...unknownRows].some((s) => s.id === "LH_ENDPOINT_TEST_VLLM_KEY"));
-		assert.equal(endpointStatusLine(endpoint(), statuses.find((s) => s.id === "LH_ENDPOINT_TEST_VLLM_KEY")), "127.0.0.1:9 · 1 model · key");
-		keys.deleteKey("LH_ENDPOINT_TEST_VLLM_KEY");
-	});
-	it("a stored endpoint lifts the zero-keys pill; custom thinking reads on/off", () => {
-		assert.equal(hasProviderKey([], [], 1), true);
-		assert.equal(hasProviderKey([], [], 0), false);
-		assert.equal(thinkingLabel("high", { custom: true }), "on");
+	it("an ON/OFF model reads 'on'", () => {
+		assert.equal(thinkingLabel("high", { onOffThinking: true }), "on");
 		assert.equal(thinkingLabel("high", {}), "high");
-		assert.equal(thinkingLabel("off", { custom: true }), "off");
-	});
-	it("removal from the record removes the provider", () => {
-		writeSettings({ version: 1, endpoints: { list: [endpoint({ id: "renamed" })] } });
-		assert.equal(piModels().getModel("test-vllm", "qwen3.8-27b"), undefined);
-		assert.ok(piModels().getModel("renamed", "qwen3.8-27b"));
-		writeSettings({ version: 1, endpoints: { list: [endpoint()] } });
 	});
 });
 
-describe("the engine against a fake OpenAI-compatible server", () => {
+describe("discovery's server facts", () => {
+	const answer = (routes: Record<string, unknown>) => {
+		globalThis.fetch = (async (url: string | URL | Request) => {
+			const body = routes[String(url)];
+			return body === undefined ? new Response("no", { status: 404 }) : Response.json(body);
+		}) as typeof fetch;
+	};
+	it("LM Studio's rich listing adds context and vision, and drops embedding models", async () => {
+		answer({
+			"http://lms:1/v1/models": { data: [{ id: "qwen@q6" }, { id: "gpt-oss-20b" }, { id: "text-embedding-qwen3@q8" }] },
+			"http://lms:1/api/v0/models": { data: [
+				{ id: "qwen@q6", type: "vlm", max_context_length: 262144 },
+				{ id: "gpt-oss-20b", type: "llm", max_context_length: 131072 },
+				{ id: "text-embedding-qwen3@q8", type: "embeddings" },
+			] },
+		});
+		const found = await discoverModels("http://lms:1/v1");
+		assert.ok(found.ok);
+		assert.deepEqual(found.models, [{ id: "gpt-oss-20b", context: 131072 }, { id: "qwen@q6", image: true, context: 262144 }]);
+	});
+	it("vLLM's max_model_len, also nested under Open WebUI's `openai`; Qwen formats assume reasoning", async () => {
+		answer({ "http://owui/api/models": { data: [{ id: "a", max_model_len: 65536 }, { id: "b", openai: { max_model_len: 32768 } }] } });
+		const found = await discoverModels("http://owui/api", undefined, { assumeReasoning: true });
+		assert.ok(found.ok);
+		assert.deepEqual(found.models, [{ id: "a", context: 65536, reasoning: true }, { id: "b", context: 32768, reasoning: true }]);
+	});
+});
+
+describe("adding an endpoint", () => {
+	const create = (body: object) => route.POST(new Request("http://localhost/api/custom-providers", {
+		method: "POST",
+		headers: { "content-type": "application/json", origin: "http://localhost" },
+		body: JSON.stringify({ authMode: "keyless", baseUrl: "http://lms:1/v1", ...body }),
+	}));
+	before(() => {
+		writeJson(SETTINGS_FILE, { version: 1 });
+		globalThis.fetch = (async () => Response.json({ data: [{ id: "m" }] })) as typeof fetch;
+	});
+	it("takes its id from the name and joins the list after the others", async () => {
+		assert.equal((await create({ name: "First Box" })).status, 200);
+		assert.equal((await create({ name: "Second Box", thinkingFormat: "qwen" })).status, 200);
+		const list = (await route.GET().json()) as { providers: { id: string; name: string; thinkingFormat: string; revision: string }[] };
+		assert.deepEqual(list.providers.map((p) => [p.id, p.name, p.thinkingFormat]), [["first-box", "First Box", "openai"], ["second-box", "Second Box", "qwen"]]);
+		assert.ok(list.providers.every((p) => p.revision.startsWith("\"")));
+	});
+	it("refuses a duplicate, a builtin provider's id, a missing name and a nameless slug", async () => {
+		assert.equal((await create({ name: "first box" })).status, 409);
+		assert.equal((await create({ name: "OpenAI" })).status, 400);
+		assert.equal((await create({})).status, 400);
+		assert.equal((await create({ name: "!!" })).status, 400);
+	});
+});
+
+describe("the migration", () => {
 	let server: http.Server;
 	const seen: { auth?: string; body?: Record<string, unknown> }[] = [];
 
@@ -264,74 +176,72 @@ describe("the engine against a fake OpenAI-compatible server", () => {
 					`data: ${JSON.stringify({ id: "c", object: "chat.completion.chunk", created: 0, model: "qwen3.8-27b", choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`;
 				res.write(chunk({ role: "assistant", content: "pong" }, null));
 				res.write(chunk({}, "stop"));
-				res.write(`data: ${JSON.stringify({ id: "c", object: "chat.completion.chunk", created: 0, model: "qwen3.8-27b", choices: [], usage: { prompt_tokens: 5, completion_tokens: 1, total_tokens: 6 } })}\n\n`);
 				res.end("data: [DONE]\n\n");
 			});
 		});
 		await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
 		const { port } = server.address() as AddressInfo;
-		writeSettings({ version: 1, endpoints: { list: [endpoint({ baseUrl: `http://127.0.0.1:${port}/v1` })] } });
+		globalThis.fetch = realFetch;
+		writeJson(SETTINGS_FILE, {
+			version: 1,
+			models: { strong: { model: { provider: "test-vllm", id: "qwen3.8-27b" } } },
+			endpoints: { list: [legacyEndpoint(`http://127.0.0.1:${port}/v1`), { ...legacyEndpoint("http://other:1/v1"), id: "keyless-box", name: "Keyless" }] },
+			customProvider: { baseUrl: "http://single:1/v1", authMode: "keyless", credentialBindingId: "a".repeat(32), models: [{ id: "s" }] },
+		});
+		writeJson(AUTH_FILE, { LH_ENDPOINT_TEST_VLLM_KEY: "sk-test-123", OPENAI_API_KEY: "sk-keep" });
+		migrateCustomEndpoints();
+		syncCustomProvider();
 	});
 	after(() => server.close());
 
-	async function runOnce(level: "off" | "high") {
-		const engine = piEngineForSpec({ provider: "test-vllm", id: "qwen3.8-27b", thinkingLevel: level });
-		const stream = engine.streamFn(engine.model, normalizeContext({ messages: [{ role: "user", content: "ping", timestamp: 0 }] }), {});
-		const message = await stream.result();
-		return { message, request: seen.at(-1)! };
-	}
-
-	it("keyless: placeholder bearer, thinking off sent as enable_thinking false", async () => {
-		const { message, request } = await runOnce("off");
-		assert.equal(message.stopReason, "stop");
-		assert.deepEqual(message.content.filter((c) => c.type === "text").map((c) => (c as { text: string }).text), ["pong"]);
-		assert.equal(request.auth, "Bearer no-key");
-		assert.deepEqual(request.body?.chat_template_kwargs, { enable_thinking: false, preserve_thinking: true });
-		assert.equal(request.body?.model, "qwen3.8-27b");
+	it("moves both legacy sections into customProviders and leaves everything else", () => {
+		const record = readJson(SETTINGS_FILE) as { endpoints?: unknown; customProvider?: unknown; models?: unknown; customProviders: { id: string; name: string; thinkingFormat?: string; authMode: string; models: unknown[]; overrides?: unknown }[] };
+		assert.equal(record.endpoints, undefined);
+		assert.equal(record.customProvider, undefined);
+		assert.deepEqual(record.models, { strong: { model: { provider: "test-vllm", id: "qwen3.8-27b" } } });
+		assert.deepEqual(record.customProviders.map((cp) => [cp.id, cp.name, cp.thinkingFormat, cp.authMode]), [
+			["custom", "Custom endpoint", undefined, "keyless"],
+			["test-vllm", "Test vLLM", "qwen-chat-template", "apiKey"],
+			["keyless-box", "Keyless", "qwen-chat-template", "keyless"],
+		]);
+		const vllm = record.customProviders[1]!;
+		assert.deepEqual(vllm.models, [
+			{ id: "gemma-4", image: true, reasoning: true, context: 262144, maxTokens: 16384 },
+			{ id: "qwen3.8-27b", reasoning: true, context: 65536, maxTokens: 16384 },
+		]);
+		assert.deepEqual(vllm.overrides, { "gemma-4": { context: 131072 } });
 	});
-	it("keyed: the stored key is the bearer, thinking on sent as enable_thinking true", async () => {
-		assert.ok(keys.saveKey("LH_ENDPOINT_TEST_VLLM_KEY", "sk-test-123").ok);
-		const { request } = await runOnce("high");
+	it("binds each legacy key to its current URL; other keys and upstream's binding are untouched", () => {
+		const auth = readJson(AUTH_FILE);
+		const binding = JSON.parse(auth[customBindingVar("test-vllm")] as string) as { authMode: string; baseUrl: string; fileKeyBaseUrl?: string };
+		const record = readJson(SETTINGS_FILE) as { customProviders: { id: string; baseUrl: string }[] };
+		const url = record.customProviders.find((cp) => cp.id === "test-vllm")!.baseUrl;
+		assert.deepEqual([binding.authMode, binding.baseUrl, binding.fileKeyBaseUrl], ["apiKey", url, url]);
+		assert.equal(auth.LH_ENDPOINT_TEST_VLLM_KEY, "sk-test-123");
+		assert.equal(auth.OPENAI_API_KEY, "sk-keep");
+		assert.equal(JSON.parse(auth[customBindingVar("keyless-box")] as string).authMode, "keyless");
+		assert.equal(auth[customBindingVar("custom")], undefined);
+	});
+	it("runs once: a second run changes nothing", () => {
+		const before = [fs.readFileSync(SETTINGS_FILE, "utf8"), fs.readFileSync(AUTH_FILE, "utf8")];
+		migrateCustomEndpoints();
+		assert.deepEqual([fs.readFileSync(SETTINGS_FILE, "utf8"), fs.readFileSync(AUTH_FILE, "utf8")], before);
+	});
+	it("a migrated endpoint federates with its slot intact, unpriced and ON/OFF", () => {
+		assert.ok(customProviderAvailable("test-vllm"));
+		const { models, providers } = catalog.modelCatalog();
+		assert.deepEqual(providers.find((p) => p.id === "test-vllm"), { id: "test-vllm", envVar: "LH_ENDPOINT_TEST_VLLM_KEY", keyPresent: true, custom: true });
+		const entry = models.find((m) => m.provider === "test-vllm" && m.id === "qwen3.8-27b");
+		assert.deepEqual([entry?.custom, entry?.onOffThinking, entry?.cost], [true, true, null]);
+		assert.equal(catalog.catalogContextLimits().get("test-vllm:gemma-4"), 131072);
+		assert.equal(keys.providerKeyPresent("test-vllm"), true);
+	});
+	it("its key is the bearer, and thinking rides the Qwen chat template", async () => {
+		const engine = piEngineForSpec({ provider: "test-vllm", id: "qwen3.8-27b", thinkingLevel: "high" });
+		const message = await engine.streamFn(engine.model, normalizeContext({ messages: [{ role: "user", content: "ping", timestamp: 0 }] }), {}).result();
+		assert.equal(message.stopReason, "stop");
+		const request = seen.at(-1)!;
 		assert.equal(request.auth, "Bearer sk-test-123");
 		assert.deepEqual(request.body?.chat_template_kwargs, { enable_thinking: true, preserve_thinking: true });
-		keys.deleteKey("LH_ENDPOINT_TEST_VLLM_KEY");
-	});
-});
-
-describe("detection over the network seam", () => {
-	const fakeFetch =
-		(routes: Record<string, { status: number; body?: unknown } | "throw">, seenAuth: (string | undefined)[] = []) =>
-		async (url: string | URL | Request, init?: RequestInit) => {
-			seenAuth.push((init?.headers as Record<string, string> | undefined)?.Authorization);
-			const route = routes[String(url)];
-			if (!route || route === "throw") throw new TypeError("fetch failed");
-			return new Response(JSON.stringify(route.body ?? {}), { status: route.status });
-		};
-
-	it("merges LM Studio's rich listing and sends the pasted key", async () => {
-		const auth: (string | undefined)[] = [];
-		const result = await detectEndpointModels(
-			{ baseUrl: "http://lms:1/v1/", apiKey: " k1 " },
-			fakeFetch({ "http://lms:1/v1/models": { status: 200, body: LMS_MODELS }, "http://lms:1/api/v0/models": { status: 200, body: LMS_V0_MODELS } }, auth) as typeof fetch,
-		);
-		assert.ok(result.ok);
-		assert.deepEqual(result.models.map((m) => m.id), ["gpt-oss-20b", "qwen3.8-27b@q6_k_xl"]);
-		assert.deepEqual(auth, ["Bearer k1", "Bearer k1"]);
-	});
-	it("stands on the plain listing when the rich one is absent", async () => {
-		const result = await detectEndpointModels(
-			{ baseUrl: "http://vllm:1/v1" },
-			fakeFetch({ "http://vllm:1/v1/models": { status: 200, body: VLLM_MODELS }, "http://vllm:1/api/v0/models": { status: 404 } }) as typeof fetch,
-		);
-		assert.ok(result.ok);
-		assert.equal(result.models[0]!.contextWindow, 65536);
-	});
-	it("names refusals, unreachable servers, empty listings and bad URLs", async () => {
-		const run = (routes: Record<string, { status: number; body?: unknown } | "throw">) =>
-			detectEndpointModels({ baseUrl: "http://x:1/v1" }, fakeFetch(routes) as typeof fetch);
-		assert.match((await run({ "http://x:1/v1/models": { status: 401 } }) as { error: string }).error, /refused the key/);
-		assert.match((await run({ "http://x:1/v1/models": "throw" }) as { error: string }).error, /unreachable/);
-		assert.match((await run({ "http://x:1/v1/models": { status: 200, body: { data: [] } } }) as { error: string }).error, /no chat models/);
-		assert.ok(!(await detectEndpointModels({ baseUrl: "nope" })).ok);
 	});
 });

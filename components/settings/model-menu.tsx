@@ -21,7 +21,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { ModelCatalogEntry } from "@/src/core";
-import { CLAUDE_CODE_PROVIDER, CUSTOM_PROVIDER, fuzzyScore, subscriptionLabel } from "@/src/core";
+import { CLAUDE_CODE_PROVIDER, fuzzyScore, subscriptionLabel } from "@/src/core";
 import { formatTokens } from "@/components/usage-format";
 import { SearchMenuList } from "./search-menu-list";
 
@@ -64,7 +64,7 @@ export function ModelMenuList({
 	// stay selectable (the endpoint may not report a modality). Image-capable
 	// ones float to the top of the list.
 	const visionItems = vision
-		? models?.filter((m) => m.input.includes("image") || m.provider === CUSTOM_PROVIDER.id)
+		? models?.filter((m) => m.input.includes("image") || m.custom)
 		: models;
 	return (
 		<>

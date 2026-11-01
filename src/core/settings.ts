@@ -29,7 +29,7 @@
 
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { AUTH_PROVIDER_KEYS } from "./auth-keys.ts";
-import { sanitizeEndpoints, type EndpointsSettings } from "./endpoints.ts";
+import { ENDPOINT_THINKING_FORMATS, isValidEndpointId, type EndpointThinkingFormat } from "./endpoints.ts";
 import { sanitizeDictation, type DictationSettings } from "./dictation.ts";
 import { sanitizeSpeech, type SpeechSettings } from "./speech.ts";
 import { CLAUDE_CODE_PROVIDER } from "./contracts/claude-code.ts";
@@ -273,8 +273,19 @@ export interface CustomModelOverride {
 	reasoning?: boolean;
 }
 
-/** The single custom endpoint's stored config (delta section). */
+/** One custom endpoint's stored config (the `customProviders` list —
+ *  custom-endpoints wave: upstream's single endpoint, one per entry). */
 export interface CustomProviderSettings {
+	/** The pi-ai provider id ("ait-lmstudio"), derived from the name when the
+	 *  endpoint is added (core/endpoints.ts slugifyEndpointName) and never
+	 *  changed after; "custom" for the endpoint upstream's single
+	 *  `customProvider` became. Model selections name it. */
+	id: string;
+	/** The display name ("AIT LM Studio"). */
+	name: string;
+	/** How thinking reaches the server (core/endpoints.ts). Absent =
+	 *  "openai": pi's reasoning_effort with every effort level. */
+	thinkingFormat?: EndpointThinkingFormat;
 	/** Server-owned random authorization nonce; never a credential hash. */
 	credentialBindingId?: string;
 	/** Explicit authentication intent; never inferred from a saved key. */
@@ -316,7 +327,7 @@ export function normalizeBaseUrl(raw: string): string {
 	return url.toString().replace(/\/+$/, "");
 }
 
-/** THE single source of "is the custom endpoint usable?": a non-empty base URL.
+/** THE single source of "is a custom endpoint usable?": a non-empty base URL.
  *  Key presence is deliberately excluded (keyless local servers are allowed). */
 export function customProviderUsable(
 	cp: CustomProviderSettings | undefined,
@@ -491,14 +502,12 @@ export interface UserSettings {
 	agent?: AgentSettings;
 	/** The strong/cheap/vision model slots (model slots wave, 2026-09-20). */
 	models?: ModelsSettings;
-	/** The custom OpenAI-compatible endpoint (non-secret config only). */
-	customProvider?: CustomProviderSettings;
+	/** The custom OpenAI-compatible endpoints (non-secret config only), in
+	 *  the order they were added; ids are unique. */
+	customProviders?: CustomProviderSettings[];
 	appearance?: AppearanceSettings;
 	graph?: GraphSettings;
 	compaction?: CompactionSettings;
-	/** User-added OpenAI-compatible endpoints (custom-endpoints wave,
-	 *  2026-10-24 — core/endpoints.ts owns the shape). */
-	endpoints?: EndpointsSettings;
 	/** Dictation: the engine choice (local-STT wave, 2026-10-24) and
 	 *  Deepgram's language — core/dictation.ts owns the shape. */
 	dictation?: DictationSettings;
@@ -665,11 +674,16 @@ export function sanitizeCustomModelOverrides(
 	return out;
 }
 
-/** The customProvider section: normalized base URL (invalid → dropped) and
+/** One customProviders entry: normalized base URL (invalid → dropped) and
  *  discovered models (ids trimmed, dupes/empties dropped; image kept only when
  *  true; token counts only as positive ints). Clamp-never-reject. */
-function sanitizeCustomProvider(raw: Record<string, unknown>): CustomProviderSettings {
-	const out: CustomProviderSettings = {};
+function sanitizeCustomProvider(raw: Record<string, unknown>): CustomProviderSettings | undefined {
+	if (typeof raw.id !== "string" || !isValidEndpointId(raw.id)) return undefined;
+	const out: CustomProviderSettings = {
+		id: raw.id,
+		name: typeof raw.name === "string" && raw.name.trim() ? raw.name.trim() : raw.id,
+	};
+	if ((ENDPOINT_THINKING_FORMATS as readonly unknown[]).includes(raw.thinkingFormat)) out.thinkingFormat = raw.thinkingFormat as EndpointThinkingFormat;
 	if (typeof raw.credentialBindingId === "string" && /^[a-f0-9]{32}$/.test(raw.credentialBindingId)) out.credentialBindingId = raw.credentialBindingId;
 	if (raw.authMode === "keyless" || raw.authMode === "apiKey") out.authMode = raw.authMode;
 	if (typeof raw.baseUrl === "string") {
@@ -699,6 +713,22 @@ function sanitizeCustomProvider(raw: Record<string, unknown>): CustomProviderSet
 	if (Object.keys(overrides).length) out.overrides = overrides;
 	const manualModels = parseModelIds(raw.manualModels);
 	if (manualModels.length) out.manualModels = manualModels;
+	return out;
+}
+
+/** The customProviders list: malformed entries drop, a repeated id keeps
+ *  the first. */
+function sanitizeCustomProviders(raw: unknown[]): CustomProviderSettings[] {
+	const seen = new Set<string>();
+	const out: CustomProviderSettings[] = [];
+	for (const entry of raw) {
+		if (entry === null || typeof entry !== "object" || Array.isArray(entry)) continue;
+		const cp = sanitizeCustomProvider(entry as Record<string, unknown>);
+		if (cp && !seen.has(cp.id)) {
+			seen.add(cp.id);
+			out.push(cp);
+		}
+	}
 	return out;
 }
 
@@ -853,11 +883,8 @@ export function sanitizeUserSettings(raw: unknown): UserSettings | null {
 	if (r.speech !== null && typeof r.speech === "object" && !Array.isArray(r.speech)) {
 		out.speech = sanitizeSpeech(r.speech as Record<string, unknown>);
 	}
-	if (r.endpoints !== null && typeof r.endpoints === "object" && !Array.isArray(r.endpoints)) {
-		out.endpoints = sanitizeEndpoints(r.endpoints as Record<string, unknown>);
-	}
-	if (r.customProvider !== null && typeof r.customProvider === "object" && !Array.isArray(r.customProvider)) {
-		out.customProvider = sanitizeCustomProvider(r.customProvider as Record<string, unknown>);
+	if (Array.isArray(r.customProviders)) {
+		out.customProviders = sanitizeCustomProviders(r.customProviders);
 	}
 	if (r.graph !== null && typeof r.graph === "object" && !Array.isArray(r.graph)) {
 		out.graph = sanitizeGraph(r.graph as Record<string, unknown>);

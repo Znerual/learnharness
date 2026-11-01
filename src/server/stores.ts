@@ -12,8 +12,8 @@ import { effectiveGraphStore } from "../core/graph-ledgers.ts";
 import { createJobStore } from "../store/jobs.ts";
 import { migratePromptSwitches, settingsStore } from "../store/settings.ts";
 import { resolveSettings, type EffectiveSettings } from "../core/settings-resolution.ts";
-import { setCustomEndpointSource } from "../agent/models.ts";
 import { syncCustomProvider } from "./custom-provider.ts";
+import { migrateCustomEndpoints } from "./custom-provider-migration.ts";
 import { migrateDeviceLocalData } from "../store/local-migration.ts";
 import { deviceStore } from "../store/device.ts";
 
@@ -21,6 +21,9 @@ import { deviceStore } from "../store/device.ts";
 // folder before any store reads them — once per process, idempotent.
 migrateDeviceLocalData();
 migratePromptSwitches();
+// Custom endpoints (custom-endpoints wave): the legacy sections become
+// customProviders entries before anything resolves a model.
+migrateCustomEndpoints();
 
 /** The wired adapters. Satisfies core/graph.ts's GraphDeps structurally.
  *  The graph store is this device's raw ledger adapter behind the derived
@@ -35,12 +38,6 @@ export const stores = {
 
 export type Stores = typeof stores;
 
-// Custom endpoints (custom-endpoints wave, 2026-10-24): the engine
-// collection re-syncs its custom providers from the settings record on
-// every access — wired here, beside the settings adapter, so every path
-// that reaches piModels() through the server sees the same record.
-setCustomEndpointSource(() => settingsStore.readSettings()?.endpoints?.list ?? []);
-
 /**
  * The resolved view of the settings record (core/settings-resolution.ts):
  * every knob concrete over its factory default — EXCEPT MODELS (BYOK all
@@ -53,6 +50,6 @@ export function effectiveSettings(): EffectiveSettings {
 	return resolveSettings(settingsStore.readSettings());
 }
 
-// Boot: register the custom endpoint (when configured) into piModels(); the
-// POST /api/custom-provider route re-syncs after every connect.
+// Boot: register the custom endpoints (when configured) into piModels(); the
+// /api/custom-providers routes re-sync after every change.
 syncCustomProvider();

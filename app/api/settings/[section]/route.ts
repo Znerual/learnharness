@@ -6,7 +6,7 @@
  * independent, so partial writes can never clobber each other.
  *
  *   section ∈ general | chat | agent | appearance | graph | compaction |
- *             models | endpoints | dictation | speech | claudeCode
+ *             models | dictation | speech | claudeCode
  *   Body: the complete desired section object. Parse + validate strictly
  *   (server/settings-body.ts): a bad shape/type is a 400 carrying the
  *   supported list where one exists. The chat and models sections
@@ -31,7 +31,7 @@
  * lands here.
  */
 
-import type { AgentSettings, ChatSettings, EndpointsSettings, GraphSettings, ModelsSettings } from "@/src/core";
+import type { AgentSettings, ChatSettings, GraphSettings, ModelsSettings } from "@/src/core";
 import {
 	SETTINGS_SECTIONS,
 	allSegmentPaths,
@@ -41,7 +41,6 @@ import {
 	promptOverrides,
 	readSettingsRecord,
 	validateChatSettings,
-	validateEndpointsSettings,
 	validateModelsSettings,
 	isExistingDirectory,
 	scheduleObsidianExport,
@@ -88,11 +87,6 @@ export async function PUT(request: Request, ctx: { params: Promise<{ section: st
 		if (!verdict.ok) {
 			return Response.json({ error: verdict.error, supported: verdict.supported }, { status: 400 });
 		}
-	}
-	// Custom endpoints (2026-10-24): an id must not shadow a builtin provider.
-	if (section === "endpoints") {
-		const verdict = validateEndpointsSettings(parsed.settings as EndpointsSettings);
-		if (!verdict.ok) return Response.json({ error: verdict.error }, { status: 400 });
 	}
 	// The Obsidian vault (2026-10-24): it must be an existing directory.
 	if (section === "graph") {

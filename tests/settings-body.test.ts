@@ -234,15 +234,15 @@ describe("parseCompactionSettingsBody (owner round 14)", () => {
 });
 
 describe("SETTINGS_SECTIONS (the route's section map)", () => {
-	it("maps exactly the eleven record sections", () => {
+	it("maps exactly the ten record sections", () => {
 		// compaction joined (owner round 14): its own section PUT — the
-		// threshold is engine behavior, not an agent-section key.
-		// endpoints joined (custom-endpoints wave, 2026-10-24); the dictation
+		// threshold is engine behavior, not an agent-section key. The dictation
 		// section carries the local engine (local-STT wave, 2026-10-24) and
-		// Deepgram's language; speech is read-aloud.
+		// Deepgram's language; speech is read-aloud. Custom endpoints are NOT a
+		// section: they change through /api/custom-providers.
 		assert.deepEqual(
 			Object.keys(SETTINGS_SECTIONS),
-			["general", "chat", "agent", "appearance", "graph", "compaction", "models", "endpoints", "dictation", "speech", "claudeCode"],
+			["general", "chat", "agent", "appearance", "graph", "compaction", "models", "dictation", "speech", "claudeCode"],
 		);
 	});
 });

@@ -19,8 +19,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { AUTH_FILE } from "../../config.ts";
 import type { AuthStore } from "../core/ports.ts";
-import { CUSTOM_PROVIDER } from "../core/auth-keys.ts";
-import { CUSTOM_AUTH_BINDING, parseCustomAuthBinding, type CustomAuthBinding } from "../core/custom-provider-auth.ts";
+import { customBindingVar, customKeyVar, isCustomAuthVar, isCustomBindingVar, parseCustomAuthBinding, type CustomAuthBinding } from "../core/custom-provider-auth.ts";
 
 /** The flat string→string map, or {} for absent/corrupt/non-object. */
 function readMap(): Record<string, string> {
@@ -78,25 +77,37 @@ function readCustomMap(): Record<string, unknown> {
 	try { raw = JSON.parse(text); } catch { throw new Error("Custom authorization storage unavailable"); }
 	if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("Custom authorization storage unavailable");
 	const map = raw as Record<string, unknown>;
-	if (Object.hasOwn(map, CUSTOM_AUTH_BINDING) && !parseCustomAuthBinding(map[CUSTOM_AUTH_BINDING])) throw new Error("Invalid custom authorization record");
-	if (Object.hasOwn(map, CUSTOM_PROVIDER.envVar) && typeof map[CUSTOM_PROVIDER.envVar] !== "string") throw new Error("Invalid custom credential record");
+	for (const [name, value] of Object.entries(map)) {
+		if (isCustomBindingVar(name) && !parseCustomAuthBinding(value)) throw new Error("Invalid custom authorization record");
+		if (isCustomAuthVar(name) && !isCustomBindingVar(name) && typeof value !== "string") throw new Error("Invalid custom credential record");
+	}
 	return map;
 }
 function assertOrdinaryVar(name: string): void {
-	if (name === CUSTOM_AUTH_BINDING || name === CUSTOM_PROVIDER.envVar) throw new Error("Use the custom endpoint editor");
+	if (isCustomAuthVar(name)) throw new Error("Use the custom endpoint editor");
 }
-/** One immutable file snapshot. Keyless callers never invoke fileKey(). */
-export function readCustomAuth() {
+/** One immutable file snapshot of one custom endpoint's pair. Keyless
+ *  callers never invoke fileKey(). */
+export function readCustomAuth(id: string) {
 	const map = readCustomMap();
-	return { binding: parseCustomAuthBinding(map[CUSTOM_AUTH_BINDING]), fileKey: () => map[CUSTOM_PROVIDER.envVar] as string | undefined };
+	return { binding: parseCustomAuthBinding(map[customBindingVar(id)]), fileKey: () => map[customKeyVar(id)] as string | undefined };
 }
-/** Replace just the custom pair in ONE existing atomic record write. */
-export function writeCustomAuth(binding: CustomAuthBinding | undefined, fileKey: string | undefined): void {
+/** Replace just one custom endpoint's pair in ONE existing atomic record write. */
+export function writeCustomAuth(id: string, binding: CustomAuthBinding | undefined, fileKey: string | undefined): void {
+	writeCustomAuths([{ id, binding, fileKey }]);
+}
+/** Replace several custom endpoints' pairs in ONE atomic record write (the
+ *  migration binds every legacy endpoint at once). */
+export function writeCustomAuths(pairs: readonly { id: string; binding: CustomAuthBinding | undefined; fileKey: string | undefined }[]): void {
 	const map = readCustomMap();
-	if (binding && !parseCustomAuthBinding(JSON.stringify(binding))) throw new Error("Invalid custom authorization record");
-	if (fileKey === undefined) delete map[CUSTOM_PROVIDER.envVar];
-	else Object.defineProperty(map, CUSTOM_PROVIDER.envVar, { value: fileKey, enumerable: true, configurable: true, writable: true });
-	if (binding === undefined) delete map[CUSTOM_AUTH_BINDING];
-	else Object.defineProperty(map, CUSTOM_AUTH_BINDING, { value: JSON.stringify(binding), enumerable: true, configurable: true, writable: true });
+	for (const { id, binding, fileKey } of pairs) {
+		if (binding && !parseCustomAuthBinding(JSON.stringify(binding))) throw new Error("Invalid custom authorization record");
+		const keyVar = customKeyVar(id);
+		const bindingVar = customBindingVar(id);
+		if (fileKey === undefined) delete map[keyVar];
+		else Object.defineProperty(map, keyVar, { value: fileKey, enumerable: true, configurable: true, writable: true });
+		if (binding === undefined) delete map[bindingVar];
+		else Object.defineProperty(map, bindingVar, { value: JSON.stringify(binding), enumerable: true, configurable: true, writable: true });
+	}
 	writeMap(map);
 }

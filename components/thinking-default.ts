@@ -31,10 +31,10 @@ export const THINKING_LABEL: Record<string, string> = {
 };
 
 /** The label for one level of one model (custom-endpoints wave,
- *  2026-10-24): a custom endpoint's thinking is on/off only, stored as
- *  "high" — it reads "on". Every other level reads THINKING_LABEL. */
-export function thinkingLabel(level: string, model?: { custom?: boolean }): string {
-	if (model?.custom && level === "high") return "on";
+ *  2026-10-24): an ON/OFF-thinking custom endpoint stores "on" as "high" —
+ *  it reads "on". Every other level reads THINKING_LABEL. */
+export function thinkingLabel(level: string, model?: { onOffThinking?: boolean }): string {
+	if (model?.onOffThinking && level === "high") return "on";
 	return THINKING_LABEL[level] ?? level;
 }
 

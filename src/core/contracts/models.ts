@@ -26,9 +26,11 @@ export interface ModelCatalogEntry {
 	/** Null for native CLI aliases whose effective limits are session-specific. */
 	contextWindow: number | null;
 	maxTokens: number | null;
-	/** True for a custom-endpoint model (custom-endpoints wave, 2026-10-24):
-	 *  its thinking is on/off only — the pickers label "high" as "on". */
+	/** True for a custom endpoint's model (unpriced; every one may serve Vision). */
 	custom?: boolean;
+	/** True when its thinking is ON/OFF only (a Qwen thinking format,
+	 *  custom-endpoints wave) — the pickers label "high" as "on". */
+	onOffThinking?: boolean;
 }
 
 /** The conversation agents' resolved default (BYOK, owner 2026-09-22): the
@@ -88,6 +90,6 @@ export interface CatalogProvider {
 	/** Whether credentials are present (and custom references resolve).
 	 *  Always true for a custom endpoint — its key is optional. */
 	keyPresent: boolean;
-	/** True for a custom endpoint (custom-endpoints wave, 2026-10-24). */
+	/** True for a custom endpoint (custom-endpoints wave). */
 	custom?: boolean;
 }

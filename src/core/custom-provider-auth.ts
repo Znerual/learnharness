@@ -1,7 +1,32 @@
 /** Private custom credential authorization; no credential-derived public value. */
+import { CUSTOM_PROVIDER } from "./auth-keys.ts";
+import { endpointKeyVar, isEndpointKeyVar } from "./endpoints.ts";
 import { normalizeBaseUrl, type CustomProviderSettings } from "./settings.ts";
 
 export const CUSTOM_AUTH_BINDING = "__learnharness_custom_provider_binding";
+
+/** One custom endpoint's binding record name in auth.json: upstream's own
+ *  for "custom", suffixed with the id for every other entry. */
+export function customBindingVar(id: string): string {
+	return id === CUSTOM_PROVIDER.id ? CUSTOM_AUTH_BINDING : `${CUSTOM_AUTH_BINDING}:${id}`;
+}
+
+/** One custom endpoint's key variable: upstream's CUSTOM_OPENAI_API_KEY for
+ *  "custom", LH_ENDPOINT_<ID>_KEY for every other entry. */
+export function customKeyVar(id: string): string {
+	return id === CUSTOM_PROVIDER.id ? CUSTOM_PROVIDER.envVar : endpointKeyVar(id);
+}
+
+/** Is `name` a custom endpoint's binding record? */
+export function isCustomBindingVar(name: string): boolean {
+	return name === CUSTOM_AUTH_BINDING || name.startsWith(`${CUSTOM_AUTH_BINDING}:`);
+}
+
+/** Is `name` a custom endpoint's binding record or key variable? Those are
+ *  written only through the custom endpoint editor, never the generic key API. */
+export function isCustomAuthVar(name: string): boolean {
+	return isCustomBindingVar(name) || name === CUSTOM_PROVIDER.envVar || isEndpointKeyVar(name);
+}
 export interface CustomAuthBinding {
 	version: 1;
 	id: string;

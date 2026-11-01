@@ -495,7 +495,7 @@ function OpenSetupDialog({ onClose, onDone }: SetupDialogProps) {
 							const levelsForEntry = metadata?.supportedLevels ?? (entry ? Object.keys(THINKING_LABEL) : []);
 							const available = catalog?.models ?? (failed ? [] : undefined);
 							const slotCatalog = slot === "vision"
-								? available?.filter((m) => m.input.includes("image") || m.provider === CUSTOM_PROVIDER.id)
+								? available?.filter((m) => m.input.includes("image") || m.custom)
 								: available;
 							return (
 								<div key={slot} data-testid={`setup-slot-${slot}`} className="flex flex-col gap-1.5">

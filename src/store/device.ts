@@ -4,7 +4,7 @@
  * keys this device's graph ledgers and marks the turns and jobs it owns; the
  * name is what other devices show ("running on Desktop"). Device-local:
  * never synced, created on first use. LH_DEVICE_NAME sets the default name
- * (the Android shell passes "Phone").
+ * (the Android shell passes the phone's own name).
  */
 
 import * as fs from "node:fs";

@@ -1,70 +1,42 @@
 /**
  * CUSTOM ENDPOINTS (custom-endpoints wave, owner 2026-10-24): user-added
  * OpenAI-compatible servers (vLLM, LM Studio, Ollama, llama.cpp, …) that
- * join pi-ai's builtin providers as first-class model sources.
+ * join pi-ai's builtin providers as first-class model sources. The stored
+ * shape is upstream's custom provider, one per entry of the
+ * `customProviders` list (core/settings.ts); this module owns what the list
+ * adds to it:
+ *  - the thinking formats (how "thinking on" reaches a server),
+ *  - the slug + key-variable rules (an entry's key lives in auth.json under
+ *    LH_ENDPOINT_<ID>_KEY — "custom" keeps upstream's CUSTOM_OPENAI_API_KEY),
+ *  - LM Studio's richer listing, which discovery reads beside /models,
+ *  - the legacy `endpoints` section, read once by the migration into
+ *    `customProviders` (src/server/custom-provider-migration.ts).
  *
- * PURE, browser-safe — no fs, no env, no network. This module owns:
- *  - the stored shape (the `endpoints` settings section — non-secret:
- *    name, base URL, thinking format, the detected model list with
- *    per-model overrides),
- *  - the slug + key-variable rules (the key itself lives in auth.json
- *    under LH_ENDPOINT_<ID>_KEY — secrets never enter settings.json),
- *  - the detection parsers over the servers' own model listings (the
- *    network half lives in src/server/endpoints.ts),
- *  - the effective view (detected values with overrides applied).
- *
- * Owner rulings: generic endpoints, not AIT presets; auto-detect +
- * per-model override; the detected list is PERSISTED (slots stay valid
- * while a backend is down); the key is OPTIONAL (keyless local servers
- * count as configured); thinking is ON/OFF only, sent in the endpoint's
- * chosen format (default qwen-chat-template), stored as pi's off/high.
+ * PURE, browser-safe — no fs, no env, no network.
  */
 
 import { normalizeBaseUrl } from "./settings.ts";
 
-/** How thinking on/off reaches the server (pi-ai's openai-completions
- *  thinkingFormat, narrowed to the on/off-capable ones), or "none" —
- *  never send thinking params; the model runs its own default. */
+/** How thinking reaches the server: "openai" — pi's reasoning_effort with
+ *  every effort level (upstream's custom endpoint); the Qwen ones — ON/OFF
+ *  only, sent as pi-ai's openai-completions thinkingFormat; or "none" — never
+ *  send thinking params, the model runs its own default. */
 export const ENDPOINT_THINKING_FORMATS = ["qwen-chat-template", "qwen", "openai", "none"] as const;
 export type EndpointThinkingFormat = (typeof ENDPOINT_THINKING_FORMATS)[number];
-export const DEFAULT_ENDPOINT_THINKING_FORMAT: EndpointThinkingFormat = "qwen-chat-template";
+export const DEFAULT_ENDPOINT_THINKING_FORMAT: EndpointThinkingFormat = "openai";
+
+/** Thinking is ON/OFF only for these formats (the pickers label "high" as "on"). */
+export function isOnOffThinkingFormat(format: EndpointThinkingFormat | undefined): boolean {
+	return format === "qwen-chat-template" || format === "qwen";
+}
 
 /** One-line labels for the settings form's thinking-format select. */
 export const ENDPOINT_THINKING_FORMAT_LABEL: Record<EndpointThinkingFormat, string> = {
 	"qwen-chat-template": "chat_template_kwargs.enable_thinking (Qwen on vLLM / LM Studio)",
 	qwen: "top-level enable_thinking",
-	openai: "reasoning_effort",
+	openai: "reasoning_effort (every effort level)",
 	none: "never send — model default",
 };
-
-/** The model values detection fills and the user may override. */
-export interface EndpointModelValues {
-	contextWindow: number;
-	maxTokens: number;
-	vision: boolean;
-	reasoning: boolean;
-}
-
-/** One stored model: the DETECTED values plus optional user overrides
- *  (a re-detect replaces the detected half and keeps the overrides). */
-export interface EndpointModel extends EndpointModelValues {
-	id: string;
-	overrides?: Partial<EndpointModelValues>;
-}
-
-/** One stored endpoint. `id` doubles as the pi-ai provider id. */
-export interface CustomEndpoint {
-	id: string;
-	name: string;
-	baseUrl: string;
-	thinkingFormat: EndpointThinkingFormat;
-	models: EndpointModel[];
-}
-
-/** The `endpoints` settings section. */
-export interface EndpointsSettings {
-	list?: CustomEndpoint[];
-}
 
 // ─── slug + key rules ────────────────────────────────────────────────────────
 
@@ -100,49 +72,16 @@ export function isEndpointKeyVar(name: string): boolean {
 	return /^LH_ENDPOINT_[A-Z0-9_]+_KEY$/.test(name);
 }
 
-// ─── effective view ──────────────────────────────────────────────────────────
+// ─── LM Studio (read beside /models by discovery) ──────────────────────────
 
-/** The values a model actually runs with: detected, overrides on top. */
-export function effectiveModelValues(model: EndpointModel): EndpointModelValues {
-	return {
-		contextWindow: model.overrides?.contextWindow ?? model.contextWindow,
-		maxTokens: model.overrides?.maxTokens ?? model.maxTokens,
-		vision: model.overrides?.vision ?? model.vision,
-		reasoning: model.overrides?.reasoning ?? model.reasoning,
-	};
-}
-
-/** Merge a fresh detection into a stored list: the detected half comes
- *  from `detected`, overrides carry over by model id, vanished models
- *  drop. */
-export function mergeDetectedModels(stored: readonly EndpointModel[], detected: readonly EndpointModel[]): EndpointModel[] {
-	const overridesById = new Map(stored.map((m) => [m.id, m.overrides]));
-	return detected.map((m) => {
-		const overrides = overridesById.get(m.id);
-		return overrides && Object.keys(overrides).length ? { ...m, overrides } : { ...m };
-	});
-}
-
-// ─── detection parsers ───────────────────────────────────────────────────────
-
-/** Context window when the server reports none. */
-export const FALLBACK_CONTEXT_WINDOW = 32_768;
-/** Output ceiling cap — pi-ai clamps further to the remaining context. */
-const MAX_TOKENS_CAP = 16_384;
-
-/** The default output ceiling for a context window. */
-export function defaultMaxTokens(contextWindow: number): number {
-	return Math.max(1024, Math.min(MAX_TOKENS_CAP, Math.floor(contextWindow / 2)));
-}
+const positiveInt = (v: unknown): number | undefined =>
+	typeof v === "number" && Number.isFinite(v) && v > 0 ? Math.floor(v) : undefined;
 
 /** LM Studio's richer listing (GET <root>/api/v0/models) — per id. */
 export interface LmStudioModelInfo {
 	type?: string;
 	maxContextLength?: number;
 }
-
-const positiveInt = (v: unknown): number | undefined =>
-	typeof v === "number" && Number.isFinite(v) && v > 0 ? Math.floor(v) : undefined;
 
 /** Parse LM Studio's /api/v0/models body into an id → info index.
  *  Anything malformed yields an empty index (the plain listing still
@@ -164,45 +103,9 @@ export function parseLmStudioModels(body: unknown): Map<string, LmStudioModelInf
 }
 
 /** Embedding models cannot answer — never listed. */
-function isEmbeddingModel(id: string, info: LmStudioModelInfo | undefined): boolean {
+export function isEmbeddingModel(id: string, info: LmStudioModelInfo | undefined): boolean {
 	if (info?.type === "embeddings") return true;
 	return /embed/i.test(id);
-}
-
-/**
- * Parse the OpenAI-style GET <baseUrl>/models body (+ LM Studio's index
- * when the server has one) into detected models, sorted by id.
- * Context: vLLM's `max_model_len` (top-level, or nested under `openai`
- * when an Open WebUI gateway proxies vLLM), else LM Studio's
- * max_context_length, else FALLBACK_CONTEXT_WINDOW. Vision: LM Studio `type: "vlm"` only
- * (nothing else reports it — the user overrides). Reasoning: assumed on
- * (the thinking format decides what is sent; a model whose template has
- * no thinking switch ignores it).
- */
-export function parseModelListing(body: unknown, lmStudio: Map<string, LmStudioModelInfo> = new Map()): EndpointModel[] {
-	const data = (body as { data?: unknown } | null)?.data;
-	if (!Array.isArray(data)) return [];
-	const seen = new Set<string>();
-	const out: EndpointModel[] = [];
-	for (const entry of data) {
-		if (!entry || typeof entry !== "object") continue;
-		const e = entry as Record<string, unknown>;
-		if (typeof e.id !== "string" || !e.id.trim() || seen.has(e.id)) continue;
-		const info = lmStudio.get(e.id);
-		if (isEmbeddingModel(e.id, info)) continue;
-		seen.add(e.id);
-		const upstream = e.openai && typeof e.openai === "object" ? (e.openai as Record<string, unknown>) : undefined;
-		const contextWindow =
-			positiveInt(e.max_model_len) ?? positiveInt(upstream?.max_model_len) ?? info?.maxContextLength ?? FALLBACK_CONTEXT_WINDOW;
-		out.push({
-			id: e.id,
-			contextWindow,
-			maxTokens: defaultMaxTokens(contextWindow),
-			vision: info?.type === "vlm",
-			reasoning: true,
-		});
-	}
-	return out.sort((a, b) => a.id.localeCompare(b.id));
 }
 
 /** LM Studio's /api/v0 root for an OpenAI-style base URL ("…/v1" →
@@ -212,14 +115,47 @@ export function lmStudioV0Url(baseUrl: string): string | null {
 	return trimmed.endsWith("/v1") ? `${trimmed.slice(0, -3)}/api/v0` : null;
 }
 
-// ─── sanitizer (read side — lenient, never throws) ───────────────────────────
+// ─── the legacy `endpoints` section (read by the migration only) ────────────
+
+/** Context window a legacy model fell back to when the server reported none. */
+const LEGACY_FALLBACK_CONTEXT_WINDOW = 32_768;
+const legacyMaxTokens = (contextWindow: number): number => Math.max(1024, Math.min(16_384, Math.floor(contextWindow / 2)));
+
+/** The model values detection fills and the user may override. */
+export interface LegacyEndpointModelValues {
+	contextWindow: number;
+	maxTokens: number;
+	vision: boolean;
+	reasoning: boolean;
+}
+
+/** One stored model: the DETECTED values plus optional user overrides
+ *  (a re-detect replaces the detected half and keeps the overrides). */
+export interface LegacyEndpointModel extends LegacyEndpointModelValues {
+	id: string;
+	overrides?: Partial<LegacyEndpointModelValues>;
+}
+
+/** One legacy endpoint. `id` doubles as the pi-ai provider id. */
+export interface LegacyEndpoint {
+	id: string;
+	name: string;
+	baseUrl: string;
+	thinkingFormat: EndpointThinkingFormat;
+	models: LegacyEndpointModel[];
+}
+
+/** The legacy `endpoints` settings section. */
+export interface LegacyEndpointsSettings {
+	list?: LegacyEndpoint[];
+}
 
 const bool = (v: unknown): boolean | undefined => (typeof v === "boolean" ? v : undefined);
 
-function sanitizeOverrides(raw: unknown): Partial<EndpointModelValues> | undefined {
+function sanitizeOverrides(raw: unknown): Partial<LegacyEndpointModelValues> | undefined {
 	if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
 	const r = raw as Record<string, unknown>;
-	const out: Partial<EndpointModelValues> = {};
+	const out: Partial<LegacyEndpointModelValues> = {};
 	const contextWindow = positiveInt(r.contextWindow);
 	if (contextWindow !== undefined) out.contextWindow = contextWindow;
 	const maxTokens = positiveInt(r.maxTokens);
@@ -231,15 +167,15 @@ function sanitizeOverrides(raw: unknown): Partial<EndpointModelValues> | undefin
 	return Object.keys(out).length ? out : undefined;
 }
 
-function sanitizeModel(raw: unknown): EndpointModel | undefined {
+function sanitizeModel(raw: unknown): LegacyEndpointModel | undefined {
 	if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
 	const r = raw as Record<string, unknown>;
 	if (typeof r.id !== "string" || !r.id.trim()) return undefined;
-	const contextWindow = positiveInt(r.contextWindow) ?? FALLBACK_CONTEXT_WINDOW;
-	const model: EndpointModel = {
+	const contextWindow = positiveInt(r.contextWindow) ?? LEGACY_FALLBACK_CONTEXT_WINDOW;
+	const model: LegacyEndpointModel = {
 		id: r.id,
 		contextWindow,
-		maxTokens: positiveInt(r.maxTokens) ?? defaultMaxTokens(contextWindow),
+		maxTokens: positiveInt(r.maxTokens) ?? legacyMaxTokens(contextWindow),
 		vision: bool(r.vision) ?? false,
 		reasoning: bool(r.reasoning) ?? true,
 	};
@@ -248,7 +184,7 @@ function sanitizeModel(raw: unknown): EndpointModel | undefined {
 	return model;
 }
 
-function sanitizeEndpoint(raw: unknown): CustomEndpoint | undefined {
+function sanitizeEndpoint(raw: unknown): LegacyEndpoint | undefined {
 	if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
 	const r = raw as Record<string, unknown>;
 	if (typeof r.id !== "string" || !isValidEndpointId(r.id)) return undefined;
@@ -256,9 +192,9 @@ function sanitizeEndpoint(raw: unknown): CustomEndpoint | undefined {
 	if (!baseUrl) return undefined;
 	const thinkingFormat = (ENDPOINT_THINKING_FORMATS as readonly unknown[]).includes(r.thinkingFormat)
 		? (r.thinkingFormat as EndpointThinkingFormat)
-		: DEFAULT_ENDPOINT_THINKING_FORMAT;
+		: "qwen-chat-template"; // the legacy default
 	const seen = new Set<string>();
-	const models: EndpointModel[] = [];
+	const models: LegacyEndpointModel[] = [];
 	for (const m of Array.isArray(r.models) ? r.models : []) {
 		const cleaned = sanitizeModel(m);
 		if (cleaned && !seen.has(cleaned.id)) {
@@ -275,12 +211,12 @@ function sanitizeEndpoint(raw: unknown): CustomEndpoint | undefined {
 	};
 }
 
-/** The read-side sanitizer for the `endpoints` section: malformed
- *  endpoints/models drop, duplicate ids keep the first. */
-export function sanitizeEndpoints(raw: Record<string, unknown>): EndpointsSettings {
+/** Reads a legacy `endpoints` section: malformed endpoints/models drop,
+ *  duplicate ids keep the first. */
+export function sanitizeLegacyEndpoints(raw: Record<string, unknown>): LegacyEndpointsSettings {
 	if (!Array.isArray(raw.list)) return {};
 	const seen = new Set<string>();
-	const list: CustomEndpoint[] = [];
+	const list: LegacyEndpoint[] = [];
 	for (const e of raw.list) {
 		const cleaned = sanitizeEndpoint(e);
 		if (cleaned && !seen.has(cleaned.id)) {

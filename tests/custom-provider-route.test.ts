@@ -1,5 +1,5 @@
 /**
- * POST /api/custom-provider — the connect policy around manually typed model
+ * POST /api/custom-providers/[id] — the connect policy around manually typed model
  * ids. Two rules earn a route test (the pure pieces live in
  * custom-endpoint.test.ts):
  *   1. Typed ids make a FAILED probe survivable, but never a rejected key.
@@ -27,48 +27,61 @@ after(() => {
 	delete process.env.LH_AUTH_FILE;
 });
 
-type Route = typeof import("../app/api/custom-provider/route.ts");
+type Route = typeof import("../app/api/custom-providers/[id]/route.ts");
 let route: Route;
+const ctx = { params: Promise.resolve({ id: "custom" }) };
 before(async () => {
-	route = await import("../app/api/custom-provider/route.ts");
+	route = await import("../app/api/custom-providers/[id]/route.ts");
 });
 
 const BASE = "http://h/v1";
 /** A connected endpoint with two discovered models, a pin on each, one typed id. */
 const CONNECTED = {
 	version: 1,
-	customProvider: {
+	customProviders: [{
+		id: "custom",
+		name: "Custom endpoint",
 		baseUrl: BASE,
 		authMode: "keyless",
 		models: [{ id: "disc-1", context: 131072 }, { id: "disc-2" }],
 		overrides: { "disc-1": { context: 200000 }, "disc-2": { maxTokens: 8192 } },
 		manualModels: ["m1"],
-	},
+	}],
 };
 
 function seed(record: unknown): void {
 	fs.writeFileSync(SETTINGS_FILE, JSON.stringify(record, null, "\t"), "utf-8");
 }
 
-function stored(): { customProvider?: { models?: { id: string }[]; overrides?: unknown; manualModels?: string[] } } {
+type Stored = { models?: { id: string }[]; overrides?: unknown; manualModels?: string[] };
+function stored(): { customProviders?: Stored[] } {
 	return JSON.parse(fs.readFileSync(SETTINGS_FILE, "utf-8"));
+}
+function entry(): Stored | undefined {
+	return stored().customProviders?.[0];
 }
 
 function answerWith(status: number, statusText: string, body?: unknown): void {
 	globalThis.fetch = (async () => (body === undefined ? new Response("nope", { status, statusText }) : Response.json(body))) as typeof fetch;
 }
 
-function post(payload: unknown): Promise<Response> {
-	return route.POST(
-		new Request("http://localhost/api/custom-provider", {
-			method: "POST",
-			headers: { "content-type": "application/json", origin: "http://localhost", "if-match": route.GET(new Request("http://localhost/api/custom-provider")).headers.get("etag")! },
-			body: JSON.stringify({ authMode: payload && typeof payload === "object" && "key" in payload ? "apiKey" : "keyless", ...payload as object }),
-		}),
-	);
+/** Edits an entry through its own route; a first connect (no entry yet) goes to the list route. */
+async function post(payload: unknown): Promise<Response> {
+	const init = (etag?: string) => ({
+		method: "POST",
+		headers: { "content-type": "application/json", origin: "http://localhost", ...(etag ? { "if-match": etag } : {}) },
+		body: JSON.stringify({ authMode: payload && typeof payload === "object" && "key" in payload ? "apiKey" : "keyless", ...payload as object }),
+	});
+	const got = await route.GET(new Request("http://localhost/api/custom-providers/custom"), ctx);
+	if (got.status === 404) {
+		const list = await import("../app/api/custom-providers/route.ts");
+		const body = JSON.parse(String(init().body));
+		return list.POST(new Request("http://localhost/api/custom-providers", { ...init(), body: JSON.stringify({ name: "custom", ...body }) }));
+	}
+	return route.POST(new Request("http://localhost/api/custom-providers/custom", init(got.headers.get("etag")!)), ctx);
 }
 
-describe("POST /api/custom-provider — typed ids and a failed probe", () => {
+describe("POST /api/custom-providers/custom — typed ids and a failed probe", () => {
 	it("a transient failure keeps the stored models, their metadata, and their pins", async () => {
 		seed(CONNECTED);
 		answerWith(503, "Service Unavailable");
@@ -76,10 +89,10 @@ describe("POST /api/custom-provider — typed ids and a failed probe", () => {
 		const res = await post({ baseUrl: BASE, manualModels: "m1" });
 		assert.equal(res.status, 200);
 
-		const cp = stored().customProvider;
+		const cp = entry();
 		assert.deepEqual(cp?.models?.map((m) => m.id), ["disc-1", "disc-2", "m1"]);
 		assert.deepEqual(cp?.models?.[0], { id: "disc-1", context: 131072 }, "detected metadata survives");
-		assert.deepEqual(cp?.overrides, CONNECTED.customProvider.overrides, "the prune must not fire on a failed probe");
+		assert.deepEqual(cp?.overrides, CONNECTED.customProviders[0]!.overrides, "the prune must not fire on a failed probe");
 		assert.deepEqual(cp?.manualModels, ["m1"]);
 	});
 
@@ -100,7 +113,7 @@ describe("POST /api/custom-provider — typed ids and a failed probe", () => {
 		const res = await post({ baseUrl: "http://other/v1", manualModels: "y, x" });
 		assert.equal(res.status, 200);
 
-		const cp = stored().customProvider;
+		const cp = entry();
 		assert.deepEqual(cp?.models?.map((m) => m.id), ["x", "y"], "the previous endpoint's models do not follow the URL");
 		assert.equal(cp?.overrides, undefined, "no pin survives a list the old pins do not belong to");
 		assert.deepEqual(cp?.manualModels, ["y", "x"], "the typed order is kept as typed");
@@ -123,7 +136,7 @@ describe("POST /api/custom-provider — typed ids and a failed probe", () => {
 		const res = await post({ baseUrl: BASE, manualModels: "disc-1, m2" });
 		assert.equal(res.status, 200);
 
-		const cp = stored().customProvider;
+		const cp = entry();
 		assert.deepEqual(cp?.models?.map((m) => m.id), ["disc-1", "m2"]);
 		assert.deepEqual(cp?.models?.[0], { id: "disc-1", context: 65536 }, "discovery is not replaced by a bare typed id");
 		assert.deepEqual(cp?.overrides, { "disc-1": { context: 200000 } }, "pins follow the ids this connect offers");

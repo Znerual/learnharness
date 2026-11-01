@@ -15,14 +15,12 @@
  * THIS API (owner decision). `source` tells the page whether the live
  * value comes from the environment (dev .env.local / launch env) or the
  * file, and `shadowedByEnv` explains why a saved key is not the live one
- * (env always wins). `customEndpoints` counts the stored custom endpoints
- * (2026-10-24): each one is a model source with an optional key, so the
- * zero-keys pill must not claim "no provider" while one exists.
+ * (env always wins).
  */
-import { customEndpointIds, keyStatuses, providerKeyList } from "@/src/server";
+import { keyStatuses, providerKeyList } from "@/src/server";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-	return Response.json({ keys: keyStatuses(), providers: providerKeyList(), customEndpoints: customEndpointIds().length });
+	return Response.json({ keys: keyStatuses(), providers: providerKeyList() });
 }

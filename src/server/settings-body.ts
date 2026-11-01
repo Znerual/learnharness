@@ -26,15 +26,6 @@ import type {
 } from "../core/settings.ts";
 import { BACKGROUND_MODEL_ROLES, COMPACTION_THRESHOLD_FLOOR, CUSTOM_MODEL_PIN_FLOOR, EXTRACTION_CHUNK_TOKENS_FLOOR, MODEL_SLOTS, normalizeBaseUrl } from "../core/settings.ts";
 import { WRITABLE_TOOL_KEYS } from "../core/pending.ts";
-import {
-	ENDPOINT_THINKING_FORMATS,
-	isValidEndpointId,
-	type CustomEndpoint,
-	type EndpointModel,
-	type EndpointModelValues,
-	type EndpointsSettings,
-	type EndpointThinkingFormat,
-} from "../core/endpoints.ts";
 import { DICTATION_ENGINES, isDictationLanguage, type DictationSettings } from "../core/dictation.ts";
 import { SPEECH_SPEED_MAX, SPEECH_SPEED_MIN, isSpeechSpeed, type SpeechSettings } from "../core/speech.ts";
 
@@ -406,92 +397,6 @@ export function parseCompactionSettingsBody(body: unknown): SettingsBodyResult<C
 
 /** The section→parser map for PUT /api/settings/[section] (the route also
  *  carries the special prompts sub-resource). */
-// ─── endpoints (custom-endpoints wave, 2026-10-24) ──────────────────────────
-
-const isPositiveInt = (v: unknown): v is number => typeof v === "number" && Number.isInteger(v) && v > 0;
-
-function parseEndpointModelValues(
-	raw: Record<string, unknown>,
-	where: string,
-	required: boolean,
-): { ok: true; values: Partial<EndpointModelValues> } | { ok: false; error: string } {
-	const values: Partial<EndpointModelValues> = {};
-	for (const field of ["contextWindow", "maxTokens"] as const) {
-		const v = raw[field];
-		if (v === undefined && !required) continue;
-		if (!isPositiveInt(v)) return { ok: false, error: `${where}.${field} must be a positive integer` };
-		values[field] = v;
-	}
-	for (const field of ["vision", "reasoning"] as const) {
-		const v = raw[field];
-		if (v === undefined && !required) continue;
-		if (typeof v !== "boolean") return { ok: false, error: `${where}.${field} must be a boolean` };
-		values[field] = v;
-	}
-	return { ok: true, values };
-}
-
-function parseEndpointModel(value: unknown, where: string): { ok: true; model: EndpointModel } | { ok: false; error: string } {
-	const raw = asRecord(value);
-	if (!raw) return { ok: false, error: `${where} must be an object` };
-	if (typeof raw.id !== "string" || !raw.id.trim()) return { ok: false, error: `${where}.id must be a non-empty string` };
-	const detected = parseEndpointModelValues(raw, where, true);
-	if (!detected.ok) return detected;
-	const model = { id: raw.id, ...(detected.values as EndpointModelValues) } as EndpointModel;
-	if (raw.overrides !== undefined) {
-		const o = asRecord(raw.overrides);
-		if (!o) return { ok: false, error: `${where}.overrides must be an object` };
-		const overrides = parseEndpointModelValues(o, `${where}.overrides`, false);
-		if (!overrides.ok) return overrides;
-		if (Object.keys(overrides.values).length) model.overrides = overrides.values;
-	}
-	return { ok: true, model };
-}
-
-/**
- * endpoints: { list?: CustomEndpoint[] } — strict: every endpoint needs a
- * valid unique id, a name, an http(s) base URL, a known thinking format,
- * and well-formed models (unique ids). The catalog-level check (no id
- * collides with a builtin pi-ai provider) runs in the route
- * (validateEndpointsSettings — the parser sees shapes only).
- */
-export function parseEndpointsSettingsBody(body: unknown): SettingsBodyResult<EndpointsSettings> {
-	const raw = asRecord(body);
-	if (!raw) return { ok: false, error: "Invalid JSON body" };
-	if (raw.list === undefined) return { ok: true, settings: {} };
-	if (!Array.isArray(raw.list)) return { ok: false, error: "list must be an array" };
-	const list: CustomEndpoint[] = [];
-	const ids = new Set<string>();
-	for (const [i, value] of raw.list.entries()) {
-		const where = `list[${i}]`;
-		const e = asRecord(value);
-		if (!e) return { ok: false, error: `${where} must be an object` };
-		if (typeof e.id !== "string" || !isValidEndpointId(e.id)) {
-			return { ok: false, error: `${where}.id must be lowercase letters, digits and inner hyphens (max 40)` };
-		}
-		if (ids.has(e.id)) return { ok: false, error: `duplicate endpoint id "${e.id}"` };
-		ids.add(e.id);
-		if (typeof e.name !== "string" || !e.name.trim()) return { ok: false, error: `${where}.name must be a non-empty string` };
-		const baseUrl = typeof e.baseUrl === "string" ? normalizeBaseUrl(e.baseUrl) : null;
-		if (!baseUrl) return { ok: false, error: `${where}.baseUrl must be an http(s) URL without query or fragment` };
-		if (!(ENDPOINT_THINKING_FORMATS as readonly unknown[]).includes(e.thinkingFormat)) {
-			return { ok: false, error: `${where}.thinkingFormat must be one of ${ENDPOINT_THINKING_FORMATS.join(", ")}` };
-		}
-		if (!Array.isArray(e.models)) return { ok: false, error: `${where}.models must be an array` };
-		const models: EndpointModel[] = [];
-		const modelIds = new Set<string>();
-		for (const [j, m] of e.models.entries()) {
-			const parsed = parseEndpointModel(m, `${where}.models[${j}]`);
-			if (!parsed.ok) return parsed;
-			if (modelIds.has(parsed.model.id)) return { ok: false, error: `${where}: duplicate model id "${parsed.model.id}"` };
-			modelIds.add(parsed.model.id);
-			models.push(parsed.model);
-		}
-		list.push({ id: e.id, name: e.name.trim(), baseUrl, thinkingFormat: e.thinkingFormat as EndpointThinkingFormat, models });
-	}
-	return { ok: true, settings: list.length ? { list } : {} };
-}
-
 // ─── dictation (local-STT wave, 2026-10-24) ─────────────────────────────────
 
 /** dictation: { engine?, localUrl?, localModel?, language? } — strict.
@@ -601,7 +506,6 @@ export const SETTINGS_SECTIONS = {
 	graph: parseGraphSettingsBody,
 	compaction: parseCompactionSettingsBody,
 	models: parseModelsSettingsBody,
-	endpoints: parseEndpointsSettingsBody,
 	dictation: parseDictationSettingsBody,
 	speech: parseSpeechSettingsBody,
 	claudeCode: parseClaudeCodeSettingsBody,
