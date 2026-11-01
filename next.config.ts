@@ -22,8 +22,12 @@ const nextConfig: NextConfig = {
 	// Turbopack fails on an import it cannot resolve; without the package the vault runtime's import
 	// resolves to a stub that throws "not installed" when (and only when) the vault is switched on.
 	...(hasVaultClient ? {} : { turbopack: { resolveAlias: { "@znerual/learnharness-vault-client": "./src/server/vault/client-stub.ts" } } }),
-	// Public build metadata only; no new runtime Electron version API.
-	env: { LH_VERSION: pkg.version, LH_HOMEPAGE: pkg.homepage },
+	// Public build metadata only; no new runtime Electron version API. A Vault release
+	// (learnharness-vault deploy/lan/release-vault-build.sh) builds with LH_BUILD_VERSION, its own
+	// release number; it has no GitHub release, so no homepage (and no release-notes link) either.
+	env: process.env.LH_BUILD_VERSION?.trim()
+		? { LH_VERSION: process.env.LH_BUILD_VERSION.trim(), LH_HOMEPAGE: "" }
+		: { LH_VERSION: pkg.version, LH_HOMEPAGE: pkg.homepage },
 	// Leave multipart headroom above the 25 MiB file allowance. This is a
 	// proxy buffer, not a rejection gate: the import route also bounds reads,
 	// validates actual file bytes and handles incomplete multipart bodies.

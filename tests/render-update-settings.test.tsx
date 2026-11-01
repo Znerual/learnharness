@@ -5,6 +5,7 @@ import React, { act } from "react";
 
 import assert from "node:assert/strict";
 import { describe, it, afterEach } from "node:test";
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createRoot, type Root } from "react-dom/client";
@@ -74,6 +75,16 @@ describe("version and contextual copy", () => {
 	it("build metadata comes from package.json and exposes only public version/homepage values", () => {
 		const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 		assert.deepEqual(nextConfig.env, { LH_VERSION: pkg.version, LH_HOMEPAGE: pkg.homepage });
+	});
+
+	it("a Vault release build shows its own number and no release-notes link (LH_BUILD_VERSION)", () => {
+		const out = execFileSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", "const c = (await import('./next.config.ts')).default; console.log(JSON.stringify(c.env));"], {
+			cwd: new URL("..", import.meta.url), env: { ...process.env, LH_BUILD_VERSION: "0.4.2101" }, encoding: "utf8",
+		});
+		assert.deepEqual(JSON.parse(out.trim().split("\n").at(-1) as string), { LH_VERSION: "0.4.2101", LH_HOMEPAGE: "" });
+		const html = renderToStaticMarkup(<UpdateSettings autoUpdate onAutoUpdateChange={() => {}} version="0.4.2101" homepage="" />);
+		assert.match(html, /Version 0\.4\.2101/);
+		assert.doesNotMatch(html, /release-notes/);
 	});
 
 	it("never claims live/latest information and keeps updater errors generic", () => {
