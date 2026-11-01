@@ -45,6 +45,6 @@ git tag -a "$TAG" -m "LearnHarness fork $VERSION"
 git -c credential.helper= -c credential.helper='!f() { echo username=x-access-token; echo "password=$GH_TOKEN"; }; f' \
 	push fork main "$TAG"
 gh release create "$TAG" --repo "$OWNER/$REPO" --title "LearnHarness $VERSION (fork)" \
-	--notes "Fork build of upstream $(node -p 'const v=require("./package.json").version.split("."); v[0]+"."+v[1]+"."+Math.floor(v[2]/1000)') with this fork's features. Linux x64." \
+	--notes "Fork build of upstream $(node -p 'const v=require("./package.json").version.split("."); v[0]+"."+v[1]+"."+(Math.floor(v[2]/1000)-1)') with this fork's features. Linux x64." \
 	"dist/LearnHarness-$VERSION-x86_64.AppImage" "dist/LearnHarness-$VERSION-amd64.deb" dist/latest-linux.yml
 echo "released $TAG → https://github.com/$OWNER/$REPO/releases/tag/$TAG"
