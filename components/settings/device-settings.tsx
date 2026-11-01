@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useAndroidShell } from "@/components/android-shell";
+import { useVaultAvailable } from "@/components/vault/available.ts";
 import { CommitInput, SettingsRow, Toggle } from "./controls.tsx";
 
 /** The device-name row (multi-device): what other devices show while this
@@ -38,12 +39,15 @@ interface AndroidDataBridge {
 	/** "" = the app restarts into the new folder; "permission" = Android asks for
 	 *  "All files access" first; "busy" = work is running, try later. */
 	setDataLocation(location: string): string;
+	/** false in the pro edition, which keeps the data folder private; absent in older apps. */
+	sharedFolderAllowed(): boolean;
 }
 
 const ANSWERS: Record<string, string> = {
 	"": "Moving the data — the app restarts…",
 	permission: "Allow “All files access” for LearnHarness; the data moves when you come back.",
 	busy: "A turn or job is running — try again when it finishes.",
+	unavailable: "This edition keeps the data in the app’s private folder.",
 };
 
 /**
@@ -60,11 +64,17 @@ export function DataFolderSetting() {
 	const android = useAndroidShell();
 	const [shared, setShared] = useState<boolean | null>(null);
 	const [note, setNote] = useState<string | null>(null);
+	const vault = useVaultAvailable();
 	const bridge = typeof window === "undefined" ? undefined : (window as { LHAndroid?: Partial<AndroidDataBridge> }).LHAndroid;
 	useEffect(() => {
 		if (android && bridge?.dataLocation) setShared(bridge.dataLocation() === "shared");
 	}, [android, bridge]);
 	if (!android || shared === null || !bridge?.setDataLocation) return null;
+	// The pro edition cannot use a shared folder. A newer app says so up front; an older one
+	// answers "unavailable" (shown as a note), and a vault build on a private folder never could.
+	const allowed = bridge.sharedFolderAllowed?.() ?? !(vault && !shared);
+	// A phone that is already on the shared folder keeps the switch, to move back.
+	if (!shared && !allowed) return null;
 	const change = (next: boolean) => {
 		const answer = bridge.setDataLocation!(next ? "shared" : "private");
 		setNote(ANSWERS[answer] ?? answer);
