@@ -8,6 +8,14 @@
  *   GOTOOLCHAIN=go1.26.0                           (optional; that is the default here)
  *
  * Skipped when either variable is missing or the vault client package is not installed.
+ *
+ * Against a deployed vault instead (no Go, no Postgres; signup codes come from its Mailpit API):
+ *
+ *   LH_VAULT_E2E_REMOTE_URL=https://learn-vault.ddns.net
+ *   LH_VAULT_E2E_MAIL_URL=https://pi-wordextremist.local/mail   LH_VAULT_E2E_MAIL_AUTH=vault:<password>
+ *   NODE_EXTRA_CA_CERTS=<root.crt>                 (when either URL uses a private CA)
+ *
+ * Remote runs use fresh addresses (e2e-a+<run>@example.org) and leave the accounts on the server.
  */
 
 import assert from "node:assert/strict";
@@ -23,7 +31,18 @@ import { hasVaultClient } from "./vault-helpers.ts";
 
 const DB_URL = process.env.LHV_TEST_DATABASE_URL;
 const REPO = process.env.LHV_REPO;
-const skip = !DB_URL ? "LHV_TEST_DATABASE_URL is not set" : !REPO ? "LHV_REPO is not set" : !hasVaultClient ? "the vault client package is not installed" : false;
+const REMOTE = process.env.LH_VAULT_E2E_REMOTE_URL?.replace(/\/+$/, "");
+const MAIL_URL = process.env.LH_VAULT_E2E_MAIL_URL?.replace(/\/+$/, "");
+const MAIL_AUTH = process.env.LH_VAULT_E2E_MAIL_AUTH;
+const RUN = Date.now().toString(36);
+const skip = !hasVaultClient
+	? "the vault client package is not installed"
+	: REMOTE
+		? !MAIL_URL || !MAIL_AUTH ? "LH_VAULT_E2E_MAIL_URL and LH_VAULT_E2E_MAIL_AUTH are needed with LH_VAULT_E2E_REMOTE_URL" : false
+		: !DB_URL ? "LHV_TEST_DATABASE_URL is not set" : !REPO ? "LHV_REPO is not set" : false;
+
+/** A test address; unique per run against a deployed vault, where accounts stay. */
+const addr = (local: string) => (REMOTE ? `${local}+${RUN}@example.org` : `${local}@example.org`);
 
 const ROOT = join(import.meta.dirname, "..");
 const PASSWORD = "correct horse battery staple, but longer";
@@ -43,6 +62,10 @@ describe("vault end to end: two data folders sync a session through the wired st
 
 	before(async () => {
 		tmp = mkdtempSync(join(tmpdir(), "lh-vault-e2e-"));
+		if (REMOTE) {
+			serverUrl = REMOTE;
+			return;
+		}
 		const pgModule = createRequire(join(REPO as string, "client", "package.json"))("pg") as PgModule;
 		const Client = "Client" in pgModule ? pgModule.Client : pgModule.default.Client;
 		const bin = join(tmp, "lhv-server");
@@ -85,6 +108,7 @@ describe("vault end to end: two data folders sync a session through the wired st
 	});
 
 	async function signupCode(email: string): Promise<string> {
+		if (REMOTE) return remoteSignupCode(email);
 		const r = await db.query<{ body_text: string }>("SELECT body_text FROM mail_queue WHERE to_addr = $1 ORDER BY id DESC LIMIT 1", [email]);
 		const m = /\n\s+([0-9A-Z]{8})\n/.exec(r.rows[0]?.body_text ?? "");
 		if (!m) throw new Error(`no signup code mailed to ${email}`);
@@ -110,7 +134,7 @@ describe("vault end to end: two data folders sync a session through the wired st
 		await a.call("saveMessages", { id: old, messages: [message("hello from before")] });
 
 		// Sign up on A through the real routes; the stores switch to the wrapped ones.
-		const email = "e2e-a@example.org";
+		const email = addr("e2e-a");
 		assert.equal((await a.route("POST", "/signup/start", { email })).status, 200);
 		assert.equal((await a.route("POST", "/signup/verify", { email, code: await signupCode(email) })).status, 200);
 		const finish = await a.route("POST", "/signup/finish", { password: PASSWORD });
@@ -149,7 +173,7 @@ describe("vault end to end: two data folders sync a session through the wired st
 
 	test("a first sign-in with local data into a vault with data asks first; cancel changes nothing, \"Use the vault\" moves the files aside", async () => {
 		const a = device("owner");
-		const email = "e2e-join@example.org";
+		const email = addr("e2e-join");
 		await a.route("POST", "/signup/start", { email });
 		await a.route("POST", "/signup/verify", { email, code: await signupCode(email) });
 		assert.equal((await a.route("POST", "/signup/finish", { password: PASSWORD })).status, 200);
@@ -185,11 +209,27 @@ describe("vault end to end: two data folders sync a session through the wired st
 	test("a data folder shared with Syncthing is refused before the vault is enabled", async () => {
 		const c = device("syncthing");
 		c.markSyncthing();
-		const r = await c.route("POST", "/signup/start", { email: "e2e-st@example.org" });
+		const r = await c.route("POST", "/signup/start", { email: addr("e2e-st") });
 		assert.equal(r.status, 409);
 		assert.equal((r.body as { error: string }).error, "syncthing_folder");
 	});
 });
+
+/** The newest signup code mailed to `email`, from the deployed vault's Mailpit API. */
+async function remoteSignupCode(email: string): Promise<string> {
+	const headers = { authorization: `Basic ${Buffer.from(MAIL_AUTH as string).toString("base64")}` };
+	for (let i = 0; i < 60; i++) {
+		const list = (await (await fetch(`${MAIL_URL}/api/v1/search?query=${encodeURIComponent(`to:"${email}"`)}`, { headers })).json()) as { messages?: { ID: string }[] };
+		const id = list.messages?.[0]?.ID;
+		if (id) {
+			const m = (await (await fetch(`${MAIL_URL}/api/v1/message/${id}`, { headers })).json()) as { Text?: string };
+			const code = /\n\s+([0-9A-Z]{8})\s*\n/.exec(m.Text ?? "")?.[1];
+			if (code) return code.toLowerCase();
+		}
+		await new Promise((r) => setTimeout(r, 500));
+	}
+	throw new Error(`no signup code mailed to ${email}`);
+}
 
 /** A child process running tests/vault-sync-device.ts over a data folder of its own. */
 class Device {

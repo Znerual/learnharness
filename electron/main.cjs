@@ -46,6 +46,20 @@ const SIDEBAR_AUTOCLOSE = 928;
 
 const PRODUCT_NAME = "LearnHarness";
 
+// Build-time settings (electron-builder -c.extraMetadata.learnharnessBuild.*), for test builds:
+//   vaultUrl    the vault server, used when LH_VAULT_URL is not set in the environment
+//   autoUpdate  false keeps the update feed from replacing this build with a release
+// A normal release sets neither.
+const BUILD = (() => {
+	try {
+		const b = require("../package.json").learnharnessBuild;
+		return b && typeof b === "object" ? b : {};
+	} catch {
+		return {};
+	}
+})();
+if (!process.env.LH_VAULT_URL && typeof BUILD.vaultUrl === "string" && BUILD.vaultUrl) process.env.LH_VAULT_URL = BUILD.vaultUrl;
+
 // APP NAME → userData (owner, 2026-10-10): the Application Support dir is
 // exactly "LearnHarness" in dev AND packaged. Packaged Electron would
 // otherwise derive it from package.json "name" (now lowercase
@@ -545,6 +559,11 @@ function installUpdateNow() {
 function setupAutoUpdater() {
 	if (!app.isPackaged) {
 		log("auto-update: dev build — updater disabled");
+		reportUpdateStatus("disabled");
+		return;
+	}
+	if (BUILD.autoUpdate === false) {
+		log("auto-update: turned off in this build (learnharnessBuild.autoUpdate)");
 		reportUpdateStatus("disabled");
 		return;
 	}

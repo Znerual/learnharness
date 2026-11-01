@@ -21,6 +21,7 @@ import { plainStores, type Stores } from "../stores.ts";
 import { setActiveVaultStores } from "./active.ts";
 import { LearnHarnessHost } from "./host.ts";
 import { joinWithExistingData, seedFirstDevice, vaultIsEmpty, VaultNotEmptyError } from "./join.ts";
+import { AndroidKeyStorage } from "./keystorage-android.ts";
 import { IpcKeyStorage } from "./keystorage-ipc.ts";
 import { IpcPasskeys } from "./passkey-ipc.ts";
 import { createVaultRoutes, type VaultRoutes } from "./routes.ts";
@@ -52,10 +53,15 @@ function guarded(): typeof Vault {
 	});
 }
 
-/** safeStorage through the Electron main process when there is one and it is secure, else session mode (memory).
+/** safeStorage through the Electron main process when there is one and it is secure, the Android Keystore
+ *  when the Android shell serves its bridge (LH_KEYSTORE_URL), else session mode (memory).
  *  Only the desktop app's own server child (LH_DESKTOP_SERVER, electron/main.cjs) speaks the bridge: any other
  *  process with an IPC channel (a test runner, a dev launcher) would wait for an answer that never comes. */
 async function chooseStorage(): Promise<{ storage: KeyStorage; ephemeral: boolean }> {
+	if (process.env.LH_KEYSTORE_URL) {
+		const android = AndroidKeyStorage.fromEnv(process.env, PATHS.local);
+		if ((await android.status()).available) return { storage: android, ephemeral: false };
+	}
 	const ipc = new IpcKeyStorage();
 	if (process.env.LH_DESKTOP_SERVER === "1" && ipc.hasBridge && (await ipc.status()).available) return { storage: ipc, ephemeral: false };
 	return { storage: new MemoryKeyStorage(), ephemeral: true };
