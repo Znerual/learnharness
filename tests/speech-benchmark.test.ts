@@ -99,3 +99,29 @@ describe("benchmarkLine", () => {
 		);
 	});
 });
+
+const { npuSpeech } = await import("../src/server/speech-models.ts");
+const { npuVoiceLine } = await import("../components/settings/on-device-speech.tsx");
+
+describe("npuSpeech", () => {
+	it("switches NPU speech on the phone with the speech key", async () => {
+		writeSettings({ version: 1, speech: { url: "http://127.0.0.1:8110/v1" } });
+		const status = { offered: true, enabled: true, soc: "SM7635", voices: [] };
+		const calls: { url: string; method?: string; body?: unknown }[] = [];
+		const fake = (async (url: string, init: RequestInit) => {
+			calls.push({ url, method: init.method, body: init.body });
+			return Response.json(status);
+		}) as typeof fetch;
+		assert.deepEqual(await npuSpeech("PUT", true, fake), { ok: true, status });
+		assert.deepEqual(calls, [{ url: "http://127.0.0.1:8110/v1/npu", method: "PUT", body: '{"enabled":true}' }]);
+	});
+});
+
+describe("npuVoiceLine", () => {
+	it("says where each voice reads, and why the NPU failed", () => {
+		const v = { voice: "thorsten", label: "Piper Thorsten (high)", language: "de" };
+		assert.equal(npuVoiceLine({ ...v, state: "ready" }), "Reads on the NPU");
+		assert.equal(npuVoiceLine({ ...v, state: "failed", error: "the NPU reading is 40 % as loud as the CPU's" }), "Reads on the CPU — the NPU reading is 40 % as loud as the CPU's");
+		assert.equal(npuVoiceLine({ ...v, state: "compiling" }), "Compiling for this phone's chip — up to a few minutes, once");
+	});
+});

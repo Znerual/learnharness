@@ -144,6 +144,23 @@ export interface SpeechBenchmarkResult {
 	voiceMode: boolean;
 }
 
+/** NPU speech on the phone (Android app, experimental, owner 2026-11-01):
+ *  Piper voices read on the Snapdragon's NPU. */
+export interface NpuSpeechStatus {
+	/** This phone's chip is one NPU speech supports. */
+	offered: boolean;
+	enabled: boolean;
+	/** The chip, e.g. "SM7635". */
+	soc: string;
+	voices: {
+		voice: string;
+		label: string;
+		language: string;
+		state: "voice-missing" | "off" | "waiting" | "downloading" | "compiling" | "testing" | "ready" | "failed";
+		error?: string;
+	}[];
+}
+
 export interface OnDeviceModel {
 	id: string;
 	kind: "dictation" | "voice";

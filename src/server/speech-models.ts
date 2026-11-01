@@ -14,7 +14,7 @@
  */
 
 import { LOCAL_STT_KEY_ID, resolveDictation } from "../core/dictation.ts";
-import { resolveSpeech, SPEECH_KEY_ID, type OnDeviceModel, type SpeechBenchmarkResult } from "../core/speech.ts";
+import { resolveSpeech, SPEECH_KEY_ID, type NpuSpeechStatus, type OnDeviceModel, type SpeechBenchmarkResult } from "../core/speech.ts";
 import { settingsStore } from "../store/settings.ts";
 import { keyValue } from "./keys.ts";
 
@@ -79,6 +79,28 @@ export async function speechBenchmark(method: "GET" | "POST", fetchFn: typeof fe
 	const body = (await res.json().catch(() => null)) as { result?: SpeechBenchmarkResult | null; error?: { message?: string } } | null;
 	if (!res.ok) return { ok: false, status: res.status === 404 ? 404 : 502, error: body?.error?.message ?? `HTTP ${res.status}` };
 	return { ok: true, result: body?.result ?? null };
+}
+
+export type NpuSpeechCall = { ok: true; status: NpuSpeechStatus } | { ok: false; status: number; error: string };
+
+/** NPU speech: its state (GET), or the switch (PUT {enabled}) (owner 2026-11-01). */
+export async function npuSpeech(method: "GET" | "PUT", enabled?: boolean, fetchFn: typeof fetch = fetch): Promise<NpuSpeechCall> {
+	const target = server();
+	if (!target) return { ok: false, status: 404, error: "No speech server is set" };
+	let res: Response;
+	try {
+		res = await fetchFn(`${target.url}/npu`, {
+			method,
+			headers: { ...(target.key ? { Authorization: `Bearer ${target.key}` } : {}), "content-type": "application/json" },
+			body: method === "PUT" ? JSON.stringify({ enabled: enabled === true }) : undefined,
+			signal: AbortSignal.timeout(TIMEOUT_MS),
+		});
+	} catch {
+		return { ok: false, status: 502, error: `The speech server is unreachable (${target.url})` };
+	}
+	const body = (await res.json().catch(() => null)) as (NpuSpeechStatus & { error?: { message?: string } }) | null;
+	if (!res.ok || !body) return { ok: false, status: res.status === 404 ? 404 : 502, error: body?.error?.message ?? `HTTP ${res.status}` };
+	return { ok: true, status: body };
 }
 
 /** Download (POST) or remove (DELETE) one model; answers the new list. */

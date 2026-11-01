@@ -10,7 +10,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Loader2Icon } from "lucide-react";
-import { SPEECH_LANGUAGE_LABEL, isSpeechLanguage, type OnDeviceModel, type SpeechBenchmarkModel, type SpeechBenchmarkResult } from "@/src/core";
+import { SPEECH_LANGUAGE_LABEL, isSpeechLanguage, type NpuSpeechStatus, type OnDeviceModel, type SpeechBenchmarkModel, type SpeechBenchmarkResult } from "@/src/core";
 import { notifySettingsSaved } from "@/components/settings-signal";
 import { SettingsGroup } from "./controls.tsx";
 
@@ -109,6 +109,93 @@ function BenchmarkRow() {
 	);
 }
 
+/** One voice's NPU state in words. Pure — exported for tests. */
+export function npuVoiceLine(v: NpuSpeechStatus["voices"][number]): string {
+	switch (v.state) {
+		case "voice-missing":
+			return "Download this voice first";
+		case "off":
+			return "Off";
+		case "waiting":
+			return "Waiting";
+		case "downloading":
+			return "Downloading its NPU files (Wi-Fi only)";
+		case "compiling":
+			return "Compiling for this phone's chip — up to a few minutes, once";
+		case "testing":
+			return "Testing against the CPU voice";
+		case "ready":
+			return "Reads on the NPU";
+		case "failed":
+			return `Reads on the CPU — ${v.error ?? "the NPU failed"}`;
+	}
+}
+
+/** Settings row: NPU speech (experimental), only on a phone whose chip supports it. */
+function NpuSpeechRow() {
+	const [npu, setNpu] = useState<NpuSpeechStatus | null>(null);
+	const [error, setError] = useState<string | null>(null);
+
+	const call = useCallback(async (init?: RequestInit) => {
+		const res = await fetch("/api/npu-speech", init).catch(() => null);
+		const body = (await res?.json().catch(() => null)) as (NpuSpeechStatus & { error?: string }) | null;
+		if (!res?.ok || !body) {
+			setError(body?.error ?? null);
+			return;
+		}
+		setError(null);
+		setNpu(body);
+	}, []);
+
+	useEffect(() => {
+		void call();
+	}, [call]);
+
+	// Follow the preparation while a voice downloads, compiles or tests.
+	const busy = npu?.voices.some((v) => v.state === "waiting" || v.state === "downloading" || v.state === "compiling" || v.state === "testing") ?? false;
+	useEffect(() => {
+		if (!busy) return;
+		const timer = setInterval(() => void call(), 3000);
+		return () => clearInterval(timer);
+	}, [busy, call]);
+
+	if (!npu?.offered) return null;
+	return (
+		<div className="px-1 py-1.5" data-testid="npu-speech">
+			<label className="flex items-center justify-between gap-3">
+				<span className="min-w-0 flex-1">
+					<span className="block font-ui text-xs text-foreground">NPU speech (experimental)</span>
+					<span className="block font-mono text-[11px] text-muted-foreground">
+						Piper voices read on this phone&apos;s NPU ({npu.soc}), which leaves the CPU free.
+					</span>
+				</span>
+				<input
+					type="checkbox"
+					checked={npu.enabled}
+					onChange={(e) =>
+						void call({ method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ enabled: e.target.checked }) })
+					}
+					data-testid="npu-speech-toggle"
+					className="size-4 accent-foreground"
+				/>
+			</label>
+			{npu.enabled &&
+				npu.voices
+					.filter((v) => v.state !== "voice-missing")
+					.map((v) => (
+						<span key={v.voice} className="mt-1 block truncate font-mono text-[11px] text-muted-foreground" data-testid={`npu-voice-${v.voice}`}>
+							{v.label} · {npuVoiceLine(v)}
+						</span>
+					))}
+			{error && (
+				<p role="alert" className="mt-1 text-xs text-red-500">
+					{error}
+				</p>
+			)}
+		</div>
+	);
+}
+
 function modelName(model: OnDeviceModel): string {
 	if (model.kind === "dictation") return "Dictation";
 	const language = isSpeechLanguage(model.language) ? SPEECH_LANGUAGE_LABEL[model.language] : model.language;
@@ -185,6 +272,7 @@ export function OnDeviceSpeechGroup() {
 				</div>
 			))}
 			<BenchmarkRow />
+			<NpuSpeechRow />
 			<p className="px-1 text-[11px] leading-relaxed text-muted-foreground/70">
 				Models download over Wi-Fi only and run on this phone. Dictation recognizes German and English by itself; read-aloud uses the voice of the language chosen under Read aloud.
 			</p>
