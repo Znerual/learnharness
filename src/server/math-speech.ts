@@ -22,9 +22,10 @@
 
 import { readFile } from "node:fs/promises";
 import katex from "katex";
+import type { SpeechLanguage } from "../core/speech.ts";
 
 /** Spoken when KaTeX cannot parse a formula. */
-const UNREADABLE_MATH = "a formula";
+const UNREADABLE_MATH: Record<SpeechLanguage, string> = { en: "a formula", de: "eine Formel" };
 
 /** ClearSpeak preferences: "a times b", "natural log", "y given x", "x is in", "n choose k". */
 const CLEARSPEAK_STYLE = [
@@ -307,6 +308,10 @@ export function patchLocale(enJson: string, baseJson: string): string {
 
 type Sre = typeof import("speech-rule-engine").default;
 let sreReady: Promise<Sre> | null = null;
+/** The engine's locale now, and the queue that switches it: the engine is
+ *  one global, so a formula waits for the switch its language needs. */
+let sreLocale: SpeechLanguage = "en";
+let sreTurn: Promise<unknown> = Promise.resolve();
 
 /** Speech Rule Engine, set up once per process (it is a global singleton). */
 function mathEngine(): Promise<Sre> {
@@ -366,12 +371,23 @@ function cleanWords(words: string): string {
 		.trim();
 }
 
-/** One formula, read in words. */
-export async function speakMath(latex: string): Promise<string> {
+/** One formula, read in words of the read-aloud language (owner,
+ *  2026-11-01): English through the patched ClearSpeak rules, German
+ *  through the engine's own German ClearSpeak. */
+export async function speakMath(latex: string, language: SpeechLanguage = "en"): Promise<string> {
 	const html = katex.renderToString(latex, { output: "mathml", throwOnError: false });
 	const mathml = /<math[\s\S]*<\/math>/.exec(html)?.[0];
 	// KaTeX renders a parse error as a red span, without <math>.
-	if (!mathml || html.includes("katex-error")) return UNREADABLE_MATH;
+	if (!mathml || html.includes("katex-error")) return UNREADABLE_MATH[language];
 	const sre = await mathEngine();
-	return cleanWords(sre.toSpeech(cleanMathml(mathml))) || UNREADABLE_MATH;
+	const turn = sreTurn.then(async () => {
+		if (sreLocale !== language) {
+			await sre.setupEngine({ locale: language, style: language === "en" ? CLEARSPEAK_STYLE : "default" });
+			await sre.engineReady();
+			sreLocale = language;
+		}
+		return sre.toSpeech(cleanMathml(mathml));
+	});
+	sreTurn = turn.catch(() => undefined);
+	return cleanWords(await turn) || UNREADABLE_MATH[language];
 }

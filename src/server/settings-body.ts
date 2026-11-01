@@ -28,7 +28,7 @@ import type {
 import { BACKGROUND_MODEL_ROLES, CACHE_RETENTIONS, COMPACTION_THRESHOLD_FLOOR, CUSTOM_MODEL_PIN_FLOOR, EXTRACTION_CHUNK_TOKENS_FLOOR, MODEL_SLOTS, normalizeBaseUrl } from "../core/settings.ts";
 import { WRITABLE_TOOL_KEYS } from "../core/pending.ts";
 import { DICTATION_ENGINES, isDictationLanguage, type DictationSettings } from "../core/dictation.ts";
-import { SPEECH_SPEED_MAX, SPEECH_SPEED_MIN, isSpeechSpeed, type SpeechSettings } from "../core/speech.ts";
+import { SPEECH_LANGUAGES, SPEECH_SPEED_MAX, SPEECH_SPEED_MIN, isSpeechLanguage, isSpeechSpeed, type SpeechSettings } from "../core/speech.ts";
 
 /** Parsed-or-rejected — `ok: false` carries the 400's error message. */
 export type SettingsBodyResult<T> =
@@ -439,7 +439,7 @@ export function parseDictationSettingsBody(body: unknown): SettingsBodyResult<Di
 
 // ─── speech (read-aloud wave, 2026-10-24) ───────────────────────────────────
 
-/** speech: { url?, voice?, speed?, autoRead? } — strict. */
+/** speech: { url?, voice?, speed?, autoRead?, language? } — strict. */
 export function parseSpeechSettingsBody(body: unknown): SettingsBodyResult<SpeechSettings> {
 	const raw = asRecord(body);
 	if (!raw) return { ok: false, error: "Invalid JSON body" };
@@ -462,6 +462,10 @@ export function parseSpeechSettingsBody(body: unknown): SettingsBodyResult<Speec
 	if (raw.autoRead !== undefined) {
 		if (typeof raw.autoRead !== "boolean") return { ok: false, error: "autoRead must be a boolean" };
 		settings.autoRead = raw.autoRead;
+	}
+	if (raw.language !== undefined) {
+		if (!isSpeechLanguage(raw.language)) return { ok: false, error: `language must be one of ${SPEECH_LANGUAGES.join(", ")}` };
+		settings.language = raw.language;
 	}
 	return { ok: true, settings };
 }

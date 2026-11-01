@@ -23,6 +23,9 @@ export interface SpeechSettings {
 	speed?: number;
 	/** Speak every live reply as it streams. */
 	autoRead?: boolean;
+	/** The read-aloud language (owner, 2026-11-01): the words formulas,
+	 *  arrows and cues are read in, and which voices the list offers. */
+	language?: SpeechLanguage;
 }
 
 /** The resolved view every consumer reads. */
@@ -31,6 +34,43 @@ export interface EffectiveSpeech {
 	voice: string | null;
 	speed: number;
 	autoRead: boolean;
+	language: SpeechLanguage;
+}
+
+/** The read-aloud languages (owner, 2026-11-01): English and German. */
+export const SPEECH_LANGUAGES = ["en", "de"] as const;
+export type SpeechLanguage = (typeof SPEECH_LANGUAGES)[number];
+export const SPEECH_LANGUAGE_LABEL: Record<SpeechLanguage, string> = { en: "English", de: "Deutsch" };
+
+export function isSpeechLanguage(value: unknown): value is SpeechLanguage {
+	return (SPEECH_LANGUAGES as readonly unknown[]).includes(value);
+}
+
+/** One voice an endpoint offers, with its language when known. */
+export interface SpeechVoice {
+	id: string;
+	/** ISO 639-1 ("en", "de"); null when the endpoint does not say. */
+	language: string | null;
+}
+
+/** Kokoro's voice names start with their language: a/b English, e Spanish,
+ *  f French, h Hindi, i Italian, j Japanese, p Portuguese, z Chinese. */
+const KOKORO_LANGUAGE: Record<string, string> = { a: "en", b: "en", e: "es", f: "fr", h: "hi", i: "it", j: "ja", p: "pt", z: "zh" };
+
+/** A voice entry of GET <url>/audio/voices: a name, or {id, language?}.
+ *  Without a language, a Kokoro-style name ("af_heart") tells it. */
+export function speechVoice(raw: unknown): SpeechVoice | null {
+	const id = typeof raw === "string" ? raw : typeof (raw as { id?: unknown })?.id === "string" ? (raw as { id: string }).id : null;
+	if (!id) return null;
+	const said = (raw as { language?: unknown })?.language;
+	if (typeof said === "string" && said.trim()) return { id, language: said.trim().slice(0, 2).toLowerCase() };
+	const kokoro = /^([a-z])[fm]_/.exec(id);
+	return { id, language: kokoro ? KOKORO_LANGUAGE[kokoro[1]!] ?? null : null };
+}
+
+/** The voices offered for a language: its own, plus those whose language is unknown. */
+export function voicesFor(voices: readonly SpeechVoice[], language: SpeechLanguage): SpeechVoice[] {
+	return voices.filter((v) => v.language === null || v.language === language);
 }
 
 /** The env/auth.json var of the endpoint's optional key. */
@@ -56,6 +96,7 @@ export function resolveSpeech(section: SpeechSettings | undefined): EffectiveSpe
 		voice: section?.voice ?? null,
 		speed: section?.speed ?? 1,
 		autoRead: section?.autoRead ?? false,
+		language: section?.language ?? "en",
 	};
 }
 
@@ -69,5 +110,21 @@ export function sanitizeSpeech(raw: Record<string, unknown>): SpeechSettings {
 	if (typeof raw.voice === "string" && raw.voice.trim()) out.voice = raw.voice.trim();
 	if (isSpeechSpeed(raw.speed)) out.speed = raw.speed;
 	if (typeof raw.autoRead === "boolean") out.autoRead = raw.autoRead;
+	if (isSpeechLanguage(raw.language)) out.language = raw.language;
 	return out;
+}
+
+/** One on-device speech model, as the Android app's speech server reports
+ *  it (GET <url>/models — src/server/speech-models.ts). */
+export interface OnDeviceModel {
+	id: string;
+	kind: "dictation" | "voice";
+	/** "auto" for dictation (it detects the language), else ISO 639-1. */
+	language: string;
+	label: string;
+	bytes: number;
+	state: "missing" | "waiting" | "downloading" | "ready" | "failed";
+	/** 0..1 while downloading. */
+	progress: number;
+	error?: string;
 }

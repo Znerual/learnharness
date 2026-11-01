@@ -20,7 +20,10 @@ import {
 	SPEECH_KEY_ID,
 	SPEECH_MATH_SPEED_FACTOR,
 	SPEECH_SPEED_MIN,
+	speechVoice,
 	type EffectiveSpeech,
+	type SpeechLanguage,
+	type SpeechVoice,
 } from "../core/speech.ts";
 import type { SpeechSegment } from "../core/speech-script.ts";
 import { keyValue } from "./keys.ts";
@@ -37,11 +40,11 @@ export function speechConfig(): EffectiveSpeech {
 	return resolveSpeech(settingsStore.readSettings()?.speech);
 }
 
-/** One block's segments → the text the voice reads. */
-export async function speechText(segments: SpeechSegment[]): Promise<string> {
+/** One block's segments → the text the voice reads, formulas in `language`'s words. */
+export async function speechText(segments: SpeechSegment[], language: SpeechLanguage = "en"): Promise<string> {
 	const parts: string[] = [];
 	for (const segment of segments) {
-		parts.push(segment.kind === "math" ? await speakMath(segment.latex) : segment.text);
+		parts.push(segment.kind === "math" ? await speakMath(segment.latex, language) : segment.text);
 	}
 	return parts.join(" ").replace(/\s+/g, " ").replace(/\s+([.,;:!?])/g, "$1").trim();
 }
@@ -89,7 +92,7 @@ export async function synthesizeSpeech(segments: SpeechSegment[], fetchFn: typeo
 
 	let input: string;
 	try {
-		input = await speechText(segments);
+		input = await speechText(segments, config.language);
 	} catch (error) {
 		console.error("[tts] math to speech failed", error);
 		return { ok: false, status: 500, error: "Could not read the formulas aloud" };
@@ -117,7 +120,7 @@ export async function synthesizeSpeech(segments: SpeechSegment[], fetchFn: typeo
 	return { ok: true, body: res.body, contentType: res.headers.get("content-type") ?? "audio/mpeg" };
 }
 
-export type SpeechVoices = { ok: true; voices: string[] } | { ok: false; status: number; error: string };
+export type SpeechVoices = { ok: true; voices: SpeechVoice[] } | { ok: false; status: number; error: string };
 
 /** The endpoint's voice names (GET <url>/audio/voices — optional). */
 export async function listSpeechVoices(fetchFn: typeof fetch = fetch): Promise<SpeechVoices> {
@@ -134,8 +137,7 @@ export async function listSpeechVoices(fetchFn: typeof fetch = fetch): Promise<S
 	}
 	if (!res.ok) return { ok: false, status: 502, error: `Voice list failed: ${await upstreamError(res)}` };
 	const body = (await res.json().catch(() => null)) as { voices?: unknown } | null;
-	const voices = Array.isArray(body?.voices)
-		? body.voices.map((v) => (typeof v === "string" ? v : (v as { id?: unknown })?.id)).filter((v): v is string => typeof v === "string")
-		: [];
+	// Names or {id, language?} objects; a Kokoro-style name tells its language.
+	const voices = Array.isArray(body?.voices) ? body.voices.map(speechVoice).filter((v): v is SpeechVoice => v !== null) : [];
 	return { ok: true, voices };
 }

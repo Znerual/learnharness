@@ -46,6 +46,7 @@ import {
 import { SettingsGroup } from "./controls.tsx";
 import { DictationEngineRows } from "./dictation-engine.tsx";
 import { SpeechRows } from "./speech-rows.tsx";
+import { OnDeviceSpeechGroup } from "./on-device-speech.tsx";
 import { SubscriptionConnections } from "./subscription-connections.tsx";
 import { ClaudeCodeInstallationStatus } from "./claude-code-status.tsx";
 import { ProviderMenuList } from "./model-menu.tsx";
@@ -656,6 +657,9 @@ export function KeysSection({
 			<SettingsGroup label="External CLI" testid="group-external-cli">
 				<ClaudeCodeInstallationStatus />
 			</SettingsGroup>
+
+			{/* The phone's own speech models (Android app, owner 2026-11-01). */}
+			{android && <OnDeviceSpeechGroup />}
 
 			{/* Tool keys by service. The fork's rows join their service: the
 			    dictation engine (local-STT wave, 2026-10-24) and LH_STT_KEY

@@ -41,6 +41,7 @@ import { useEffect, useRef, useSyncExternalStore } from "react";
 import { SquareIcon, Volume2Icon, VolumeXIcon } from "lucide-react";
 import {
 	closedMarkdown,
+	isSpeechLanguage,
 	isSpeechSpeed,
 	replyTurns,
 	speechBlocks,
@@ -51,6 +52,7 @@ import {
 	type LhViewMessage,
 	type ReplyTurn,
 	type SpeechBlock,
+	type SpeechLanguage,
 	type SpeechSettings,
 	type SpokenBlock,
 	type UserSettings,
@@ -371,12 +373,20 @@ export function offerQuestion(toolCallId: string, blocks: SpokenBlock[]): void {
 // ─── config ──────────────────────────────────────────────────────────────────
 
 let configRequested = false;
+/** The read-aloud language (owner, 2026-11-01): the words of cues, leads and arrows. */
+let language: SpeechLanguage = "en";
+
+/** The read-aloud language the spoken scripts are built in. */
+export function readAloudLanguage(): SpeechLanguage {
+	return language;
+}
 
 async function refreshConfig(): Promise<void> {
 	try {
 		const res = await fetch("/api/tts/config");
-		const body = (await res.json()) as { ready?: boolean; autoRead?: boolean; speed?: number };
+		const body = (await res.json()) as { ready?: boolean; autoRead?: boolean; speed?: number; language?: unknown };
 		savedSpeed = isSpeechSpeed(body.speed) ? body.speed : 1;
+		language = isSpeechLanguage(body.language) ? body.language : "en";
 		// A drag in flight keeps its thumb; the save that ends it reports back.
 		set({ ready: body.ready === true, autoRead: body.autoRead === true, ...(speedSave ? {} : { speed: savedSpeed }) });
 	} catch {
@@ -477,7 +487,7 @@ export function useAutoRead(messages: LhViewMessage[], status: string): void {
 		if (last?.role === "assistant" && !live.current.has(last.id)) {
 			if (streaming) live.current.add(last.id);
 			// The baseline a continuation starts from: every turn on screen.
-			else for (const turn of replyTurns(last)) spoken.current.set(turn.key, speechBlocks(turn.text).length);
+			else for (const turn of replyTurns(last)) spoken.current.set(turn.key, speechBlocks(turn.text, language).length);
 		}
 		for (const message of messages) {
 			if (!live.current.has(message.id)) continue;
@@ -488,7 +498,7 @@ export function useAutoRead(messages: LhViewMessage[], status: string): void {
 				const closed = open ? closedMarkdown(turn.text) : turn.text;
 				if (parsed.current.get(turn.key) !== closed) {
 					parsed.current.set(turn.key, closed);
-					const blocks = speechBlocks(closed);
+					const blocks = speechBlocks(closed, language);
 					const from = spoken.current.get(turn.key) ?? 0;
 					if (blocks.length > from) {
 						if (autoRead) appendReply(turn.key, paragraphs(blocks.slice(from)));
@@ -615,7 +625,7 @@ export function ReadAloudButton({ turn }: { turn: ReplyTurn }) {
 					onClick={() => {
 						if (playing) stopReadAloud();
 						else if (!ready) openSettings("keys");
-						else speakReply(turn.key, speechBlocks(turn.text));
+						else speakReply(turn.key, speechBlocks(turn.text, language));
 					}}
 					className="flex size-6 items-center justify-center rounded-sm text-muted-foreground/70 transition-colors hover:bg-accent hover:text-foreground"
 				>

@@ -52,6 +52,7 @@ export * from "./model-catalog.ts";
 export * from "./obsidian.ts";
 export * from "./stt.ts";
 export * from "./tts.ts";
+export * from "./speech-models.ts";
 export { subscriptionControlsResponse, subscriptionBrowserResponse } from "./web-subscription-http.ts";
 export { sessionCost } from "./pricing.ts";
 export { claudeCodeInstallationResponse } from "./claude-code.ts";

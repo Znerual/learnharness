@@ -29,7 +29,7 @@ const { closedMarkdown, questionSpeechBlocks, replyTurns, speechBlocks, withLead
 );
 const { seededRandom, shuffleOptions, normalizeOptions } = await import("../src/core/question-core.ts");
 const { speechStatusLine } = await import("../components/settings/speech-rows.tsx");
-const { resolveSpeech, sanitizeSpeech } = await import("../src/core/speech.ts");
+const { resolveSpeech, sanitizeSpeech, speechVoice, voicesFor } = await import("../src/core/speech.ts");
 const { parseSpeechSettingsBody } = await import("../src/server/settings-body.ts");
 const { validateKeyShape, AUTH_KEYS } = await import("../src/core/auth-keys.ts");
 const { writeSettings } = await import("../src/store/settings.ts");
@@ -254,9 +254,31 @@ describe("math in words", () => {
 	});
 });
 
+describe("the read-aloud language (owner, 2026-11-01)", () => {
+	it("speaks cues, callout leads, arrows and question leads in German", () => {
+		assert.deepEqual(speechBlocks("A → B\n\n```js\nx\n```", "de"), [[text("A, führt zu, B")], [text("Siehe den Codeblock.")]]);
+		assert.deepEqual(speechBlocks("> [!IMPORTANT]\n> Merken", "de"), [[text("Kernidee: Merken")]]);
+		const asked = questionSpeechBlocks("ask_user_question", "c1", { question: "Welche?", options: [{ label: "Eins" }] }, "de");
+		assert.deepEqual(asked.map((b) => b.block), [[text("Und jetzt die Frage: Welche?")], [text("Option 1: Eins")]]);
+		assert.deepEqual(speechBlocks("A → B"), [[text("A, leads to, B")]], "English stays the default");
+	});
+	it("reads formulas in German and switches back to English", async () => {
+		assert.deepEqual(await Promise.all([speakMath("\\frac{a}{b} + x^2", "de"), speakMath("x^2", "en")]), ["a geteilt durch b plus x Quadrat", "x squared"]);
+	});
+	it("keeps a language from the settings and tells voices' languages", () => {
+		assert.deepEqual(sanitizeSpeech({ language: "de" }), { language: "de" });
+		assert.deepEqual(sanitizeSpeech({ language: "xx" }), {});
+		assert.deepEqual(speechVoice("bf_emma"), { id: "bf_emma", language: "en" });
+		assert.deepEqual(speechVoice({ id: "thorsten", language: "de-DE" }), { id: "thorsten", language: "de" });
+		assert.deepEqual(speechVoice("custom"), { id: "custom", language: null });
+		const all = [{ id: "af_heart", language: "en" }, { id: "thorsten", language: "de" }, { id: "custom", language: null }];
+		assert.deepEqual(voicesFor(all, "de").map((v) => v.id), ["thorsten", "custom"]);
+	});
+});
+
 describe("speech settings", () => {
 	it("resolve to off with no URL", () => {
-		assert.deepEqual(resolveSpeech(undefined), { url: null, voice: null, speed: 1, autoRead: false });
+		assert.deepEqual(resolveSpeech(undefined), { url: null, voice: null, speed: 1, autoRead: false, language: "en" });
 	});
 	it("sanitize leniently", () => {
 		assert.deepEqual(sanitizeSpeech({ url: "http://h:1/v1/", voice: " af_heart ", speed: 1.5, autoRead: true }), {
@@ -283,8 +305,8 @@ describe("speech settings", () => {
 	});
 	it("the status line names host, voice and a non-default speed", () => {
 		assert.equal(speechStatusLine(undefined), "not set");
-		assert.equal(speechStatusLine({ url: "http://localhost:8110/v1" }), "localhost:8110");
-		assert.equal(speechStatusLine({ url: "http://localhost:8110/v1", voice: "af_heart", speed: 1.2 }), "localhost:8110 · af_heart · 1.2×");
+		assert.equal(speechStatusLine({ url: "http://localhost:8110/v1" }), "localhost:8110 · English");
+		assert.equal(speechStatusLine({ url: "http://localhost:8110/v1", voice: "af_heart", speed: 1.2, language: "de" }), "localhost:8110 · Deutsch · af_heart · 1.2×");
 	});
 	it("LH_TTS_KEY is a curated key with paste hygiene only", () => {
 		assert.ok(AUTH_KEYS.some((k) => k.id === "LH_TTS_KEY"));
@@ -314,7 +336,7 @@ describe("the forward to the speech endpoint", () => {
 	});
 	it("posts the spoken text with voice and speed, the key as bearer when stored", async () => {
 		writeSettings({ version: 1, speech: { url: "http://tts:8110/v1", voice: "af_heart", speed: 1.25 } });
-		assert.deepEqual(speechConfig(), { url: "http://tts:8110/v1", voice: "af_heart", speed: 1.25, autoRead: false });
+		assert.deepEqual(speechConfig(), { url: "http://tts:8110/v1", voice: "af_heart", speed: 1.25, autoRead: false, language: "en" });
 		const r = await synthesizeSpeech([text("So "), math("x^2")], fake(200, "ID3") as typeof fetch);
 		assert.ok(r.ok);
 		assert.equal(r.contentType, "audio/mpeg");
@@ -352,6 +374,6 @@ describe("the forward to the speech endpoint", () => {
 	});
 	it("lists voice names, objects or strings", async () => {
 		const r = await listSpeechVoices(fake(200, JSON.stringify({ voices: ["af_heart", { id: "am_adam" }] })) as typeof fetch);
-		assert.deepEqual(r, { ok: true, voices: ["af_heart", "am_adam"] });
+		assert.deepEqual(r, { ok: true, voices: [{ id: "af_heart", language: "en" }, { id: "am_adam", language: "en" }] });
 	});
 });

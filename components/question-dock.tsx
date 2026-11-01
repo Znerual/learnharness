@@ -10,7 +10,7 @@ import { useEnterSubmits, enterSubmits } from "@/components/enter-submits";
 import { PathInput } from "@/components/path-input";
 import { MalformedQuestion } from "@/components/malformed-question";
 import { ToolContentResponse } from "@/components/ai-elements/message";
-import { offerQuestion } from "@/components/read-aloud";
+import { offerQuestion, readAloudLanguage } from "@/components/read-aloud";
 import { cn } from "@/lib/utils";
 import {
 	buildAnswer,
@@ -140,7 +140,7 @@ export function QuestionDock({
 	// a check behind the reveal waits for the reveal.
 	const shown = expanded && parsed !== null;
 	useEffect(() => {
-		if (shown) offerQuestion(toolCallId, questionSpeechBlocks(toolName, toolCallId, input));
+		if (shown) offerQuestion(toolCallId, questionSpeechBlocks(toolName, toolCallId, input, readAloudLanguage()));
 	}, [shown, toolName, toolCallId, input]);
 	if (!parsed) {
 		return <MalformedQuestion />;

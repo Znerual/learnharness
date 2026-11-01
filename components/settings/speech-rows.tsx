@@ -2,9 +2,10 @@
 /**
  * The read-aloud row of the Keys section's Read aloud group
  * (read-aloud wave, owner 2026-10-24): the OpenAI-compatible
- * text-to-speech endpoint's base URL, voice and speed (click-unfold
+ * text-to-speech endpoint's base URL, language, voice and speed (click-unfold
  * editor, the dictation rows' look). The voice list comes from the
- * endpoint (GET /api/tts/voices); the optional key is the curated
+ * endpoint (GET /api/tts/voices), narrowed to the chosen language (owner,
+ * 2026-11-01); the optional key is the curated
  * LH_TTS_KEY row in the same group. Writes the `speech` settings section
  * (PUT /api/settings/speech, replace-whole — autoRead rides along).
  */
@@ -13,10 +14,15 @@ import { useEffect, useState } from "react";
 import {
 	normalizeBaseUrl,
 	resolveSpeech,
+	SPEECH_LANGUAGE_LABEL,
+	SPEECH_LANGUAGES,
 	SPEECH_SPEED_MAX,
 	SPEECH_SPEED_MIN,
 	SPEECH_SPEED_STEP,
+	voicesFor,
+	type SpeechLanguage,
 	type SpeechSettings,
+	type SpeechVoice,
 	type UserSettings,
 } from "@/src/core";
 import { notifySettingsSaved } from "@/components/settings-signal";
@@ -26,7 +32,7 @@ const INPUT_CLASS =
 
 /** The row's status line. Pure — exported for tests. */
 export function speechStatusLine(section: SpeechSettings | undefined): string {
-	const { url, voice, speed } = resolveSpeech(section);
+	const { url, voice, speed, language } = resolveSpeech(section);
 	if (!url) return "not set";
 	let host = url;
 	try {
@@ -34,7 +40,7 @@ export function speechStatusLine(section: SpeechSettings | undefined): string {
 	} catch {
 		// stored URLs are normalized; the raw string is the fallback
 	}
-	return [host, voice, speed !== 1 ? `${speed}×` : null].filter(Boolean).join(" · ");
+	return [host, SPEECH_LANGUAGE_LABEL[language], voice, speed !== 1 ? `${speed}×` : null].filter(Boolean).join(" · ");
 }
 
 export function SpeechRows() {
@@ -42,8 +48,9 @@ export function SpeechRows() {
 	const [editing, setEditing] = useState(false);
 	const [url, setUrl] = useState("");
 	const [voice, setVoice] = useState("");
+	const [language, setLanguage] = useState<SpeechLanguage>("en");
 	const [speed, setSpeed] = useState("1");
-	const [voices, setVoices] = useState<string[] | null>(null);
+	const [voices, setVoices] = useState<SpeechVoice[] | null>(null);
 	const [error, setError] = useState<string | null>(null);
 
 	useEffect(() => {
@@ -62,7 +69,7 @@ export function SpeechRows() {
 		let cancelled = false;
 		fetch("/api/tts/voices")
 			.then((r) => r.json())
-			.then((body: { voices?: string[] }) => {
+			.then((body: { voices?: SpeechVoice[] }) => {
 				if (!cancelled) setVoices(body.voices ?? null);
 			})
 			.catch(() => {
@@ -92,9 +99,11 @@ export function SpeechRows() {
 		delete next.url;
 		delete next.voice;
 		delete next.speed;
+		delete next.language;
 		if (trimmed) next.url = trimmed;
 		if (voice.trim()) next.voice = voice.trim();
 		if (speedValue !== 1) next.speed = speedValue;
+		if (language !== "en") next.language = language;
 		const res = await fetch("/api/settings/speech", {
 			method: "PUT",
 			headers: { "content-type": "application/json" },
@@ -132,7 +141,27 @@ export function SpeechRows() {
 						/>
 					</div>
 					<div className="flex items-center gap-2">
-						{voices && voices.length > 0 ? (
+						<select
+							value={language}
+							onChange={(e) => {
+								const next = e.target.value as SpeechLanguage;
+								setLanguage(next);
+								// A voice of the old language would read the new one: take the
+								// new language's first voice when the list knows one.
+								const offered = voices ? voicesFor(voices, next) : [];
+								if (offered.length > 0 && !offered.some((v) => v.id === voice)) setVoice(offered[0]!.id);
+							}}
+							aria-label="Language"
+							data-testid="speech-language"
+							className={`${INPUT_CLASS} max-w-28 font-ui`}
+						>
+							{SPEECH_LANGUAGES.map((l) => (
+								<option key={l} value={l}>
+									{SPEECH_LANGUAGE_LABEL[l]}
+								</option>
+							))}
+						</select>
+						{voices && voicesFor(voices, language).length > 0 ? (
 							<select
 								value={voice}
 								onChange={(e) => setVoice(e.target.value)}
@@ -141,10 +170,10 @@ export function SpeechRows() {
 								className={INPUT_CLASS}
 							>
 								<option value="">server default voice</option>
-								{voice && !voices.includes(voice) && <option value={voice}>{voice}</option>}
-								{voices.map((v) => (
-									<option key={v} value={v}>
-										{v}
+								{voice && !voicesFor(voices, language).some((v) => v.id === voice) && <option value={voice}>{voice}</option>}
+								{voicesFor(voices, language).map((v) => (
+									<option key={v.id} value={v.id}>
+										{v.id}
 									</option>
 								))}
 							</select>
@@ -198,6 +227,7 @@ export function SpeechRows() {
 					onClick={() => {
 						setUrl(effective.url ?? "");
 						setVoice(effective.voice ?? "");
+						setLanguage(effective.language);
 						setSpeed(String(effective.speed));
 						setEditing(true);
 					}}

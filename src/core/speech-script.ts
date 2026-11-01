@@ -31,6 +31,7 @@ import { math } from "micromark-extension-math";
 import { transformMathDelimiters } from "./math-delims.ts";
 import { QUESTION_TOOLS, toolQuestionKind } from "./pending.ts";
 import { normalizeOptions, seededRandom, shuffleOptions, type QuizOption } from "./question-core.ts";
+import type { SpeechLanguage } from "./speech.ts";
 import type { LhViewMessage, LhViewPart } from "./view.ts";
 
 export type SpeechSegment = { kind: "text"; text: string } | { kind: "math"; latex: string };
@@ -38,25 +39,60 @@ export type SpeechSegment = { kind: "text"; text: string } | { kind: "math"; lat
 /** One spoken request's worth of content. */
 export type SpeechBlock = SpeechSegment[];
 
-export const SPEECH_CUES = {
-	code: "See the code block.",
-	diagram: "See the diagram.",
-	table: "See the table.",
-} as const;
+/** Everything this module says in its own words, per read-aloud language
+ *  (owner, 2026-11-01): the look-cues, callout leads, question leads and
+ *  arrow words. */
+interface SpeechWords {
+	cues: { code: string; diagram: string; table: string };
+	/** GitHub alert labels → the spoken lead-in. */
+	callouts: Record<string, string>;
+	question: string;
+	option: (n: number) => string;
+	arrows: { corresponds: string; iff: string; leads: string; implies: string; comes: string };
+}
 
-/** GitHub alert labels → the spoken lead-in. */
-const CALLOUT_LEADS: Record<string, string> = {
-	IMPORTANT: "Key idea:",
-	NOTE: "Note:",
-	TIP: "Tip:",
-	WARNING: "Warning:",
-	CAUTION: "Caution:",
+const WORDS: Record<SpeechLanguage, SpeechWords> = {
+	en: {
+		cues: { code: "See the code block.", diagram: "See the diagram.", table: "See the table." },
+		callouts: { IMPORTANT: "Key idea:", NOTE: "Note:", TIP: "Tip:", WARNING: "Warning:", CAUTION: "Caution:" },
+		question: "And now the question:",
+		option: (n) => `Option ${n}:`,
+		arrows: { corresponds: "corresponds to", iff: "if and only if", leads: "leads to", implies: "implies", comes: "comes from" },
+	},
+	de: {
+		cues: { code: "Siehe den Codeblock.", diagram: "Siehe das Diagramm.", table: "Siehe die Tabelle." },
+		callouts: { IMPORTANT: "Kernidee:", NOTE: "Hinweis:", TIP: "Tipp:", WARNING: "Warnung:", CAUTION: "Vorsicht:" },
+		question: "Und jetzt die Frage:",
+		option: (n) => `Option ${n}:`,
+		arrows: { corresponds: "entspricht", iff: "genau dann, wenn", leads: "führt zu", implies: "daraus folgt", comes: "kommt von" },
+	},
 };
+
+export const SPEECH_CUES = WORDS.en.cues;
+
+/** The words of the call in progress. The module's entry points set them
+ *  for their synchronous parse and restore them after — no await in
+ *  between, so no other call can see them. */
+let words: SpeechWords = WORDS.en;
+
+function inLanguage<T>(language: SpeechLanguage, fn: () => T): T {
+	const previous = words;
+	words = WORDS[language];
+	try {
+		return fn();
+	} finally {
+		words = previous;
+	}
+}
 
 const CALLOUT_MARK_RE = /^\s*\[!([A-Za-z]+)\][ \t]*\n?/;
 
-/** Reply markdown → its spoken blocks, in reading order. */
-export function speechBlocks(markdown: string): SpeechBlock[] {
+/** Reply markdown → its spoken blocks, in reading order, in `language`'s words. */
+export function speechBlocks(markdown: string, language: SpeechLanguage = "en"): SpeechBlock[] {
+	return inLanguage(language, () => blocksOf(markdown));
+}
+
+function blocksOf(markdown: string): SpeechBlock[] {
 	const tree = fromMarkdown(transformMathDelimiters(markdown), {
 		extensions: [gfm(), math()],
 		mdastExtensions: [gfmFromMarkdown(), mathFromMarkdown()],
@@ -143,14 +179,18 @@ function spoken(blocks: SpeechBlock[], first: SpeechPause): SpokenBlock[] {
  * the question:" (owner 2026-10-30); every question is set apart by the
  * longer pause, every option by its own.
  */
-export function questionSpeechBlocks(tool: string, toolCallId: string, input: unknown): SpokenBlock[] {
+export function questionSpeechBlocks(tool: string, toolCallId: string, input: unknown, language: SpeechLanguage = "en"): SpokenBlock[] {
+	return inLanguage(language, () => questionBlocks(tool, toolCallId, input));
+}
+
+function questionBlocks(tool: string, toolCallId: string, input: unknown): SpokenBlock[] {
 	const raw = (input ?? {}) as { question?: unknown; details?: unknown; options?: unknown };
 	const kind = toolQuestionKind(tool);
 	const asked: SpeechBlock[] = [];
-	if (typeof raw.question === "string") asked.push(...speechBlocks(raw.question));
-	if (typeof raw.details === "string") asked.push(...speechBlocks(raw.details));
+	if (typeof raw.question === "string") asked.push(...blocksOf(raw.question));
+	if (typeof raw.details === "string") asked.push(...blocksOf(raw.details));
 	if (kind === "explain") return spoken(asked, "question");
-	const blocks = spoken(withLead("And now the question:", asked), "question");
+	const blocks = spoken(withLead(words.question, asked), "question");
 	let options: QuizOption[] = [];
 	try {
 		options = normalizeOptions(raw.options as Parameters<typeof normalizeOptions>[0]);
@@ -159,9 +199,9 @@ export function questionSpeechBlocks(tool: string, toolCallId: string, input: un
 	}
 	if (kind === "quiz") options = shuffleOptions(options, seededRandom(toolCallId));
 	options.forEach((option, i) => {
-		const said = speechBlocks(option.label);
-		if (kind !== "quiz" && option.description) said.push(...speechBlocks(option.description));
-		blocks.push(...spoken(withLead(`Option ${i + 1}:`, said), "option"));
+		const said = blocksOf(option.label);
+		if (kind !== "quiz" && option.description) said.push(...blocksOf(option.description));
+		blocks.push(...spoken(withLead(words.option(i + 1), said), "option"));
 	});
 	return blocks;
 }
@@ -178,10 +218,10 @@ function collectBlocks(node: RootContent, out: SpeechBlock[]): void {
 			out.push([{ kind: "math", latex: node.value }]);
 			return;
 		case "code":
-			out.push([{ kind: "text", text: node.lang?.toLowerCase() === "mermaid" ? SPEECH_CUES.diagram : SPEECH_CUES.code }]);
+			out.push([{ kind: "text", text: node.lang?.toLowerCase() === "mermaid" ? words.cues.diagram : words.cues.code }]);
 			return;
 		case "table":
-			out.push([{ kind: "text", text: SPEECH_CUES.table }]);
+			out.push([{ kind: "text", text: words.cues.table }]);
 			return;
 		case "list":
 		case "listItem":
@@ -207,7 +247,7 @@ function applyCallout(out: SpeechBlock[], start: number): void {
 	if (!block || first?.kind !== "text") return;
 	const mark = CALLOUT_MARK_RE.exec(first.text);
 	if (!mark) return;
-	const lead = CALLOUT_LEADS[(mark[1] ?? "").toUpperCase()];
+	const lead = words.callouts[(mark[1] ?? "").toUpperCase()];
 	const rest = first.text.slice(mark[0].length);
 	out[start] = [{ kind: "text", text: lead ? `${lead} ${rest}` : rest }, ...block.slice(1)];
 }
@@ -256,18 +296,18 @@ function endSentence(block: SpeechBlock): SpeechBlock {
 	return block;
 }
 
-/** Arrow → its spoken word (owner 2026-10-30), longest forms first. */
-const ARROW_WORDS: Record<string, string> = {
-	"<->": "corresponds to",
-	"↔": "corresponds to",
-	"⇔": "if and only if",
-	"-->": "leads to",
-	"->": "leads to",
-	"→": "leads to",
+/** Arrow → its spoken word (owner 2026-10-30). */
+const ARROW_WORDS: Record<string, keyof SpeechWords["arrows"]> = {
+	"<->": "corresponds",
+	"↔": "corresponds",
+	"⇔": "iff",
+	"-->": "leads",
+	"->": "leads",
+	"→": "leads",
 	"=>": "implies",
 	"⇒": "implies",
-	"<-": "comes from",
-	"←": "comes from",
+	"<-": "comes",
+	"←": "comes",
 };
 
 const ARROW_RE = /\s*(<->|-->|->|=>|<-|[↔⇔→⇒←])\s*/g;
@@ -275,7 +315,7 @@ const ARROW_RE = /\s*(<->|-->|->|=>|<-|[↔⇔→⇒←])\s*/g;
 /** Arrows read as words, set apart by commas — the voice pauses on them:
  *  "A → B" → "A, leads to, B". */
 function speakArrows(text: string): string {
-	return text.replace(ARROW_RE, (_, arrow: string) => `, ${ARROW_WORDS[arrow]}, `);
+	return text.replace(ARROW_RE, (_, arrow: string) => `, ${words.arrows[ARROW_WORDS[arrow]!]}, `);
 }
 
 /** Merge adjacent text, read arrows, collapse whitespace, drop empties. */
