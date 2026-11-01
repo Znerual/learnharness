@@ -42,7 +42,7 @@ import {
 import { useAppearance } from "./appearance.tsx";
 import { SettingsSection } from "./controls.tsx";
 import { UpdateSettings } from "./update-settings.tsx";
-import { DeviceSettings } from "./device-settings.tsx";
+import { DataFolderSetting, DeviceSettings } from "./device-settings.tsx";
 import { useAndroidShell, useAndroidBack } from "@/components/android-shell";
 import { SessionStatsSection } from "@/components/stats-bar";
 import { sessionStatsNow, useSessionStats } from "@/components/session-stats";
@@ -385,6 +385,7 @@ export function SettingsDialogBody({
 									testid="section-general"
 								>
 									<DeviceSettings />
+									<DataFolderSetting />
 									<UpdateSettings
 										autoUpdate={record.general?.autoUpdate ?? true}
 										onAutoUpdateChange={(on) =>
