@@ -86,6 +86,7 @@ describe("benchmarkLine", () => {
 				"Too slow here, so not offered: Kokoro and the high-quality Piper voices.",
 		);
 		assert.match(benchmarkLine({ ...result, kokoro: { engine: "kokoro", provider: "gpu", rtf: 0.48 } }), /Kokoro 0\.48 s per second of audio \(GPU\)/);
+		assert.match(benchmarkLine({ ...result, piperHigh: { engine: "piper-high", provider: "npu", rtf: 0.46 } }), /Piper high 0\.46 s per second of audio \(NPU\)/);
 	});
 
 	it("names the verdict, each model's speed and where it runs", () => {
