@@ -6,7 +6,9 @@
  * PURE, browser-safe.
  */
 
-/** The voice commands, as the phone sends them. */
+/** The voice commands, as the phone sends them. The phrases that say them
+ *  live in the Android app (learnharness-android VoiceCommands.kt); a new
+ *  command changes both. */
 export const VOICE_COMMANDS = ["continue", "restart", "stop", "send", "reveal", "next", "voice-off"] as const;
 export type VoiceCommand = (typeof VOICE_COMMANDS)[number];
 

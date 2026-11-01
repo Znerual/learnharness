@@ -190,6 +190,13 @@ function pauseBefore(entry: Entry): Promise<void> {
 	});
 }
 
+/** A pause puts the block back at the head: resume plays it from its start. */
+function heldByPause(entry: Entry): boolean {
+	if (!state.paused) return false;
+	queue.unshift(entry);
+	return true;
+}
+
 async function pump(): Promise<void> {
 	const gen = generation;
 	if (pumpingGeneration === gen || state.paused) return;
@@ -204,11 +211,7 @@ async function pump(): Promise<void> {
 				URL.revokeObjectURL(url);
 				break;
 			}
-			// A pause puts the block back: resume plays it from its start.
-			if (state.paused) {
-				queue.unshift(entry);
-				break;
-			}
+			if (heldByPause(entry)) break;
 			// The block just fetched freed a place ahead.
 			prefetch();
 			await pauseBefore(entry);
@@ -216,15 +219,9 @@ async function pump(): Promise<void> {
 				URL.revokeObjectURL(url);
 				break;
 			}
-			if (state.paused) {
-				queue.unshift(entry);
-				break;
-			}
+			if (heldByPause(entry)) break;
 			await playUrl(url);
-			if (gen === generation && state.paused) {
-				queue.unshift(entry);
-				break;
-			}
+			if (gen === generation && heldByPause(entry)) break;
 			URL.revokeObjectURL(url);
 			// A stop resolves the block it cut: its end is no pause to keep.
 			if (gen === generation) lastEnded = performance.now();
@@ -271,7 +268,8 @@ export function resumeReadAloud(): void {
 	if (!state.paused) return;
 	// The learner spoke in between: no pause to keep before the block.
 	lastEnded = null;
-	set({ paused: false });
+	// Paused just as the last block ended: nothing is left to say.
+	set(queue.length ? { paused: false } : { paused: false, owner: null });
 	void pump();
 }
 

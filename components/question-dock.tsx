@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDownIcon, ChevronRightIcon, PlayIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { finishDictation, isDictationActive, joinDictation, useDictationTarget } from "@/components/dictation";
-import { useVoiceTarget } from "@/components/voice-mode";
+import { submitIf, useVoiceTarget } from "@/components/voice-mode";
 import { useEnterSubmits, enterSubmits } from "@/components/enter-submits";
 import { PathInput } from "@/components/path-input";
 import { MalformedQuestion } from "@/components/malformed-question";
@@ -428,13 +428,7 @@ function QuestionDockForm({
 	useEnterSubmits(submit);
 	// Voice mode's "send" (ADR-0005): the same submit, beside the dictation
 	// claim; false when the answer is incomplete (a choice not yet picked).
-	const voiceSubmitRef = useRef<() => boolean>(() => false);
-	voiceSubmitRef.current = () => {
-		if (!canSubmit || compactionRunning) return false;
-		submit();
-		return true;
-	};
-	useVoiceTarget("question", useCallback(() => voiceSubmitRef.current(), []), dictationClaim);
+	useVoiceTarget("question", () => submitIf(canSubmit && !compactionRunning, submit), dictationClaim);
 
 	// Selecting Other never clears the thinking field — two channels, the
 	// answer and the reasoning behind it, side by side.

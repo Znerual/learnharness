@@ -1348,15 +1348,13 @@ export function Chat({
 	/* Voice mode's "send" with the composer as the target (ADR-0005): the
 	 * same send-or-steer as Enter; false (the refused earcon) when there is
 	 * nothing to send. */
-	const voiceSendRef = useRef<() => boolean>(() => false);
-	voiceSendRef.current = () => {
+	useVoiceComposer(() => {
 		if (pending || compacting || !textRef.current.trim()) return false;
 		// Missing keys or model: the send opens its dialog on screen and sends nothing.
 		const refused = !busy && (zeroKeys || selectedModelUnavailable(catalog, selectedModel));
 		onSend();
 		return !refused;
-	};
-	useVoiceComposer(useCallback(() => voiceSendRef.current(), []));
+	});
 
 	return (
 		<ChatActionsContext.Provider

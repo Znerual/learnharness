@@ -19,7 +19,7 @@
  * one session page, and the claimants live in unrelated subtrees.
  */
 
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { AudioLinesIcon } from "lucide-react";
 import { isVoiceCommand, voiceAction, type VoiceContext, type VoiceEvent } from "@/src/core";
 import { Hint } from "@/components/ui/hint";
@@ -46,7 +46,8 @@ export interface VoiceModeState {
 let state: VoiceModeState = { available: false, phase: "off", error: null };
 const listeners = new Set<() => void>();
 
-function set(patch: Partial<VoiceModeState>): void {
+/** Change the state; auto-read follows it, on exactly while voice mode is on. */
+function update(patch: Partial<VoiceModeState>): void {
 	state = { ...state, ...patch };
 	setVoiceAutoRead(state.phase === "on");
 	for (const listener of listeners) listener();
@@ -75,57 +76,67 @@ function bridge(): AndroidVoiceBridge | null {
 type TargetKind = VoiceContext["target"];
 /** Submits the field; false when there is nothing to submit. */
 type Submit = () => boolean;
+type ClaimedTarget = { kind: Exclude<TargetKind, "composer">; submit: Submit | null };
+
+/** One registration a mounted part offers voice mode; the last mounted wins. */
+interface Slot<T> {
+	current: T | null;
+}
+
+/** Hold `slot` with `value` while mounted (null: offer nothing). The
+ *  release is identity-based, like useDictationTarget's. */
+function useSlot<T>(slot: Slot<T>, value: T | null): void {
+	useEffect(() => {
+		if (value === null) return;
+		slot.current = value;
+		return () => {
+			if (slot.current === value) slot.current = null;
+		};
+	}, [slot, value]);
+}
+
+/** A stable submit that always runs the caller's latest closure. */
+function useLatestSubmit(submit: Submit | null): Submit | null {
+	const latest = useRef(submit);
+	latest.current = submit;
+	const stable = useMemo<Submit>(() => () => latest.current?.() ?? false, []);
+	return submit ? stable : null;
+}
 
 /** The claimed target: the same field that holds the dictation claim
  *  (dictation.tsx useDictationTarget) — question, practice or
  *  thinking-while-reading. The composer is the fallback. */
-let claimed: { kind: Exclude<TargetKind, "composer">; submit: Submit | null } | null = null;
-let composerSubmit: Submit | null = null;
-let reveal: (() => void) | null = null;
-let next: (() => void) | null = null;
+const claimed: Slot<ClaimedTarget> = { current: null };
+const composer: Slot<Submit> = { current: null };
+const reveal: Slot<() => void> = { current: null };
+const next: Slot<() => void> = { current: null };
+
+/** Submit when `ok`; the answer voice mode's earcon reports. */
+export function submitIf(ok: boolean, submit: () => void): boolean {
+	if (ok) submit();
+	return ok;
+}
 
 /** Claim the voice target while mounted and `active`, beside the dictation claim. */
-export function useVoiceTarget(kind: Exclude<TargetKind, "composer">, submit: Submit | null, active: boolean): void {
-	useEffect(() => {
-		if (!active) return;
-		const entry = { kind, submit };
-		claimed = entry;
-		return () => {
-			if (claimed === entry) claimed = null;
-		};
-	}, [kind, submit, active]);
+export function useVoiceTarget(kind: ClaimedTarget["kind"], submit: Submit | null, active: boolean): void {
+	const stable = useLatestSubmit(submit);
+	const target = useMemo<ClaimedTarget>(() => ({ kind, submit: stable }), [kind, stable]);
+	useSlot(claimed, active ? target : null);
 }
 
 /** The composer's send, the fallback target's submit. */
 export function useVoiceComposer(submit: Submit): void {
-	useEffect(() => {
-		composerSubmit = submit;
-		return () => {
-			if (composerSubmit === submit) composerSubmit = null;
-		};
-	}, [submit]);
+	useSlot(composer, useLatestSubmit(submit));
 }
 
 /** Offer the teach-check reveal (null: nothing waits behind one). */
 export function useVoiceReveal(open: (() => void) | null): void {
-	useEffect(() => {
-		if (!open) return;
-		reveal = open;
-		return () => {
-			if (reveal === open) reveal = null;
-		};
-	}, [open]);
+	useSlot(reveal, open);
 }
 
 /** Offer the practice move-on (null: not in the between-problems pause). */
 export function useVoiceNext(go: (() => void) | null): void {
-	useEffect(() => {
-		if (!go) return;
-		next = go;
-		return () => {
-			if (next === go) next = null;
-		};
-	}, [go]);
+	useSlot(next, go);
 }
 
 // ─── the app's calls ─────────────────────────────────────────────────────────
@@ -133,10 +144,10 @@ export function useVoiceNext(go: (() => void) | null): void {
 /** One utterance: act on it, true when the page did something. */
 export function handleVoiceEvent(event: VoiceEvent): boolean {
 	const context: VoiceContext = {
-		target: claimed?.kind ?? "composer",
+		target: claimed.current?.kind ?? "composer",
 		reading: readAloudReading(),
-		canReveal: reveal !== null,
-		canNext: next !== null,
+		canReveal: reveal.current !== null,
+		canNext: next.current !== null,
 	};
 	const action = voiceAction(event, context);
 	switch (action.type) {
@@ -151,15 +162,15 @@ export function handleVoiceEvent(event: VoiceEvent): boolean {
 			stopReadAloud();
 			return true;
 		case "submit": {
-			const submit = claimed ? claimed.submit : composerSubmit;
+			const submit = claimed.current ? claimed.current.submit : composer.current;
 			return submit ? submit() : false;
 		}
 		case "reveal":
-			reveal?.();
-			return reveal !== null;
+			reveal.current?.();
+			return reveal.current !== null;
 		case "next":
-			next?.();
-			return next !== null;
+			next.current?.();
+			return next.current !== null;
 		case "voice-off":
 			stopVoiceMode();
 			return true;
@@ -187,9 +198,9 @@ function install(): void {
 	const android = bridge();
 	if (!android) return;
 	const handlers: PageVoiceHandlers = {
-		started: () => set({ phase: "on", error: null }),
+		started: () => update({ phase: "on", error: null }),
 		// A reading paused by a barge-in stays paused (the toggle's stop ends it).
-		ended: (reason) => set({ phase: "off", error: reason || null }),
+		ended: (reason) => update({ phase: "off", error: reason || null }),
 		speechStarted: () => pauseReadAloud(),
 		command: (name) => isVoiceCommand(name) && handleVoiceEvent({ type: "command", command: name }),
 		text: (transcript) => handleVoiceEvent({ type: "text", text: transcript }),
@@ -197,15 +208,16 @@ function install(): void {
 	};
 	(window as { lhVoice?: PageVoiceHandlers }).lhVoice = handlers;
 	// A reloaded page finds voice mode still on in the app.
-	set({ available: true, phase: android.voiceModeActive() ? "on" : "off" });
+	update({ available: true, phase: android.voiceModeActive() ? "on" : "off" });
 }
 
 export function startVoiceMode(): void {
 	const android = bridge();
 	if (!android || state.phase !== "off") return;
-	set({ phase: "starting", error: null });
+	update({ phase: "starting", error: null });
+	// A JavaScript bridge returns only primitives: "" means no error.
 	const error = android.voiceModeStart();
-	if (error) set({ phase: "off", error });
+	if (error) update({ phase: "off", error });
 }
 
 export function stopVoiceMode(): void {
