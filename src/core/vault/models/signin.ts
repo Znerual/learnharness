@@ -39,6 +39,8 @@ function afterSession(s: SignInState, session: SessionDto): SignInState {
 	const email = "email" in s ? s.email : "";
 	switch (session.state) {
 		case "signed_in":
+		case "joining":
+			// "joining": the Vault section shows the join screen next (it reads the session again)
 			return { step: "signed_in", busy: false };
 		case "needs_unlock":
 			return { step: "needs_unlock", email: session.email || email, password: "", busy: false };

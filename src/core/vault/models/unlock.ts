@@ -22,6 +22,9 @@ export function reduceUnlock(s: UnlockState, e: UnlockEvent): UnlockState {
 	switch (e.session.state) {
 		case "signed_in":
 			return { step: "ready", offline: e.session.offline };
+		case "joining":
+			// usable: the Vault section shows the join screen (it reads the session again)
+			return { step: "ready", offline: false };
 		case "signed_out":
 			return { step: "signed_out", reason: "none" };
 		case "needs_unlock":

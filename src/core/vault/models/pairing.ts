@@ -58,7 +58,7 @@ export function reduceApprover(s: ApproverState, e: ApproverEvent): ApproverStat
 export type JoinerState =
 	| ({ step: "choose" } & Common)
 	| ({ step: "showing"; pairingId: string; qr: string; text: string; code: string } & Common)
-	| ({ step: "scan"; value: string } & Common)
+	| ({ step: "scan"; value: string; scanning: boolean } & Common)
 	| ({ step: "waiting"; pairingId: string; code: string } & Common)
 	| { step: "done"; busy: false }
 	| { step: "failed"; busy: false; error: string };
@@ -67,6 +67,12 @@ export type JoinerEvent =
 	| { type: "show_own" }
 	| { type: "shown"; pairingId: string; qr: string; text: string; code: string }
 	| { type: "scan_mode" }
+	/** The camera scanner of the Android app was opened. */
+	| { type: "scan_started" }
+	/** The scanner returned a payload (the app validated its shape; the server checks it again). */
+	| { type: "scanned"; payload: string }
+	/** The scanner closed without a payload: 0 cancelled, 2 camera permission denied, 3 no camera. */
+	| { type: "scan_failed"; reason?: number }
 	| { type: "value_changed"; value: string }
 	| { type: "join" }
 	| { type: "joined"; pairingId: string; code: string }
@@ -80,19 +86,34 @@ export function looksLikePairingPayload(s: string): boolean {
 	return s.trim().startsWith("lhv1-pair:");
 }
 
+/** The error code (strings.errors) for the scanner's failure reason. */
+export function scanFailureCode(reason: number | undefined): string {
+	return reason === 0 ? "scan_cancelled" : reason === 2 ? "scan_permission" : reason === 3 ? "scan_camera" : "scan_failed";
+}
+
+/** True while the join call for the typed or scanned code has to be made (the screen calls the route once per `join`). */
+export function joinCallReady(s: JoinerState): string | null {
+	return s.step === "scan" && s.busy ? s.value : null;
+}
+
 export function reduceJoiner(s: JoinerState, e: JoinerEvent): JoinerState {
 	if (e.type === "failed") {
 		if (s.step === "done" || s.step === "failed") return s;
 		if (e.code === "pairing_timeout" || e.code === "pairing_cancelled") return { step: "failed", busy: false, error: e.code };
-		return { ...s, busy: false, error: e.code } as JoinerState;
+		return { ...s, busy: false, ...(s.step === "scan" ? { scanning: false } : {}), error: e.code } as JoinerState;
 	}
 	switch (s.step) {
 		case "choose":
 			if (e.type === "show_own") return s.busy ? s : { ...s, busy: true, error: undefined };
 			if (e.type === "shown") return { step: "showing", pairingId: e.pairingId, qr: e.qr, text: e.text, code: e.code, busy: false };
-			if (e.type === "scan_mode") return { step: "scan", value: "", busy: false };
+			if (e.type === "scan_mode") return { step: "scan", value: "", scanning: false, busy: false };
+			if (e.type === "scan_started") return { step: "scan", value: "", scanning: true, busy: false };
+			if (e.type === "scanned" || e.type === "scan_failed") return reduceJoiner({ step: "scan", value: "", scanning: true, busy: false }, e);
 			return s;
 		case "scan":
+			if (e.type === "scan_started") return s.busy ? s : { ...s, scanning: true, error: undefined };
+			if (e.type === "scan_failed") return s.scanning ? { ...s, scanning: false, error: scanFailureCode(e.reason) } : s;
+			if (e.type === "scanned") return looksLikePairingPayload(e.payload) ? { ...s, value: e.payload.trim(), scanning: false, busy: true, error: undefined } : { ...s, scanning: false, error: "bad_code" };
 			if (e.type === "value_changed") return { ...s, value: e.value, error: undefined };
 			if (e.type === "join") return looksLikePairingPayload(s.value) ? (s.busy ? s : { ...s, value: s.value.trim(), busy: true, error: undefined }) : { ...s, error: "bad_code" };
 			if (e.type === "joined") return { step: "waiting", pairingId: e.pairingId, code: e.code, busy: true };

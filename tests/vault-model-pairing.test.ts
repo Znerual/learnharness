@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { formatPairingCode, formatPairingText, initialApprover, initialJoiner, reduceApprover, reduceJoiner } from "../src/core/vault/models/pairing.ts";
+import { formatPairingCode, formatPairingText, initialApprover, initialJoiner, joinCallReady, reduceApprover, reduceJoiner, scanFailureCode } from "../src/core/vault/models/pairing.ts";
 
 test("approver: show, review the name and code, approve", () => {
 	let s = reduceApprover(initialApprover, { type: "start" });
@@ -71,4 +71,28 @@ test("joiner: a cancelled pairing (keys rotated) ends with a message", () => {
 test("code formatting", () => {
 	assert.equal(formatPairingCode("123456"), "123 456");
 	assert.equal(formatPairingText("A".repeat(52)), Array(13).fill("AAAA").join(" "));
+});
+
+test("joiner scanner (Android): a scanned payload joins at once; failures say what to do", () => {
+	let s = reduceJoiner(initialJoiner, { type: "scan_started" });
+	assert.ok(s.step === "scan" && s.scanning && !s.busy);
+	s = reduceJoiner(s, { type: "scanned", payload: " lhv1-pair:https://v:id:abc " });
+	assert.ok(s.step === "scan" && s.busy && !s.scanning && s.value === "lhv1-pair:https://v:id:abc");
+	assert.equal(joinCallReady(s), "lhv1-pair:https://v:id:abc");
+	assert.equal(reduceJoiner(s, { type: "joined", pairingId: "p", code: "123456" }).step, "waiting");
+
+	// a payload that is not a pairing code is refused without a call
+	const bad = reduceJoiner(reduceJoiner(initialJoiner, { type: "scan_started" }), { type: "scanned", payload: "https://example.org" });
+	assert.ok(bad.step === "scan" && !bad.busy && bad.error === "bad_code");
+	assert.equal(joinCallReady(bad), null);
+
+	for (const [reason, code] of [[0, "scan_cancelled"], [2, "scan_permission"], [3, "scan_camera"], [undefined, "scan_failed"], [9, "scan_failed"]] as const) {
+		const f = reduceJoiner(reduceJoiner(initialJoiner, { type: "scan_started" }), { type: "scan_failed", ...(reason === undefined ? {} : { reason }) });
+		assert.ok(f.step === "scan" && !f.scanning && f.error === code, String(reason));
+		assert.equal(scanFailureCode(reason), code);
+	}
+	// after a failed scan the learner can paste instead
+	const pasted = reduceJoiner(reduceJoiner(reduceJoiner(initialJoiner, { type: "scan_started" }), { type: "scan_failed", reason: 2 }), { type: "value_changed", value: "lhv1-pair:https://v:id:abc" });
+	assert.equal(pasted.step === "scan" && pasted.error, undefined);
+	assert.equal(reduceJoiner(pasted, { type: "join" }).busy, true);
 });

@@ -16,7 +16,7 @@ export class VaultNotEmptyError extends Error {
 	}
 }
 
-async function vaultIsEmpty(vault: Vault): Promise<boolean> {
+export async function vaultIsEmpty(vault: Vault): Promise<boolean> {
 	const r = (await vault.api.get("/v1/changes?since=0&limit=1", vault.auth())) as ChangesResponse;
 	return r.changes.length === 0;
 }

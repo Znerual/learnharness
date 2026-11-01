@@ -12,7 +12,7 @@
 
 import assert from "node:assert/strict";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -147,6 +147,41 @@ describe("vault end to end: two data folders sync a session through the wired st
 		assert.ok(await a.call("createChat", { title: "After sign-out" }));
 	});
 
+	test("a first sign-in with local data into a vault with data asks first; cancel changes nothing, \"Use the vault\" moves the files aside", async () => {
+		const a = device("owner");
+		const email = "e2e-join@example.org";
+		await a.route("POST", "/signup/start", { email });
+		await a.route("POST", "/signup/verify", { email, code: await signupCode(email) });
+		assert.equal((await a.route("POST", "/signup/finish", { password: PASSWORD })).status, 200);
+		const theirs = (await a.call("createChat", { title: "Owner session" })) as string;
+		await a.call("saveMessages", { id: theirs, messages: [message("owner data")] });
+		assert.equal((await a.route("POST", "/sync/now")).status, 200);
+
+		// A second device with a session of its own, from before the vault.
+		const b = device("laptop-with-data");
+		const mine = (await b.call("createChat", { title: "Local only" })) as string;
+		await b.call("saveMessages", { id: mine, messages: [message("local data")] });
+		const joining = await b.route("POST", "/sign-in/password", { email, password: PASSWORD });
+		assert.equal(joining.status, 200);
+		const dto = joining.body as { state: string; email: string; localFiles: number };
+		assert.deepEqual([dto.state, dto.email], ["joining", email]);
+		assert.ok(dto.localFiles > 0);
+		assert.equal(((await b.route("GET", "/session")).body as { state: string }).state, "joining");
+		assert.deepEqual(((await b.call("chats")) as { id: string }[]).map((c) => c.id), [mine], "nothing moved while the question is open");
+
+		// Cancel: signed out, the local session is untouched, nothing was uploaded.
+		assert.deepEqual((await b.route("POST", "/session/join", { choice: "cancel" })).body, { state: "signed_out" });
+		assert.deepEqual(((await b.call("chats")) as { id: string }[]).map((c) => c.id), [mine]);
+		assert.equal(b.listMoved().length, 0);
+
+		// Sign in again and use the vault: the local files move to pre-vault-<date>/, the vault's data arrives.
+		assert.equal(((await b.route("POST", "/sign-in/password", { email, password: PASSWORD })).body as { state: string }).state, "joining");
+		assert.equal(((await b.route("POST", "/session/join", { choice: "use-vault" })).body as { state: string }).state, "signed_in");
+		assert.equal((await b.route("POST", "/sync/now")).status, 200);
+		assert.deepEqual(((await b.call("chats")) as { id: string }[]).map((c) => c.id), [theirs]);
+		assert.ok(b.listMoved().some((f) => f.endsWith(`${mine}.json`)), `the local session is kept in pre-vault-<date>/: ${b.listMoved().join(", ")}`);
+	});
+
 	test("a data folder shared with Syncthing is refused before the vault is enabled", async () => {
 		const c = device("syncthing");
 		c.markSyncthing();
@@ -194,6 +229,21 @@ class Device {
 
 	route(method: string, path: string, body?: unknown): Promise<{ status: number; body: unknown }> {
 		return this.call("route", { method, path, body }) as Promise<{ status: number; body: unknown }>;
+	}
+
+	/** Files in the pre-vault-<date> folders of the local folder (where "Use the vault" moves local files). */
+	listMoved(): string[] {
+		const local = `${this.dataDir}-local`;
+		if (!existsSync(local)) return [];
+		const out: string[] = [];
+		const walk = (dir: string) => {
+			for (const e of readdirSync(dir, { withFileTypes: true })) {
+				if (e.isDirectory()) walk(join(dir, e.name));
+				else out.push(join(dir, e.name));
+			}
+		};
+		for (const e of readdirSync(local, { withFileTypes: true })) if (e.isDirectory() && e.name.startsWith("pre-vault-")) walk(join(local, e.name));
+		return out;
 	}
 
 	markSyncthing(): void {

@@ -134,9 +134,14 @@ export function DevicesView({ state, dispatch, actions, now, reauthSlot }: { sta
 			{state.action?.kind === "sign_out_confirm" ? (
 				<Notice tone="warning" title={strings.devices.signOutConfirm} testid="sign-out-confirm">
 					<p>{strings.devices.signOutConfirmBody}</p>
+					{state.action.unpushed !== null ? (
+						<p data-testid="unpushed" data-count={state.action.unpushed} className={state.action.unpushed > 0 ? "font-medium" : "text-muted-foreground"}>
+							{state.action.unpushed > 0 ? strings.leave.unpushed(state.action.unpushed) : strings.leave.none}
+						</p>
+					) : null}
 					<div className="mt-2 flex gap-2">
 						<Button variant="danger" disabled={state.busy} onClick={actions.signOut}>
-							{strings.devices.signOut}
+							{state.action.unpushed ? strings.leave.confirm : strings.devices.signOut}
 						</Button>
 						<Button variant="secondary" onClick={() => dispatch({ type: "action_cancel" })}>
 							{strings.common.cancel}
@@ -241,7 +246,11 @@ export function Devices({ api, onAddDevice, onSignedOut, now = () => new Date() 
 	return (
 		<DevicesView
 			state={state}
-			dispatch={dispatch}
+			dispatch={(e) => {
+				dispatch(e);
+				// before signing out, count the changes that never reached the vault (they would stay local only)
+				if (e.type === "sign_out_ask") api.leaveVault({ dryRun: true }).then((r) => dispatch({ type: "unpushed", count: r.unpushed }), () => undefined);
+			}}
 			actions={actions}
 			now={now()}
 			reauthSlot={() =>

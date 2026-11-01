@@ -16,6 +16,8 @@ import { ExportSettings } from "@/components/vault/ExportReminder";
 import { History } from "@/components/vault/History";
 import { ManagePlan } from "@/components/vault/AccountNotices";
 import { Passkeys } from "@/components/vault/Passkeys";
+import { Join } from "@/components/vault/Join";
+import { LeaveVault } from "@/components/vault/LeaveVault";
 import { PairingApprover, PairingJoiner } from "@/components/vault/Pairing";
 import { Regenerate } from "@/components/vault/Regenerate";
 import { Recover } from "@/components/vault/Recover";
@@ -25,7 +27,7 @@ import { SyncStatusBanner } from "@/components/vault/SyncStatusBanner";
 import { Unlock } from "@/components/vault/Unlock";
 import { SettingsGroup } from "./controls.tsx";
 
-type Screen = "unlock" | "signin" | "signup" | "recover" | "join" | "new_password" | "account";
+type Screen = "unlock" | "signin" | "signup" | "recover" | "join" | "joining" | "new_password" | "account";
 
 const api = createVaultApi({ base: "/api/vault" });
 
@@ -37,7 +39,19 @@ export function VaultSection() {
 	const [accountVersion, setAccountVersion] = useState(0);
 	const reloadAccount = useCallback(() => setAccountVersion((v) => v + 1), []);
 
-	const toAccount = useCallback(() => setScreen("account"), []);
+	const [joining, setJoining] = useState<{ email: string; localFiles: number } | null>(null);
+
+	// every way of getting signed in ends here: the server may first want an answer (the join screen)
+	const toAccount = useCallback(() => {
+		api.session()
+			.then((s) => {
+				if (s.state === "joining") {
+					setJoining({ email: s.email, localFiles: s.localFiles });
+					setScreen("joining");
+				} else setScreen("account");
+			})
+			.catch(() => setScreen("account"));
+	}, []);
 	const onNeeds = useCallback((s: "sign_in" | "unlock" | "set_password") => setScreen(s === "set_password" ? "new_password" : "signin"), []);
 	const signedOut = useCallback(() => {
 		setAccount(null);
@@ -64,6 +78,21 @@ export function VaultSection() {
 		] as const,
 		[],
 	);
+
+	if (screen === "joining" && joining) {
+		return (
+			<Join
+				api={api}
+				email={joining.email}
+				localFiles={joining.localFiles}
+				onDone={(session) => {
+					setJoining(null);
+					if (session.state === "signed_out") signedOut();
+					else setScreen("account");
+				}}
+			/>
+		);
+	}
 
 	if (screen === "unlock") return <Unlock api={api} onReady={toAccount} onNeeds={onNeeds} />;
 
@@ -100,6 +129,9 @@ export function VaultSection() {
 						</SettingsGroup>
 						<SettingsGroup label="Export">
 							<ExportSettings api={api} account={account} />
+						</SettingsGroup>
+						<SettingsGroup label="Leave">
+							<LeaveVault api={api} onLeft={signedOut} />
 						</SettingsGroup>
 						<SettingsGroup label="Delete account">
 							<DeleteAccount api={api} email={account.email} passkeys={reauthPasskeys(account)} onDeleted={signedOut} />

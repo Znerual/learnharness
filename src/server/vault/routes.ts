@@ -92,6 +92,16 @@ export interface VaultStatics {
 	pairJoin(o: VaultOptionsLike, qr: string): Promise<JoinerLike>;
 }
 
+/** What a first start on this device would do (see `VaultRouteDeps.sync.plan`). */
+export interface StartPlan {
+	/** No start has completed for this account on this device yet. */
+	firstStart: boolean;
+	/** Files in this device's data folder. */
+	localFiles: number;
+	/** The vault already holds records (only asked when there are local files). */
+	vaultHasRecords: boolean;
+}
+
 export interface RestorerLike {
 	versions(path: string): Promise<{ seq: number; createdAt: string; deviceName: string; deleted: boolean; size: number }[]>;
 	restoreVersion(path: string, seq: number): Promise<void>;
@@ -108,8 +118,18 @@ export interface VaultRouteDeps {
 	checkPassword: (password: string) => Promise<PasswordCheckResult>;
 	/** The passkey ceremony (the Electron passkey window on desktop). Absent: passkeys are unavailable. */
 	passkeys?: PasskeyPort;
-	/** Owns the SyncEngine: started after unlock, stopped on sign-out. */
-	sync: { start(vault: VaultLike): void | Promise<void>; stop(): void | Promise<void>; status(): SyncStatus; syncNow(): Promise<SyncStatus> };
+	/**
+	 * Owns the SyncEngine: started after unlock, stopped on sign-out. `plan` looks at a first start on this device without
+	 * changing anything; `start` with `choice: "use-vault"` is the learner's answer to the join question, and without it a
+	 * first start never moves local files (it refuses when it would have to).
+	 */
+	sync: {
+		start(vault: VaultLike, o?: { choice?: "use-vault" }): void | Promise<void>;
+		stop(): void | Promise<void>;
+		status(): SyncStatus;
+		syncNow(): Promise<SyncStatus>;
+		plan?(vault: VaultLike): Promise<StartPlan>;
+	};
 	restorer: (vault: VaultLike) => RestorerLike;
 	/** The client's `leaveVault(dataDir, storage, opts)`, bound to this installation. */
 	leaveVault: (opts: { dryRun?: boolean }) => Promise<{ unpushed: number }>;
@@ -141,6 +161,7 @@ export function toRouteError(e: unknown): RouteError {
 		return new RouteError(status, e.code, e.message);
 	}
 	if (x?.name === "SyncthingFolderError") return new RouteError(409, "syncthing_folder", x.message);
+	if (x?.name === "JoinChoiceRequiredError") return new RouteError(409, "join_choice_required", x.message);
 	if (x?.name === "NetworkError") return new RouteError(503, "network", "The vault server is not reachable");
 	if (x?.name === "VaultError" && typeof x.code === "string") {
 		const status = x.code === "signed_out" || x.code === "login_failed" ? 401 : x.code.startsWith("password_") ? 422 : x.code === "pairing_timeout" ? 408 : x.code === "pairing_cancelled" ? 409 : 400;
@@ -208,6 +229,8 @@ export function createVaultRoutes(deps: VaultRouteDeps): VaultRoutes {
 	let vault: VaultLike | null = null;
 	let signup: { session: SignupSessionLike; display?: { recoveryKey: SecretText; backupCodes: SecretText[] } } | null = null;
 	let lockedSession: { session: unknown; email: string } | null = null;
+	/** Signed in, waiting for the learner before the first sync starts (the "joining" session). */
+	let joining: { email: string; localFiles: number } | null = null;
 	const grants = new Map<string, { grant: string; expires: number }>();
 	const passkeyPort: PasskeyPort = deps.passkeys ?? {
 		availability: () => ({ available: false, reason: "bridge_missing" }),
@@ -224,16 +247,42 @@ export function createVaultRoutes(deps: VaultRouteDeps): VaultRoutes {
 
 	function sessionDto(): SessionDto {
 		if (vault?.mustSetPassword) return { state: "must_set_password" };
+		if (vault && joining) return { state: "joining", email: joining.email, localFiles: joining.localFiles };
 		if (vault) return { state: "signed_in", accountId: vault.accountId, deviceId: vault.deviceId, ephemeral: vault.ephemeral, offline: deps.sync.status().state === "offline" };
 		if (lockedSession) return { state: "needs_unlock", email: lockedSession.email };
 		return { state: "signed_out" };
 	}
 
-	async function adopt(v: VaultLike): Promise<SessionDto> {
+	/** Starts the sync, or, on a first start that needs the learner, waits for `joinConfirm` (nothing moves before). */
+	async function begin(v: VaultLike, o: { announce?: boolean } = {}): Promise<void> {
+		let plan: StartPlan | null = null;
+		try {
+			plan = (await deps.sync.plan?.(v)) ?? null;
+		} catch {
+			// offline: the start itself decides (it never moves files without the learner's choice)
+		}
+		const ask = plan !== null && plan.firstStart && plan.localFiles > 0 && plan.vaultHasRecords;
+		if (plan && plan.firstStart && (ask || o.announce)) {
+			const email = await v.account().then((a) => a.email, () => "");
+			joining = { email, localFiles: ask ? plan.localFiles : 0 };
+			return;
+		}
+		await deps.sync.start(v);
+	}
+
+	async function adopt(v: VaultLike, o: { announce?: boolean } = {}): Promise<SessionDto> {
 		vault = v;
 		lockedSession = null;
-		if (!v.mustSetPassword) await deps.sync.start(v);
+		joining = null;
+		if (!v.mustSetPassword) await begin(v, o);
 		return sessionDto();
+	}
+
+	/** Forgets the session after the vault and the sync were stopped. */
+	function forget(): void {
+		vault = null;
+		joining = null;
+		grants.clear();
 	}
 
 	function keep(grant: string, strength: ReauthStrength): { reauthId: string; strength: ReauthStrength } {
@@ -266,19 +315,33 @@ export function createVaultRoutes(deps: VaultRouteDeps): VaultRoutes {
 			try {
 				await v.signOut();
 			} finally {
-				vault = null;
-				grants.clear();
+				forget();
 			}
 			return {};
+		},
+		async joinConfirm(req) {
+			const v = needVault();
+			if (!joining) throw new RouteError(409, "bad_request", "There is nothing to confirm");
+			const choice = (req as { choice?: unknown }).choice;
+			if (choice === "cancel") {
+				await deps.sync.stop();
+				try {
+					await v.signOut();
+				} finally {
+					forget();
+				}
+				return sessionDto();
+			}
+			if (choice !== "use-vault") throw new RouteError(400, "bad_request", "choice must be use-vault or cancel");
+			await deps.sync.start(v, { choice: "use-vault" });
+			joining = null;
+			return sessionDto();
 		},
 		async leaveVault(req) {
 			const dry = req.dryRun === true;
 			if (!dry) await deps.sync.stop();
 			const r = await deps.leaveVault({ dryRun: dry });
-			if (!dry) {
-				vault = null;
-				grants.clear();
-			}
+			if (!dry) forget();
 			return r;
 		},
 
@@ -337,7 +400,7 @@ export function createVaultRoutes(deps: VaultRouteDeps): VaultRoutes {
 			const v = needVault();
 			const out = await v.setNewPassword(str(req, "password"));
 			v.mustSetPassword = false;
-			await deps.sync.start(v);
+			await begin(v);
 			return out;
 		},
 
@@ -383,8 +446,7 @@ export function createVaultRoutes(deps: VaultRouteDeps): VaultRoutes {
 			if (str(req, "email").trim().toLowerCase() !== email.toLowerCase()) throw new RouteError(400, "bad_request", "That is not the email address of this account");
 			await v.deleteAccount(takeGrant(str(req, "reauthId")));
 			await deps.sync.stop();
-			vault = null;
-			grants.clear();
+			forget();
 			return {};
 		},
 
@@ -482,7 +544,8 @@ export function createVaultRoutes(deps: VaultRouteDeps): VaultRoutes {
 			if (!j) throw new RouteError(404, "bad_request", "Unknown pairing");
 			const v = await j.finish();
 			joiners.delete(id);
-			return adopt(v);
+			// a new device always gets the "Joining the vault of ..." screen before it syncs
+			return adopt(v, { announce: true });
 		},
 
 		// sync

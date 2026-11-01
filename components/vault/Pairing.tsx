@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useReducer, type Dispatch } from "react";
+import { useEffect, useReducer, useRef, useState, type Dispatch } from "react";
 import { errorCode, type VaultApi } from "@/src/core";
-import { formatPairingCode, formatPairingText, initialApprover, initialJoiner, reduceApprover, reduceJoiner, type ApproverEvent, type ApproverState, type JoinerEvent, type JoinerState } from "@/src/core";
+import { formatPairingCode, formatPairingText, initialApprover, initialJoiner, joinCallReady, reduceApprover, reduceJoiner, type ApproverEvent, type ApproverState, type JoinerEvent, type JoinerState } from "@/src/core";
 import { strings } from "@/src/core";
+import { androidScannerAvailable, startAndroidScan } from "./android-scan.ts";
 import { Button, ErrorLine, Field, Notice, QrSvg, SecretBlock, TextInput } from "./ui.tsx";
 
 // ---------------------------------------------------------------- approver (signed-in device)
@@ -109,13 +110,19 @@ export function PairingApprover({ api }: { api: VaultApi }) {
 
 // ---------------------------------------------------------------- joiner (new device)
 
-export function PairingJoinerView({ state, dispatch, onShow, onJoin }: { state: JoinerState; dispatch: Dispatch<JoinerEvent>; onShow: () => void; onJoin: () => void }) {
+/** `onScan` is given only where the app has a camera scanner (Android); everywhere else the code is pasted or typed. */
+export function PairingJoinerView({ state, dispatch, onShow, onJoin, onScan }: { state: JoinerState; dispatch: Dispatch<JoinerEvent>; onShow: () => void; onJoin: () => void; onScan?: () => void }) {
 	return (
 		<section data-testid="pairing-joiner" data-step={state.step} className="flex flex-col gap-3">
 			<h2 className="text-lg font-semibold">{strings.pairing.joinerTitle}</h2>
 			{state.step === "choose" ? (
 				<>
-					<Button disabled={state.busy} onClick={onShow}>
+					{onScan ? (
+						<Button disabled={state.busy} onClick={onScan}>
+							{strings.scan.button}
+						</Button>
+					) : null}
+					<Button variant={onScan ? "secondary" : "primary"} disabled={state.busy} onClick={onShow}>
 						{state.busy ? strings.common.working : strings.pairing.showTitle}
 					</Button>
 					<Button variant="secondary" onClick={() => dispatch({ type: "scan_mode" })}>
@@ -143,7 +150,12 @@ export function PairingJoinerView({ state, dispatch, onShow, onJoin }: { state: 
 						onJoin();
 					}}
 				>
-					<Field label={strings.pairing.joinerScanLabel} help={strings.pairing.joinerScanHelp}>
+					{onScan ? (
+						<Button disabled={state.busy || state.scanning} onClick={onScan}>
+							{state.scanning ? strings.scan.scanning : strings.scan.button}
+						</Button>
+					) : null}
+					<Field label={strings.pairing.joinerScanLabel} help={onScan ? strings.scan.pasteHelp : strings.pairing.joinerScanHelp}>
 						<TextInput className="font-mono" autoComplete="off" value={state.value} onChange={(e) => dispatch({ type: "value_changed", value: e.target.value })} />
 					</Field>
 					<ErrorLine code={state.error} />
@@ -186,6 +198,21 @@ function JoinerCode({ code }: { code: string }) {
 export function PairingJoiner({ api, onJoined }: { api: VaultApi; onJoined: () => void }) {
 	const [state, dispatch] = useReducer(reduceJoiner, initialJoiner);
 	const waitingFor = state.step === "showing" || state.step === "waiting" ? state.pairingId : null;
+	// the Android app's camera scanner, when this page runs inside it
+	const [canScan, setCanScan] = useState(false);
+	const stopScan = useRef<(() => void) | null>(null);
+	useEffect(() => {
+		setCanScan(androidScannerAvailable());
+		return () => stopScan.current?.();
+	}, []);
+	// the join call for a typed or scanned code, once
+	const code = joinCallReady(state);
+	useEffect(() => {
+		if (code === null) return;
+		api.pairJoin({ code })
+			.then((r) => dispatch({ type: "joined", ...r }))
+			.catch((e) => dispatch({ type: "failed", code: errorCode(e) }));
+	}, [api, code]);
 	useEffect(() => {
 		if (!waitingFor) return;
 		let live = true;
@@ -210,13 +237,16 @@ export function PairingJoiner({ api, onJoined }: { api: VaultApi; onJoined: () =
 					.then((r) => dispatch({ type: "shown", ...r }))
 					.catch((e) => dispatch({ type: "failed", code: errorCode(e) }));
 			}}
-			onJoin={() => {
-				if (state.step !== "scan") return;
-				dispatch({ type: "join" });
-				api.pairJoin({ code: state.value.trim() })
-					.then((r) => dispatch({ type: "joined", ...r }))
-					.catch((e) => dispatch({ type: "failed", code: errorCode(e) }));
-			}}
+			onJoin={() => dispatch({ type: "join" })}
+			{...(canScan
+				? {
+						onScan: () => {
+							stopScan.current?.();
+							dispatch({ type: "scan_started" });
+							stopScan.current = startAndroidScan((r) => dispatch(r.ok && r.payload ? { type: "scanned", payload: r.payload } : { type: "scan_failed", ...(r.reason === undefined ? {} : { reason: r.reason }) }));
+						},
+					}
+				: {})}
 		/>
 	);
 }

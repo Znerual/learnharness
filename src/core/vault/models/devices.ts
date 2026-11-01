@@ -16,7 +16,8 @@ export type DevicesNotice =
 	| { kind: "pending_cancelled" };
 
 export type DevicesAction =
-	| { kind: "sign_out_confirm" }
+	/** `unpushed`: changes in the outbox that never reached the vault (null while unknown). */
+	| { kind: "sign_out_confirm"; unpushed: number | null }
 	| { kind: "revoke"; deviceId: string; name: string; reauth: ReauthState; submitted: boolean }
 	/** Confirming or cancelling the pending action; both re-authenticate first (confirm: passkey or recovery only). */
 	| { kind: "pending"; op: "confirm" | "cancel"; id: string; reauth: ReauthState; submitted: boolean };
@@ -41,6 +42,7 @@ export type DevicesEvent =
 	| { type: "rename_done" }
 	| { type: "rename_cancel" }
 	| { type: "sign_out_ask" }
+	| { type: "unpushed"; count: number }
 	| { type: "sign_out_done" }
 	| { type: "revoke_ask"; deviceId: string }
 	| { type: "reauth"; event: ReauthEvent }
@@ -85,7 +87,9 @@ export function reduceDevices(s: DevicesState, e: DevicesEvent): DevicesState {
 		case "rename_cancel":
 			return { ...s, rename: null, error: undefined };
 		case "sign_out_ask":
-			return { ...s, action: { kind: "sign_out_confirm" }, error: undefined };
+			return { ...s, action: { kind: "sign_out_confirm", unpushed: null }, error: undefined };
+		case "unpushed":
+			return s.action?.kind === "sign_out_confirm" ? { ...s, action: { ...s.action, unpushed: e.count } } : s;
 		case "sign_out_done":
 			return { ...s, action: null, notice: { kind: "signed_out" }, devices: [], pending: null, busy: false };
 		case "revoke_ask": {

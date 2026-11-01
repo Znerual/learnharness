@@ -19,7 +19,8 @@ import { emit } from "../../core/events.ts";
 import { promptOverrides as plainPromptOverrides } from "../../store/prompt-overrides.ts";
 import { plainStores, type Stores } from "../stores.ts";
 import { setActiveVaultStores } from "./active.ts";
-import { joinWithExistingData, seedFirstDevice, VaultNotEmptyError } from "./join.ts";
+import { LearnHarnessHost } from "./host.ts";
+import { joinWithExistingData, seedFirstDevice, vaultIsEmpty, VaultNotEmptyError } from "./join.ts";
 import { IpcKeyStorage } from "./keystorage-ipc.ts";
 import { IpcPasskeys } from "./passkey-ipc.ts";
 import { createVaultRoutes, type VaultRoutes } from "./routes.ts";
@@ -82,14 +83,31 @@ function readBootstrap(): Bootstrapped | null {
 	}
 }
 
+/** A first start that would have to move local files aside needs the learner's answer first (see `bootstrap`). */
+export class JoinChoiceRequiredError extends Error {
+	readonly code = "join_choice_required";
+	constructor() {
+		super("This device has local data and the vault already holds records. Ask the learner to use the vault or cancel.");
+		this.name = "JoinChoiceRequiredError";
+	}
+}
+
+/** What a first start on this device would do, without changing anything (routes.ts `StartPlan`). */
+async function planStart(vault: Vault): Promise<{ firstStart: boolean; localFiles: number; vaultHasRecords: boolean }> {
+	if (readBootstrap()?.accountId === vault.accountId) return { firstStart: false, localFiles: 0, vaultHasRecords: false };
+	const host = new LearnHarnessHost({ dataDir: PATHS.data, localDir: PATHS.local, emit: () => undefined });
+	const localFiles = (await host.listAllFiles()).length;
+	return { firstStart: true, localFiles, vaultHasRecords: localFiles > 0 ? !(await vaultIsEmpty(vault)) : false };
+}
+
 /**
  * The first start on this device with this account (ADR 0007 "Joining with existing local data"):
  * a vault without records is seeded with the data folder; a vault that has records replaces what
  * this folder holds, which moves aside to <local>/pre-vault-<date>/ first and is never deleted.
- * There is no confirmation dialog yet (see the final report), so "Use the vault" is the only
- * path, the one the ADR names as the default for a device that signs in to an existing vault.
+ * That second case needs the learner's answer ("Use the vault", `choice`), asked by the join screen
+ * before the sync starts (routes.ts `begin` and `joinConfirm`): without it this refuses and moves nothing.
  */
-async function bootstrap(wired: WiredVault<Stores>, vault: Vault): Promise<void> {
+async function bootstrap(wired: WiredVault<Stores>, vault: Vault, choice: "use-vault" | undefined): Promise<void> {
 	const done = readBootstrap();
 	if (done?.accountId === vault.accountId) return;
 	// Outbox and state of another account (or a half-finished first start) must not leak into this one.
@@ -100,7 +118,8 @@ async function bootstrap(wired: WiredVault<Stores>, vault: Vault): Promise<void>
 			await seedFirstDevice({ vault, engine: wired.engine });
 		} catch (e) {
 			if (!(e instanceof VaultNotEmptyError)) throw e;
-			await joinWithExistingData({ vault, engine: wired.engine, host: wired.host, deviceId: plainStores.deviceStore.getDevice().id, choice: "use-vault" });
+			if (choice !== "use-vault") throw new JoinChoiceRequiredError();
+			await joinWithExistingData({ vault, engine: wired.engine, host: wired.host, deviceId: plainStores.deviceStore.getDevice().id, choice });
 		}
 	}
 	mkdirSync(join(PATHS.local, "vault"), { recursive: true });
@@ -134,7 +153,8 @@ export async function createVaultRuntime(serverUrl: string): Promise<VaultRoutes
 		checkPassword: (password) => checkPassword(password, PASSWORD_CHECK),
 		passkeys: new IpcPasskeys({ serverUrl }),
 		sync: {
-			start: (vault) =>
+			plan: (vault) => planStart(vault as unknown as Vault),
+			start: (vault, o) =>
 				serialized(async () => {
 					await stopWired();
 					const next = wireVault<Stores>({
@@ -145,7 +165,7 @@ export async function createVaultRuntime(serverUrl: string): Promise<VaultRoutes
 						emit: (type, payload) => emit(type, payload as never),
 						promptOverrides: plainPromptOverrides,
 					});
-					await bootstrap(next, vault as unknown as Vault);
+					await bootstrap(next, vault as unknown as Vault, o?.choice);
 					await next.start();
 					wired = next;
 					// From here on, writes through `stores` note their intent first.

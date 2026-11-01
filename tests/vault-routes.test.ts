@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { createVaultApi, errorCode, VaultApiError } from "../src/core/vault/api.ts";
 import type { AccountResponse, DeviceRow, SyncStatus } from "../src/core/vault/deps.ts";
 import { PasskeyError, type CeremonyOutcome, type PasskeyPort } from "../src/server/vault/passkey-ipc.ts";
-import { createVaultRoutes, toRouteError, type JoinerLike, type RestorerLike, type RotationDto, type VaultLike, type VaultRouteDeps, type VaultStatics } from "../src/server/vault/routes.ts";
+import { createVaultRoutes, type StartPlan, toRouteError, type JoinerLike, type RestorerLike, type RotationDto, type VaultLike, type VaultRouteDeps, type VaultStatics } from "../src/server/vault/routes.ts";
 
 const secret = (s: string) => ({ display: () => s });
 
@@ -158,6 +158,9 @@ interface World {
 	sync: { started: number; stopped: number };
 	clock: { t: number };
 	passkeys: FakePasskeys;
+	/** What `sync.plan` answers; null: not a first start. */
+	plan: { value: StartPlan | null };
+	starts: { choice?: "use-vault" | undefined }[];
 }
 
 function world(over: Partial<VaultStatics> = {}): World {
@@ -166,6 +169,8 @@ function world(over: Partial<VaultStatics> = {}): World {
 	const log: string[] = [];
 	const sync = { started: 0, stopped: 0 };
 	const clock = { t: 1_000_000 };
+	const plan: { value: StartPlan | null } = { value: null };
+	const starts: { choice?: "use-vault" | undefined }[] = [];
 	let confirmed: string | null = null;
 	const joiner: JoinerLike = { pairingId: "jp", code: "654321", qr: "lhv1-pair:j", text: "J".repeat(52), finish: async () => vault };
 	const Vault: VaultStatics = {
@@ -203,14 +208,23 @@ function world(over: Partial<VaultStatics> = {}): World {
 		Vault,
 		options: () => ({ opts: true }),
 		checkPassword: async (p) => (p.length < 12 ? { ok: false, reason: "too_short" } : { ok: true, onlineChecked: false }),
-		sync: { start: () => void sync.started++, stop: () => void sync.stopped++, status: () => status, syncNow: async () => status },
+		sync: {
+			start: (_v, o) => {
+				sync.started++;
+				starts.push({ choice: o?.choice });
+			},
+			stop: () => void sync.stopped++,
+			status: () => status,
+			syncNow: async () => status,
+			plan: async () => plan.value ?? { firstStart: false, localFiles: 0, vaultHasRecords: false },
+		},
 		restorer: () => restorer,
 		leaveVault: async (o) => ({ unpushed: o.dryRun ? 3 : 0 }),
 		exportReminder: { get: () => reminder, set: (b) => void (reminder = b) },
 		passkeys,
 		now: () => clock.t,
 	};
-	return { routes: createVaultRoutes(deps), vault, log, sync, clock, passkeys };
+	return { routes: createVaultRoutes(deps), vault, log, sync, clock, passkeys, plan, starts };
 }
 
 async function call(w: World, method: string, path: string, body?: unknown, query?: Record<string, string>) {
@@ -570,4 +584,74 @@ test("the renderer API client talks to the routes end to end", async () => {
 	const prev = await api.historyPreview({ at: "2026-10-20T10:00:00Z" });
 	assert.equal(prev.plan[0]?.path, "a.md");
 	assert.equal(errorCode(new Error("x")), "generic");
+});
+
+// ---------------------------------------------------------------- joining
+
+test("joining: a first sign-in with local data into a vault with records asks first and starts nothing", async () => {
+	const w = world();
+	w.plan.value = { firstStart: true, localFiles: 12, vaultHasRecords: true };
+	const r = await call(w, "POST", "/sign-in/password", { email: "learner@example.org", password: "pw" });
+	assert.deepEqual(r.body, { state: "joining", email: "learner@example.org", localFiles: 12 });
+	assert.equal(w.sync.started, 0, "no sync and no moved files before the answer");
+	assert.deepEqual((await call(w, "GET", "/session")).body, { state: "joining", email: "learner@example.org", localFiles: 12 });
+	assert.equal((await call(w, "POST", "/session/join", { choice: "nope" })).status, 400);
+	const ok = await call(w, "POST", "/session/join", { choice: "use-vault" });
+	assert.equal((ok.body as { state: string }).state, "signed_in");
+	assert.deepEqual(w.starts, [{ choice: "use-vault" }], "the choice reaches the start");
+	assert.equal((await call(w, "POST", "/session/join", { choice: "use-vault" })).status, 409, "nothing left to confirm");
+});
+
+test("joining: cancel signs out, forgets the session and never starts the sync", async () => {
+	const w = world();
+	w.plan.value = { firstStart: true, localFiles: 3, vaultHasRecords: true };
+	await call(w, "POST", "/sign-in/password", { email: "learner@example.org", password: "pw" });
+	const r = await call(w, "POST", "/session/join", { choice: "cancel" });
+	assert.deepEqual(r.body, { state: "signed_out" });
+	assert.equal(w.sync.started, 0);
+	assert.ok(w.vault.calls.includes("signOut"));
+	assert.equal((await call(w, "GET", "/devices")).status, 401);
+});
+
+test("joining: no question without local data, into an empty vault, or after the first start", async () => {
+	for (const plan of [
+		{ firstStart: true, localFiles: 0, vaultHasRecords: true },
+		{ firstStart: true, localFiles: 5, vaultHasRecords: false },
+		{ firstStart: false, localFiles: 5, vaultHasRecords: true },
+	]) {
+		const w = world();
+		w.plan.value = plan;
+		const r = await call(w, "POST", "/sign-in/password", { email: "learner@example.org", password: "pw" });
+		assert.equal((r.body as { state: string }).state, "signed_in", JSON.stringify(plan));
+		assert.equal(w.sync.started, 1);
+	}
+});
+
+test("joining: a new device that paired shows the join screen before it syncs, even with nothing to ask", async () => {
+	const w = world();
+	w.plan.value = { firstStart: true, localFiles: 0, vaultHasRecords: true };
+	await call(w, "POST", "/pairing/joiner/show");
+	const r = await call(w, "POST", "/pairing/jp/finish");
+	assert.deepEqual(r.body, { state: "joining", email: "learner@example.org", localFiles: 0 });
+	assert.equal(w.sync.started, 0);
+	assert.equal(((await call(w, "POST", "/session/join", { choice: "use-vault" })).body as { state: string }).state, "signed_in");
+	assert.equal(w.sync.started, 1);
+	// pairing again into an account that already started here goes straight on
+	const again = world();
+	again.plan.value = { firstStart: false, localFiles: 0, vaultHasRecords: true };
+	await call(again, "POST", "/pairing/joiner/show");
+	assert.equal(((await call(again, "POST", "/pairing/jp/finish")).body as { state: string }).state, "signed_in");
+});
+
+test("joining: signing out while the question is open stops everything; an offline plan falls back to a plain start", async () => {
+	const w = world();
+	w.plan.value = { firstStart: true, localFiles: 2, vaultHasRecords: true };
+	await call(w, "POST", "/sign-in/password", { email: "learner@example.org", password: "pw" });
+	assert.equal((await call(w, "POST", "/session/sign-out")).status, 200);
+	assert.deepEqual((await call(w, "GET", "/session")).body, { state: "signed_out" });
+});
+
+test("a start that would move local files without the learner's answer is a 409 join_choice_required", () => {
+	const e = toRouteError(Object.assign(new Error("ask first"), { name: "JoinChoiceRequiredError" }));
+	assert.deepEqual([e.status, e.code], [409, "join_choice_required"]);
 });

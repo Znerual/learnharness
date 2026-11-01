@@ -24,6 +24,11 @@ export type SessionDto =
 	| { state: "needs_unlock"; email: string }
 	/** Recovery sign-in done; sync stays off until a new password is set. */
 	| { state: "must_set_password" }
+	/**
+	 * Signed in, sync not started: a first start on this device waits for the learner. `localFiles` is the number of
+	 * files this device holds that "Use the vault" would move aside (0: nothing to ask, only a chance to cancel).
+	 */
+	| { state: "joining"; email: string; localFiles: number }
 	| { state: "signed_in"; accountId: string; deviceId: string; ephemeral: boolean; offline: boolean };
 
 /** Why the passkey ceremony cannot run here: no desktop bridge (web, dev, Android), or a server whose host is not vault.<domain>. */
@@ -64,6 +69,7 @@ export interface VaultContract {
 	session: { req: Empty; res: SessionDto };
 	open: { req: Empty; res: SessionDto };
 	signOut: { req: Empty; res: Empty };
+	joinConfirm: { req: { choice: "use-vault" | "cancel" }; res: SessionDto };
 	leaveVault: { req: { dryRun?: boolean }; res: { unpushed: number } };
 
 	// sign-up
@@ -138,6 +144,7 @@ export const routeTable: { [K in RouteName]: { method: HttpMethod; path: string 
 	session: { method: "GET", path: "/session" },
 	open: { method: "POST", path: "/session/open" },
 	signOut: { method: "POST", path: "/session/sign-out" },
+	joinConfirm: { method: "POST", path: "/session/join" },
 	leaveVault: { method: "POST", path: "/session/leave" },
 
 	passwordCheck: { method: "POST", path: "/password/check" },
