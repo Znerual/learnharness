@@ -4,7 +4,10 @@
  * player per window — a queue of spoken blocks (core/speech-script.ts),
  * each fetched as audio from /api/tts/speak (the server turns math into
  * words and forwards to the configured /audio/speech endpoint) and played
- * in order, the next block fetched while the current one plays.
+ * in order. Synthesis runs ahead of playback: one block at a time,
+ * back to back, up to PREFETCH_BLOCKS ahead (prefetch, owner 2026-11-01),
+ * so a long block after a short one, or a block that streams in while
+ * another plays, is ready when its turn comes.
  *
  * Owner rulings:
  * - Two triggers: the per-turn speaker button (any turn, on demand) and
@@ -95,6 +98,12 @@ let endCurrent: (() => void) | null = null;
 let lastEnded: number | null = null;
 /** Turns the learner silenced: later blocks of the same turn stay quiet. */
 const muted = new Set<string>();
+/** Blocks fetched ahead of the playing one. One fetch
+ *  at a time: the speech engine synthesizes one block at a time anyway,
+ *  and a request queued behind others would eat into its timeout. */
+const PREFETCH_BLOCKS = 3;
+/** A prefetch is in flight; its end starts the next. */
+let prefetching = false;
 
 async function fetchAudio(block: SpeechBlock, signal: AbortSignal): Promise<string> {
 	const res = await fetch("/api/tts/speak", {
@@ -113,6 +122,24 @@ async function fetchAudio(block: SpeechBlock, signal: AbortSignal): Promise<stri
 function load(entry: Entry): Promise<string> {
 	entry.audio ??= fetchAudio(entry.block, controller.signal);
 	return entry.audio;
+}
+
+/** Fetch the first block of the queue's head not fetched yet; when it
+ *  arrives, the next. Called whenever the queue moves or grows. A
+ *  failure is the player's to report when it reaches that block. */
+function prefetch(): void {
+	if (prefetching) return;
+	const entry = queue.slice(0, PREFETCH_BLOCKS).find((e) => !e.audio);
+	if (!entry) return;
+	prefetching = true;
+	const gen = generation;
+	load(entry)
+		.catch(() => {})
+		.finally(() => {
+			if (gen !== generation) return;
+			prefetching = false;
+			prefetch();
+		});
 }
 
 function playUrl(url: string): Promise<void> {
@@ -158,6 +185,7 @@ async function pump(): Promise<void> {
 	pumpingGeneration = gen;
 	try {
 		while (gen === generation) {
+			prefetch();
 			const entry = queue.shift();
 			if (!entry) break;
 			const url = await load(entry);
@@ -165,8 +193,8 @@ async function pump(): Promise<void> {
 				URL.revokeObjectURL(url);
 				break;
 			}
-			const next = queue[0];
-			if (next) void load(next).catch(() => {});
+			// The block just fetched freed a place ahead.
+			prefetch();
 			await pauseBefore(entry);
 			if (gen !== generation) {
 				URL.revokeObjectURL(url);
@@ -198,6 +226,7 @@ export function stopReadAloud(): void {
 	controller = new AbortController();
 	for (const entry of queue) entry.audio?.then(URL.revokeObjectURL, () => {});
 	queue = [];
+	prefetching = false;
 	endCurrent?.();
 	lastEnded = null;
 	if (state.owner) muted.add(state.owner);
@@ -232,6 +261,8 @@ function appendReply(owner: string, blocks: SpokenBlock[]): void {
 	if (state.owner !== null && state.owner !== owner) stopReadAloud();
 	queue.push(...blocks.map((spoken) => ({ ...spoken })));
 	if (state.owner !== owner) set({ owner, error: null });
+	// A block that streams in while another plays is fetched now, not when that one ends.
+	prefetch();
 	void pump();
 }
 
