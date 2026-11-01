@@ -48,8 +48,11 @@ const PRODUCT_NAME = "LearnHarness";
 
 // Build-time settings (electron-builder -c.extraMetadata.learnharnessBuild.*), for test builds:
 //   vaultUrl    the vault server, used when LH_VAULT_URL is not set in the environment
-//   autoUpdate  false keeps the update feed from replacing this build with a release
-// A normal release sets neither.
+//   updateFeed  an electron-updater "generic" feed (a URL holding latest-linux.yml etc.) instead of
+//               the GitHub releases in electron-builder.yml, e.g. vault builds updating from the vault
+//               host; LH_UPDATE_FEED still overrides it
+//   autoUpdate  false turns updates off for this build
+// A normal release sets none of them.
 const BUILD = (() => {
 	try {
 		const b = require("../package.json").learnharnessBuild;
@@ -578,6 +581,9 @@ function setupAutoUpdater() {
 	if (feed) {
 		autoUpdater.setFeedURL({ provider: "generic", url: feed });
 		log(`auto-update: LH_UPDATE_FEED override → ${feed}`);
+	} else if (typeof BUILD.updateFeed === "string" && /^https:\/\//.test(BUILD.updateFeed)) {
+		autoUpdater.setFeedURL({ provider: "generic", url: BUILD.updateFeed });
+		log(`auto-update: build feed → ${BUILD.updateFeed}`);
 	}
 	autoUpdater.autoDownload = true;
 	autoUpdater.autoInstallOnAppQuit = true;

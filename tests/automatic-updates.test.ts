@@ -37,6 +37,8 @@ function fixture({ packaged = true, updaterMissing = false } = {}) {
 			return Promise.resolve(this.result);
 		}
 		quitAndInstall() { order.push("install"); }
+		feeds: unknown[] = [];
+		setFeedURL(feed: unknown) { this.feeds.push(JSON.parse(JSON.stringify(feed))); }
 	}
 	const updater = new FakeUpdater();
 	class FakeWebContents extends EventEmitter {
@@ -119,6 +121,32 @@ function fixture({ packaged = true, updaterMissing = false } = {}) {
 		menuCheck: () => menu[0]!.submenu!.find(item => item.label === "Check for Updates…")!.click!(),
 	};
 }
+
+describe("build-time update feed (learnharnessBuild in the packaged package.json)", () => {
+	it("a vault build's updateFeed replaces the GitHub feed with a generic one", () => {
+		const f = fixture();
+		f.run(`BUILD.updateFeed = "https://learn-vault.example/updates/"`);
+		f.run("setupAutoUpdater()");
+		assert.deepEqual(f.updater.feeds, [{ provider: "generic", url: "https://learn-vault.example/updates/" }]);
+	});
+
+	it("a plain-http updateFeed is ignored, and a normal release keeps electron-builder's feed", () => {
+		const f = fixture();
+		f.run(`BUILD.updateFeed = "http://learn-vault.example/updates/"`);
+		f.run("setupAutoUpdater()");
+		assert.deepEqual(f.updater.feeds, []);
+		const g = fixture();
+		g.run("setupAutoUpdater()");
+		assert.deepEqual(g.updater.feeds, []);
+	});
+
+	it("autoUpdate false turns updates off", () => {
+		const f = fixture();
+		f.run("BUILD.autoUpdate = false");
+		f.run("setupAutoUpdater()");
+		assert.equal(f.state().status, "disabled");
+	});
+});
 
 describe("automatic-update preference gate", () => {
 	it("explicit OFF skips automatic checks, but manual checks still run without reading the preference", async () => {
