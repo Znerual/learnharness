@@ -544,7 +544,7 @@ export function ReadAloudToggle() {
 	useEffect(() => {
 		const toggle = () => {
 			if (ready) void setAutoRead(!state.autoRead);
-			else openSettings("keys");
+			else openSettings("readAloud");
 		};
 		window.addEventListener("lh:kbd-toggle-read-aloud", toggle);
 		return () => window.removeEventListener("lh:kbd-toggle-read-aloud", toggle);
@@ -572,7 +572,7 @@ export function ReadAloudToggle() {
 			<button
 				type="button"
 				onClick={() => {
-					if (!ready) openSettings("keys");
+					if (!ready) openSettings("readAloud");
 					else if (error) set({ error: null });
 					else void setAutoRead(!autoRead);
 				}}
@@ -640,7 +640,7 @@ export function ReadAloudButton({ turn }: { turn: ReplyTurn }) {
 					aria-label={playing ? "Stop reading aloud" : "Read this reply aloud"}
 					onClick={() => {
 						if (playing) stopReadAloud();
-						else if (!ready) openSettings("keys");
+						else if (!ready) openSettings("readAloud");
 						else speakReply(turn.key, speechBlocks(turn.text, language));
 					}}
 					className="flex size-6 items-center justify-center rounded-sm text-muted-foreground/70 transition-colors hover:bg-accent hover:text-foreground"

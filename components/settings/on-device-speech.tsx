@@ -202,8 +202,10 @@ function modelName(model: OnDeviceModel): string {
 	return `Read-aloud voice · ${language}`;
 }
 
-/** The group, or nothing while the speech server is not an on-device one. */
-export function OnDeviceSpeechGroup() {
+/** The group, or nothing while the speech server is not an on-device one.
+ *  `part` picks the tab it sits in: the dictation model and the voice-mode
+ *  speed check under Dictation, the voices and NPU speech under Read aloud. */
+export function OnDeviceSpeechGroup({ part }: { part: "dictation" | "read-aloud" }) {
 	const [models, setModels] = useState<OnDeviceModel[] | null>(null);
 	const [error, setError] = useState<string | null>(null);
 
@@ -241,8 +243,8 @@ export function OnDeviceSpeechGroup() {
 	}
 
 	return (
-		<SettingsGroup label="On-device speech" testid="group-on-device-speech">
-			{models.map((model) => (
+		<SettingsGroup label="On-device speech" testid={`group-on-device-speech-${part}`}>
+			{models.filter((model) => (model.kind === "dictation") === (part === "dictation")).map((model) => (
 				<div key={model.id} className="flex items-center justify-between gap-3 px-1 py-1.5" data-testid={`speech-model-${model.id}`}>
 					<span className="min-w-0 flex-1">
 						<span className="block font-ui text-xs text-foreground">{modelName(model)}</span>
@@ -271,10 +273,11 @@ export function OnDeviceSpeechGroup() {
 					) : null}
 				</div>
 			))}
-			<BenchmarkRow />
-			<NpuSpeechRow />
+			{part === "dictation" ? <BenchmarkRow /> : <NpuSpeechRow />}
 			<p className="px-1 text-[11px] leading-relaxed text-muted-foreground/70">
-				Models download over Wi-Fi only and run on this phone. Dictation recognizes German and English by itself; read-aloud uses the voice of the language chosen under Read aloud.
+				{part === "dictation"
+					? "Models download over Wi-Fi only and run on this phone. Dictation recognizes German and English by itself."
+					: "Models download over Wi-Fi only and run on this phone. Read-aloud uses the voice of the language chosen below."}
 			</p>
 			{error && (
 				<p role="alert" className="px-1 text-xs text-red-500">
