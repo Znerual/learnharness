@@ -702,9 +702,12 @@ export function KeysSection({
 			</SettingsGroup>
 			)}
 
+			{/* The Claude Code CLI is a desktop program; the phone has none. */}
+			{!android && (
 			<SettingsGroup label="External CLI" testid="group-external-cli">
 				<ClaudeCodeInstallationStatus />
 			</SettingsGroup>
+			)}
 
 			<SettingsGroup label="Search" testid={TOOL_GROUP_TESTIDS.Search}>
 				{toolRows.filter((status) => toolGroupOf(status.id) === "Search").map(toolRow)}

@@ -39,6 +39,7 @@ import {
 } from "@/src/core";
 import { MenuShell } from "@/components/menu-shell";
 import { Hint } from "@/components/ui/hint";
+import { useAndroidShell } from "@/components/android-shell";
 import { useAppearance } from "./appearance.tsx";
 import { FontMenuList } from "./model-menu";
 import { CommitInput, SettingsMenuTrigger, SettingsRow, ThinSelect, Toggle } from "./controls.tsx";
@@ -98,6 +99,7 @@ export function AppearanceSection({
 	onSectionChange: (next: AppearanceSettings) => void;
 }) {
 	const { appearance: resolved } = useAppearance();
+	const android = useAndroidShell();
 	const md = appearance?.mdRendering;
 
 	// The font dropdown's open state + its enumeration cache. undefined =
@@ -186,11 +188,14 @@ export function AppearanceSection({
 
 	return (
 		<>
+			{/* A disabled "coming soon" row is noise on the phone. */}
+			{!android && (
 			<SettingsRow label="Mode" hint="Coming soon" testid="row-mode" dimmed>
 				<ThinSelect value="dark" ariaLabel="mode" onChange={() => {}} testid="select-mode" disabled>
 					<option value="dark">Dark</option>
 				</ThinSelect>
 			</SettingsRow>
+			)}
 			<SettingsRow
 				label="Background"
 				hint={`Empty = ${resolved.background ?? "#141414"}`}
@@ -252,6 +257,8 @@ export function AppearanceSection({
 										: localFonts === null
 											? enumEmpty
 												? "Common families — installed fonts could not be read"
+												: android
+												? "Common families"
 												: "Common families — your installed list needs the desktop app"
 											: "Your installed fonts"
 								}
@@ -355,6 +362,7 @@ export function GraphSection({
 	// the hint and placeholder report exactly the number the trigger waits
 	// for — never a second hand-rolled default.
 	const resolved = resolveSettings(graph === undefined ? null : { version: 1, graph }).graph;
+	const android = useAndroidShell();
 	return (
 		<>
 			{/* EXTRACTION (renamed, owner 2026-10-06): this switch is the DATA
@@ -420,6 +428,7 @@ export function GraphSection({
 			    with — the export writes <vault>/LearnHarness/ automatically,
 			    the graph view's Sync vault button imports its notes. Empty =
 			    off; the server refuses a path that is not a directory. */}
+			{!android && (
 			<SettingsRow
 				label="Obsidian vault"
 				hint="Exports to LearnHarness/ in it; empty = off"
@@ -433,6 +442,7 @@ export function GraphSection({
 					onCommit={(v) => onSectionChange({ ...graph, obsidianVault: v.trim() ? v.trim() : null })}
 				/>
 			</SettingsRow>
+			)}
 		</>
 	);
 }
