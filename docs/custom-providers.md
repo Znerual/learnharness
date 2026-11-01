@@ -4,6 +4,7 @@ LearnHarness supports **any number of custom OpenAI-compatible endpoints, each w
 multiple models**. Every endpoint is its own provider; everything below holds per endpoint.
 The setup and Settings UI are based on PR #62 by Daniel Buckner and Abhishek Thakur.
 Pi owns inference, message conversion, tools, streaming, and reasoning-effort handling.
+For the separate external CLI provider, see [Claude Code](claude-code.md).
 
 ## Configure an endpoint
 
@@ -36,18 +37,21 @@ Pi owns inference, message conversion, tools, streaming, and reasoning-effort ha
 7. Click **Connect**, then choose models for Strong, Cheap, and Vision.
 
 HTTP and HTTPS, including localhost/private-network servers, are supported. URLs
-with embedded credentials, query strings, or fragments are rejected. Put a key in
-the authentication field, not the URL. Discovery redirects are rejected.
+with embedded credentials, query strings, or fragments are rejected. URLs are
+canonicalized and trailing slashes removed before binding credentials; `/v1` is
+still never appended. Put a key in the authentication field, not the URL.
+Discovery redirects are rejected.
 
 Connect requests `GET <base>/models` and, for a base URL ending in `/v1`, LM Studio's
 `<root>/api/v0/models` (context lengths, vision, embedding models — those are left out).
 vLLM's `max_model_len` counts as the context, also when an Open WebUI gateway nests it
 under `openai`. With an on/off thinking format every model is taken to support thinking. Discovery metadata wins over duplicate manually
-entered IDs. A failed probe can fall back to entered IDs; a failed probe for the
-same URL preserves its previous model snapshot and pins. A different URL starts
-with its own models. **401/403 always fails**, even with entered IDs. Response-size,
-model-count, and redirect violations also fail explicitly rather than silently
-truncating or bypassing a discovery limit.
+entered IDs. A nonfatal failed probe can fall back to entered IDs; a successful
+fallback connect at the same URL preserves its previous model snapshot and pins.
+Without entered IDs, the failed connect leaves existing configuration unchanged.
+A different URL starts with its own models. **401/403 always fails**, even with
+entered IDs. Response-size, model-count, and redirect violations also fail
+explicitly rather than silently truncating or bypassing a discovery limit.
 
 Configuration is not a continuous health check. An endpoint may be configured while
 offline, and model capability or output quality is not proven by listing its ID.
@@ -145,7 +149,8 @@ profile reset, history rewrite, or silent model remapping. Existing development
 profiles need manual endpoint configuration and model reselection. Unbound early
 GUI development configurations also require explicit reconnect/new-key entry or
 the existing reuse-consent checkbox, even at the same URL; they are never silently
-trusted or migrated. Custom endpoints speak the OpenAI-compatible protocol only.
+trusted or migrated. Custom endpoints speak the OpenAI-compatible protocol only. See [compaction and accounting](compaction-accounting.md)
+for how context measurements and unpriced usage are displayed.
 
 A `settings.json.customProvider` (one endpoint) becomes the `customProviders` entry
 `custom` on the first start, keeping its binding. The fork's earlier `endpoints` list
@@ -157,3 +162,19 @@ The HTTP surface is `GET /api/custom-providers` (every endpoint's status),
 `POST /api/custom-providers` (add one) and `GET`/`POST`/`PATCH`/`DELETE`
 `/api/custom-providers/<id>` (status, connect, offline edits of pins, thinking
 format and name, disconnect), each mutation guarded by that endpoint's ETag.
+
+## Implementation and regression references
+
+- [Endpoint registration and discovery](../src/server/custom-provider.ts),
+  [HTTP mutations/revisions](../src/server/custom-provider-http.ts), and
+  [canonical URLs and budgets](../src/core/settings.ts).
+- [Private authorization resolution](../src/server/custom-provider-auth.ts),
+  [durable binding contract](../src/core/custom-provider-auth.ts),
+  [request-boundary tests](../tests/custom-provider-boundaries.test.ts), and
+  [crash/restart tests](../tests/custom-provider-restart.test.ts).
+- [Per-operation engine resolution and image allowance](../src/agent/models.ts),
+  [native payload/lifecycle tests](../tests/custom-provider-lifecycle.test.ts), and
+  [Vision model filtering](../components/settings/model-menu.tsx). Synthetic image payload tests
+  establish delivery, not real-model image-understanding quality.
+- [Editor tests](../tests/custom-provider-ui.test.tsx) and
+  [connect snapshot/pin tests](../tests/custom-provider-route.test.ts).

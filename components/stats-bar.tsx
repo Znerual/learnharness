@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { CLAUDE_CODE_PROVIDER, subscriptionLabels, subscriptionLabel, type cliContextWindowOf, type SessionPricing, type TurnUsage } from "@/src/core";
+import { CLAUDE_CODE_PROVIDER, sessionCacheHitRate, subscriptionLabels, subscriptionLabel, type cliContextWindowOf, type SessionPricing, type TurnUsage } from "@/src/core";
 import { formatTokens, formatUsd, planCostLabel, prettyModel } from "@/components/usage-format";
 import { ModelControl, catalogLimits, useModelCatalog } from "@/components/model-picker";
 import { publishSessionStats, type SessionStats } from "@/components/session-stats";
@@ -188,6 +188,7 @@ function useStatsLabels(
 	const limits = useMemo(() => (catalog ? catalogLimits(catalog) : undefined), [catalog]);
 	const limit = contextLimitForModel(selectedModel, limits, cliContextWindow);
 	const contextLabel = formatContextMeasurement(contextTokens, limit);
+	const cacheHitRate = useMemo(() => sessionCacheHitRate({ turns }), [turns]);
 	const { cost = 0, unpriced = turns.length, subscription = 0 } = pricing ?? {};
 	// Honest cost: show dollars only when at least one turn priced;
 	// otherwise "—" (never a fake $0.0000).
@@ -195,13 +196,13 @@ function useStatsLabels(
 	const providers = pricing?.subscriptionProviders ?? subscriptionLabels(turns.map((turn) => turn.model));
 	const cliBilled = turns.some((turn) => turn.model.startsWith(`${CLAUDE_CODE_PROVIDER}:`));
 	const costLabel = planCostLabel(pricedCount > 0 ? cost : null, cliBilled ? [...providers, "CLI"] : providers);
-	return { contextLabel, costLabel, providers, unpriced, subscription, selectedModel };
+	return { contextLabel, costLabel, providers, unpriced, subscription, selectedModel, cacheHitRate };
 }
 
 /** The session's context, cost and per-turn spend — the bar's popover, and
  *  Settings → This session in the Android app. */
 function StatsDetail({ turns, pricing, labels }: { turns: TurnUsage[]; pricing?: SessionPricing; labels: ReturnType<typeof useStatsLabels> }) {
-	const { contextLabel, costLabel, providers, unpriced, subscription, selectedModel } = labels;
+	const { contextLabel, costLabel, providers, unpriced, subscription, selectedModel, cacheHitRate } = labels;
 	return (
 		<>
 						<div className="flex flex-col gap-1 text-muted-foreground">
@@ -218,6 +219,12 @@ function StatsDetail({ turns, pricing, labels }: { turns: TurnUsage[]; pricing?:
 								<span>{subscription ? "Usage" : "Total cost"}</span>
 								<span className="tabular-nums text-card-foreground">{costLabel}</span>
 							</div>
+							{cacheHitRate !== null && (
+								<div data-testid="stats-cache-hit-rate" className="flex justify-between gap-2">
+									<span>Cache hit rate</span>
+									<span className="tabular-nums text-card-foreground">{(cacheHitRate * 100).toFixed(1)}%</span>
+								</div>
+							)}
 							{providers.includes("ChatGPT") && <a href="https://chatgpt.com/settings/usage" target="_blank" rel="noreferrer" className="underline underline-offset-2">Manage ChatGPT usage</a>}
 							{unpriced > 0 && (
 								<div className="flex justify-between gap-2">

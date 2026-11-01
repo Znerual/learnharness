@@ -232,6 +232,16 @@ export function createGraphLedgerStore(deviceId: () => string): GraphLedgerStore
 		readSources(): NotesSource[] {
 			return Object.values(readSourceMap());
 		},
+		/** Upstream's source deletion: the notes sources' records go (their
+		 *  graph traces leave through deletion records). */
+		deleteSources(ids: ReadonlySet<string>): number {
+			if (ids.size === 0) return 0;
+			const all = readSourceMap();
+			let removed = 0;
+			for (const id of ids) if (Object.hasOwn(all, id)) { delete all[id]; removed++; }
+			if (removed > 0) writeSourceMap(all);
+			return removed;
+		},
 		/** Idempotent per startedAt — same discipline as chats.appendExtractionUsage. */
 		appendSourceUsage(id: string, entry: ExtractionRunUsage): void {
 			const all = readSourceMap();

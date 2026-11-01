@@ -44,10 +44,9 @@
  * aliases) are stripped and its provenance points removed (owner ruling
  * 2026-09-23: all traces, identity survives).
  *
- * Not touched, by design:
- *   - imported-notes sources (src_…) — a different front door with its
- *     own lifecycle (re-import dedupes by path hash); this wave deletes
- *     CHATS.
+ * This contribution purge also accepts imported-source IDs. Source records,
+ * conversations and organizational placement remain caller-owned; this
+ * module rewrites graph ledgers only.
  *
  * Resurrection safety: the deletion runs as ONE synchronous block (no
  * awaits — atomic vs the event loop, so no extraction append can
@@ -121,16 +120,32 @@ const writtenBy = (at: string | undefined) => (time: string): boolean => at === 
  * deletion record replayed on read must leave a session's later
  * contributions alone); undefined = every line.
  */
-export function purgeChat(ledgers: Ledgers, chatId: string, mode: ChatDeleteMode, at?: string): Purge & { stats: ChatDeletionStats } {
+export function purgeChat(ledgers: Ledgers, chatId: string, mode: ChatDeleteMode, at?: string, reextract = false): Purge & { stats: ChatDeletionStats } {
+	return purgeSources(ledgers, new Set([chatId]), mode, at, reextract);
+}
+
+/**
+ * PURE: a batch of sources (sessions or notes imports) out of the ledgers,
+ * by the same rules. `reextract` (source deletion of a session that is
+ * kept, owner 2026-11-01 — upstream's rule) also drops their coverage and
+ * checkpoint rows up to `at`, so the kept session's messages extract
+ * again; otherwise the extraction bookkeeping stays (owner, 2026-10-30): a
+ * session that comes back from another device must not re-extract — and
+ * so resurrect — what this deletion removed.
+ */
+export function purgeSources(ledgers: Ledgers, sourceIds: ReadonlySet<string>, mode: ChatDeleteMode, at?: string, reextract = false): Purge & { stats: ChatDeletionStats } {
 	if (mode !== "preserve-graph" && mode !== "delete-nodes") {
 		throw new Error(`Unknown deletion mode: ${mode as string}`);
 	}
 	const covered = writtenBy(at);
-	// The extraction bookkeeping (coverage, checkpoints) stays in both
-	// modes (owner, 2026-10-30): a session that comes back from another device must
-	// not re-extract — and so resurrect — what this deletion removed.
 	const stats: ChatDeletionStats = { ...EMPTY_STATS };
-	const unchanged = ledgers;
+	const unchanged = reextract
+		? {
+			...ledgers,
+			coverage: ledgers.coverage.filter((row) => !(sourceIds.has(row.chatId) && covered(row.foldedAt))),
+			checkpoints: ledgers.checkpoints.filter((row) => !(sourceIds.has(row.chatId) && covered(row.foldedAt))),
+		}
+		: ledgers;
 	if (mode === "preserve-graph") return { ledgers: unchanged, stats, deadNodes: new Set(), deadChains: new Set() };
 
 	// ── delete-nodes: the full purge ──────────────────────────────────────
@@ -138,7 +153,7 @@ export function purgeChat(ledgers: Ledgers, chatId: string, mode: ChatDeleteMode
 	const chainLines = ledgers.chains;
 	/** The chat's points on a line this deletion covers (a later line keeps them). */
 	const strippable = (line: { createdAt: string; provenance: ProvenancePoint[] }) =>
-		covered(line.createdAt) ? line.provenance.filter((pt) => pt.chatId === chatId).length : 0;
+		covered(line.createdAt) ? line.provenance.filter((pt) => sourceIds.has(pt.chatId)).length : 0;
 
 	// Does the chat touch the graph at all? (A never-extracted chat still
 	// needs its coverage rows dropped above, nothing else.)
@@ -155,10 +170,13 @@ export function purgeChat(ledgers: Ledgers, chatId: string, mode: ChatDeleteMode
 	//    and counting it would keep nodes alive whose lines we would then
 	//    drop, dangling the chain.)
 	const survivingPoints = (line: { createdAt: string; provenance: ProvenancePoint[] }) =>
-		covered(line.createdAt) ? line.provenance.filter((pt) => pt.chatId !== chatId) : line.provenance;
+		covered(line.createdAt) ? line.provenance.filter((pt) => !sourceIds.has(pt.chatId)) : line.provenance;
+	// Only nodes this deletion touches can die: an unrelated
+	// provenance-free legacy node is outside its blast radius (upstream).
+	const touchedNodes = new Set(nodeLines.filter((line) => strippable(line) > 0).map((line) => line.id));
 	const live = new Set<string>();
 	for (const line of nodeLines) {
-		if (survivingPoints(line).length > 0) live.add(line.id);
+		if (!touchedNodes.has(line.id) || survivingPoints(line).length > 0) live.add(line.id);
 	}
 
 	// 2. Node lines. Per-line (each line is ONE extraction run's append, so
@@ -217,7 +235,7 @@ export function purgeChat(ledgers: Ledgers, chatId: string, mode: ChatDeleteMode
 	stats.chainsRemoved = chainLines.length - outChains.length;
 	const keptChainIds = new Set(outChains.map((line) => line.id));
 	return {
-		ledgers: { ...ledgers, nodes: outNodes, chains: outChains },
+		ledgers: { ...unchanged, nodes: outNodes, chains: outChains },
 		stats,
 		deadNodes,
 		deadChains: new Set(chainLines.filter((line) => !keptChainIds.has(line.id)).map((line) => line.id)),
@@ -265,7 +283,7 @@ export function purgeNode(
 export function applyDeletions(ledgers: Ledgers, deletions: ReadonlyArray<GraphDeletion>): Ledgers {
 	let out = ledgers;
 	for (const record of [...deletions].sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0))) {
-		if (record.type === "session") out = purgeChat(out, record.chatId, record.mode, record.at).ledgers;
+		if (record.type === "session") out = purgeChat(out, record.chatId, record.mode, record.at, record.reextract === true).ledgers;
 		else if (record.type === "chain") out = purgeNode(out, record.id, record)?.ledgers ?? out;
 		else out = purgeNode(out, record.id)?.ledgers ?? out;
 	}
@@ -301,16 +319,42 @@ function prunePositions(graphStore: GraphStore, purge: Purge): void {
  * applies on read — no ledger file is ever rewritten.
  */
 export function deleteChatTraces(graphStore: GraphStore, chatId: string, mode: ChatDeleteMode): ChatDeletionStats {
-	const at = new Date().toISOString();
-	const before = readLedgers(graphStore);
-	const purge = purgeChat(before, chatId, mode, at);
-	// Only a deletion that changes something leaves a record (a stripped
-	// link line or provenance point counts, even when no stat moves).
-	if (JSON.stringify(purge.ledgers) !== JSON.stringify(before)) {
-		graphStore.appendDeletion({ type: "session", chatId, mode, at });
-		prunePositions(graphStore, purge);
+	return deleteSourcesTraces(graphStore, new Set([chatId]), mode);
+}
+
+/**
+ * The same for a selected batch of sources (upstream's source deletion):
+ * one deletion record per source that changes something, all at one time.
+ * `reextract` names the kept sessions whose coverage goes too (see
+ * purgeSources).
+ */
+export function deleteSourcesTraces(
+	graphStore: GraphStore,
+	sourceIds: ReadonlySet<string>,
+	mode: ChatDeleteMode,
+	reextract: ReadonlySet<string> = new Set(),
+): ChatDeletionStats {
+	if (mode !== "preserve-graph" && mode !== "delete-nodes") {
+		throw new Error(`Unknown deletion mode: ${mode as string}`);
 	}
-	return purge.stats;
+	const at = new Date().toISOString();
+	const stats: ChatDeletionStats = { ...EMPTY_STATS };
+	const merged: Purge = { ledgers: readLedgers(graphStore), deadNodes: new Set(), deadChains: new Set() };
+	for (const chatId of sourceIds) {
+		const before = merged.ledgers;
+		const purge = purgeChat(before, chatId, mode, at, reextract.has(chatId));
+		// Only a deletion that changes something leaves a record (a stripped
+		// link line or provenance point counts, even when no stat moves).
+		if (JSON.stringify(purge.ledgers) === JSON.stringify(before)) continue;
+		graphStore.appendDeletion({ type: "session", chatId, mode, at, ...(reextract.has(chatId) ? { reextract: true as const } : {}) });
+		merged.ledgers = purge.ledgers;
+		for (const id of purge.deadNodes) merged.deadNodes.add(id);
+		for (const id of purge.deadChains) merged.deadChains.add(id);
+		stats.nodesRemoved += purge.stats.nodesRemoved;
+		stats.chainsRemoved += purge.stats.chainsRemoved;
+	}
+	prunePositions(graphStore, merged);
+	return stats;
 }
 
 // ─── single-node deletion (node interlude, owner-locked full-death) ───────────

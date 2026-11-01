@@ -9,6 +9,7 @@
 import { chatStore } from "../store/chats.ts";
 import { createGraphLedgerStore } from "../store/graph.ts";
 import { effectiveGraphStore } from "../core/graph-ledgers.ts";
+import { sourceOrganizationStore } from "../store/source-organization.ts";
 import { createJobStore } from "../store/jobs.ts";
 import { migratePromptSwitches, settingsStore } from "../store/settings.ts";
 import { resolveSettings, type EffectiveSettings } from "../core/settings-resolution.ts";
@@ -31,6 +32,7 @@ migrateCustomEndpoints();
 export const stores = {
 	chatStore,
 	graphStore: effectiveGraphStore(createGraphLedgerStore(() => deviceStore.getDevice().id)),
+	sourceOrganizationStore,
 	jobStore: createJobStore(() => deviceStore.getDevice()),
 	settingsStore,
 	deviceStore,

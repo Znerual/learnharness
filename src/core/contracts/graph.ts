@@ -139,7 +139,15 @@ export const CURRENT_GRAPH_FORMAT_VERSION = 2;
  *  removes every assertion of that argument, whichever device minted which
  *  arg_ id for it (owner, 2026-10-30). */
 export type GraphDeletion =
-	| { type: "session"; chatId: string; mode: "preserve-graph" | "delete-nodes"; at: string }
+	| {
+		type: "session";
+		chatId: string;
+		mode: "preserve-graph" | "delete-nodes";
+		at: string;
+		/** Its coverage and checkpoint rows up to `at` go too, so the source
+		 *  extracts again (source deletion of a kept session, owner 2026-11-01). */
+		reextract?: true;
+	}
 	| { type: "node"; id: string; at: string }
 	| { type: "chain"; id: string; premises: string[]; conclusion: string; at: string };
 
