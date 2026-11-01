@@ -10,7 +10,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Loader2Icon } from "lucide-react";
-import { SPEECH_LANGUAGE_LABEL, isSpeechLanguage, type OnDeviceModel, type SpeechBenchmarkResult } from "@/src/core";
+import { SPEECH_LANGUAGE_LABEL, isSpeechLanguage, type OnDeviceModel, type SpeechBenchmarkModel, type SpeechBenchmarkResult } from "@/src/core";
 import { notifySettingsSaved } from "@/components/settings-signal";
 import { SettingsGroup } from "./controls.tsx";
 
@@ -38,10 +38,16 @@ export function modelStateLine(model: OnDeviceModel): string {
 /** The benchmark's verdict in words. Pure — exported for tests. */
 export function benchmarkLine(result: SpeechBenchmarkResult | null): string {
 	if (!result) return "Not run yet — voice mode appears once a run finds this phone fast enough.";
-	const speed = (part: { provider: string; rtf: number } | null, name: string) =>
+	const speed = (part: SpeechBenchmarkModel | null | undefined, name: string) =>
 		part ? `${name} ${part.rtf.toFixed(2)} s per second of audio (${part.provider === "nnapi" ? "GPU/NPU" : "CPU"})` : `${name} failed`;
 	const verdict = result.voiceMode ? "Fast enough for voice mode" : "Too slow for voice mode";
-	return `${verdict}: ${speed(result.dictation, "dictation")}, ${speed(result.voice, "read-aloud")}.`;
+	const voices = [
+		result.kokoro !== undefined || result.piper !== undefined ? null : speed(result.voice, "read-aloud"),
+		result.kokoro ? speed(result.kokoro, "Kokoro") : null,
+		result.piper ? speed(result.piper, "Piper") : null,
+	].filter((part): part is string => part !== null);
+	const kokoro = result.kokoroFast === false ? " Kokoro is too slow here, so only the Piper voices are offered." : "";
+	return `${verdict}: ${[speed(result.dictation, "dictation"), ...voices].join(", ")}.${kokoro}`;
 }
 
 /** Settings row: run the phone's speed check, which decides whether voice mode is offered. */

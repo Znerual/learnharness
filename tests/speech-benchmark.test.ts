@@ -70,6 +70,19 @@ describe("benchmarkLine", () => {
 		assert.equal(benchmarkLine(null), "Not run yet — voice mode appears once a run finds this phone fast enough.");
 	});
 
+	it("names Kokoro and Piper apart, and says when Kokoro is too slow", () => {
+		assert.equal(
+			benchmarkLine({
+				...result,
+				kokoro: { engine: "kokoro", provider: "cpu", rtf: 1.1 },
+				piper: { engine: "piper", provider: "cpu", rtf: 0.2 },
+				voice: { engine: "piper", provider: "cpu", rtf: 0.2 },
+				kokoroFast: false,
+			}),
+			"Fast enough for voice mode: dictation 0.10 s per second of audio (CPU), Kokoro 1.10 s per second of audio (CPU), Piper 0.20 s per second of audio (CPU). Kokoro is too slow here, so only the Piper voices are offered.",
+		);
+	});
+
 	it("names the verdict, each model's speed and where it runs", () => {
 		assert.equal(
 			benchmarkLine({ ...result, voice: { provider: "nnapi", rtf: 0.5 } }),

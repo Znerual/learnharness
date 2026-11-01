@@ -116,14 +116,28 @@ export function sanitizeSpeech(raw: Record<string, unknown>): SpeechSettings {
 
 /** One on-device speech model, as the Android app's speech server reports
  *  it (GET <url>/models — src/server/speech-models.ts). */
+/** One model's speed in the phone's speed check: seconds of work per
+ *  second of audio, and where it runs ("cpu" or "nnapi"). */
+export interface SpeechBenchmarkModel {
+	/** "parakeet", "kokoro" or "piper". */
+	engine?: string;
+	provider: string;
+	rtf: number;
+}
+
 /** The phone's last speed check (Android app, owner 2026-11-01): how fast
- *  each model ran per second of audio, where it runs ("cpu" or "nnapi"),
+ *  each model ran, whether Kokoro's voices are offered (else only Piper's),
  *  and whether voice mode is offered. */
 export interface SpeechBenchmarkResult {
 	/** ISO time of the run. */
 	at: string;
-	dictation: { provider: string; rtf: number } | null;
-	voice: { provider: string; rtf: number } | null;
+	dictation: SpeechBenchmarkModel | null;
+	/** The voice voice mode reads with: Kokoro when fast enough, else Piper. */
+	voice: SpeechBenchmarkModel | null;
+	kokoro?: SpeechBenchmarkModel | null;
+	piper?: SpeechBenchmarkModel | null;
+	/** Absent or null when Kokoro was not downloaded for the run. */
+	kokoroFast?: boolean | null;
 	voiceMode: boolean;
 }
 
