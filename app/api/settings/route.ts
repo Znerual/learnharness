@@ -14,10 +14,10 @@
  * (core/settings-resolution.ts resolveSettings — browser-safe).
  */
 
-import { settingsStore } from "@/src/server";
+import { stores } from "@/src/server";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-	return Response.json({ settings: settingsStore.readSettings() });
+	return Response.json({ settings: stores.settingsStore.readSettings() });
 }

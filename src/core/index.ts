@@ -100,3 +100,4 @@ export * from "./coverage.ts";
 // export share it. Pure, browser-safe.
 export * from "./session-markdown.ts";
 export * from "./android-shell.ts";
+export * from "./vault/index.ts";

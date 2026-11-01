@@ -22,12 +22,9 @@ export { GraphFormatNewerError } from "../store/graph-format.ts";
 // The settings record + prompt overrides (settings-storage wave, 2026-09-19).
 // The *Record aliases keep the app/api/settings routes explicit about which
 // seam they touch (the raw record, not the chat-section convenience view).
-export {
-	readSettings as readSettingsRecord,
-	writeSettings as writeSettingsRecord,
-	settingsStore,
-} from "../store/settings.ts";
-export { promptOverrides } from "../store/prompt-overrides.ts";
+// Writes go through stores.ts (writeSettingsRecord, promptOverrides): they sync while the
+// learner is signed in to the vault.
+export { readSettings as readSettingsRecord } from "../store/settings.ts";
 export { isValidSegmentPath } from "../core/prompt-segments.ts";
 // The canonical segment discovery/resolution lives in the agent layer
 // (composition is an agent concern); the barrel re-exports it for the
@@ -60,3 +57,5 @@ export { claudeCodeInstallationResponse } from "./claude-code.ts";
 // No import side effects; the boot sync lives in stores.ts.
 export * from "./custom-provider.ts";
 export { customProviderCreate, customProviderGet, customProviderMutation, customProvidersList } from "./custom-provider-http.ts";
+export * from "./vault/service.ts";
+export type { RouteRequest, RouteResponse } from "./vault/routes.ts";

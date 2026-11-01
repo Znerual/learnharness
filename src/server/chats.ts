@@ -3,6 +3,7 @@ import { isJobLive } from "../agent/subagents/aborts.ts";
 import { coverageOf } from "../core/coverage.ts";
 import { deleteChatTraces, type ChatDeleteMode, type ChatDeletionStats } from "../core/graph-deletion.ts";
 import { titleFromPrompt } from "../core/contracts.ts";
+import type { ChatStore } from "../core/ports.ts";
 import { graphRevision } from "./graph.ts";
 import { stores } from "./stores.ts";
 import { isTurnRunning } from "./turn-liveness.ts";
@@ -22,7 +23,11 @@ import { foreignOwner } from "./ownership.ts";
  * argument.
  */
 
-export const { createChat, getChat, listChats } = stores.chatStore;
+// Late-bound on purpose (src/server/stores.ts): while the learner is signed in to the vault
+// `stores.chatStore` is the wrapped store, so never destructure it at import.
+export const createChat: ChatStore["createChat"] = (...args) => stores.chatStore.createChat(...args);
+export const getChat: ChatStore["getChat"] = (...args) => stores.chatStore.getChat(...args);
+export const listChats: ChatStore["listChats"] = (...args) => stores.chatStore.listChats(...args);
 export { titleFromPrompt };
 export type { ChatDeleteMode, ChatDeletionStats } from "../core/graph-deletion.ts";
 

@@ -1,0 +1,462 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { createVaultApi, errorCode, VaultApiError } from "../src/core/vault/api.ts";
+import type { AccountResponse, DeviceRow, SyncStatus } from "../src/core/vault/deps.ts";
+import { createVaultRoutes, toRouteError, type JoinerLike, type RestorerLike, type RotationDto, type VaultLike, type VaultRouteDeps, type VaultStatics } from "../src/server/vault/routes.ts";
+
+const secret = (s: string) => ({ display: () => s });
+
+const account: AccountResponse = {
+	accountId: "acc", email: "learner@example.org", state: "active", canPush: true, billingEnabled: false, trialEndsAt: "x", graceEndsAt: null, quotaBytes: 1, usedBytes: 0, historyBytes: 0,
+	generation: 1, epoch: 1, lastExportAt: null, createdAt: "2026-01-01T00:00:00Z", backupCodesLeft: 10, passkeys: 0, devices: 2, pendingAction: null, historyRetentionDays: 90,
+};
+
+class ApiErr extends Error {
+	override name = "ApiError";
+	constructor(readonly status: number, readonly code: string, readonly body: Record<string, unknown> = {}) {
+		super(`${status} ${code}`);
+	}
+}
+
+class FakeVault implements VaultLike {
+	accountId = "acc";
+	deviceId = "dev-me";
+	ephemeral = false;
+	mustSetPassword = false;
+	calls: string[] = [];
+	grantsSeen: string[] = [];
+	rotation: RotationDto = { status: "applied", generation: 2 };
+	api = {
+		post: async <T>(path: string): Promise<T> => {
+			this.calls.push(`api.post ${path}`);
+			if (path === "/v1/billing/link") throw new ApiErr(404, "billing_disabled");
+			return {} as T;
+		},
+	};
+	auth() {
+		return { token: "t" };
+	}
+	async account() {
+		return account;
+	}
+	async devices(): Promise<DeviceRow[]> {
+		return [{ id: "dev-me", lhDeviceId: "dev_me", name: "Me", ephemeral: false, keysProtected: true, createdAt: "x", lastSeenAt: "x", current: true, established: true, hasUnlockMethod: true }];
+	}
+	async renameDevice(id: string, name: string) {
+		this.calls.push(`rename ${id} ${name}`);
+	}
+	async signOut() {
+		this.calls.push("signOut");
+	}
+	async reauthPassword(p: string) {
+		if (p !== "good") throw Object.assign(new Error("Wrong password"), { name: "VaultError", code: "login_failed" });
+		return "grant-pw";
+	}
+	async reauthRecovery() {
+		return "grant-rec";
+	}
+	async reauthPasskeyStart() {
+		return { ceremonyId: "c", options: {} };
+	}
+	async reauthPasskeyFinish() {
+		return "grant-pk";
+	}
+	async revokeDevice(id: string, grant: string) {
+		this.grantsSeen.push(grant);
+		this.calls.push(`revoke ${id}`);
+		return this.rotation;
+	}
+	async confirmPending(id: string, grant: string) {
+		this.grantsSeen.push(grant);
+		this.calls.push(`confirm ${id}`);
+	}
+	async cancelPending(id: string, grant: string) {
+		this.grantsSeen.push(grant);
+		this.calls.push(`cancel ${id}`);
+	}
+	async changePassword(_p: string, grant: string) {
+		this.grantsSeen.push(grant);
+		return this.rotation;
+	}
+	async setNewPassword() {
+		this.calls.push("setNewPassword");
+		return this.rotation;
+	}
+	async regenerateRecoveryKey(grant: string) {
+		this.grantsSeen.push(grant);
+		return { ...this.rotation, recoveryKey: secret("RK-NEW") };
+	}
+	async regenerateBackupCodes(grant: string) {
+		this.grantsSeen.push(grant);
+		return { ...this.rotation, backupCodes: [secret("BC-1"), secret("BC-2")] };
+	}
+	emergencyKit(email: string, rk: { display(): string }) {
+		return { email, serverUrl: "https://vault.example", recoveryKey: rk.display(), recoveryKeyQr: "qr", createdAt: "2026-11-01T00:00:00Z" };
+	}
+	async deleteAccount(grant: string) {
+		this.grantsSeen.push(grant);
+		this.calls.push("deleteAccount");
+	}
+	async pairShow() {
+		return { pairingId: "pair1", qr: "lhv1-pair:x", text: "T".repeat(52), secret: new Uint8Array([1, 2, 3]) };
+	}
+	async pairReview(id: string, s: Uint8Array) {
+		this.calls.push(`review ${id} ${s.length}`);
+		return { name: "New phone", code: "123456", publicKey: new Uint8Array([9]) };
+	}
+	async pairApprove(id: string, _s: Uint8Array, pk: Uint8Array) {
+		this.calls.push(`approve ${id} ${pk[0]}`);
+	}
+	async downloadExport() {
+		return new Uint8Array([1, 2, 3]);
+	}
+}
+
+interface World {
+	routes: ReturnType<typeof createVaultRoutes>;
+	vault: FakeVault;
+	log: string[];
+	sync: { started: number; stopped: number };
+	clock: { t: number };
+}
+
+function world(over: Partial<VaultStatics> = {}): World {
+	const vault = new FakeVault();
+	const log: string[] = [];
+	const sync = { started: 0, stopped: 0 };
+	const clock = { t: 1_000_000 };
+	let confirmed: string | null = null;
+	const joiner: JoinerLike = { pairingId: "jp", code: "654321", qr: "lhv1-pair:j", text: "J".repeat(52), finish: async () => vault };
+	const Vault: VaultStatics = {
+		signupStart: async (_u, e) => void log.push(`signupStart ${e}`),
+		signupVerify: async (_u, email) => ({ email }),
+		signupFinish: async () => ({ vault, display: { recoveryKey: secret("ABCD-EFGH"), backupCodes: [secret("CODE-1"), secret("CODE-2")] }, kit: vault.emergencyKit("learner@example.org", secret("ABCD-EFGH")) }),
+		confirmRecoveryMaterial: (_d, typed) => (confirmed = typed) === "GH" || typed === "CODE-1",
+		signIn: async (_o, _e, p) => {
+			if (p !== "pw") throw Object.assign(new Error("Wrong email or password"), { name: "VaultError", code: "login_failed" });
+			return vault;
+		},
+		open: async () => vault,
+		recover: async () => {
+			vault.mustSetPassword = true;
+			return vault;
+		},
+		passkeySignInStart: async () => ({ ceremonyId: "c1", options: { challenge: "x" } }),
+		passkeySignInFinish: async (_o, _c, _cred, prf) => (prf ? { status: "unlocked", vault } : { status: "needs_unlock", session: { deviceToken: "t" } }),
+		unlockSessionWithPassword: async () => vault,
+		pairShowAsJoiner: async () => joiner,
+		pairJoin: async () => joiner,
+		...over,
+	};
+	void confirmed;
+	const restorer: RestorerLike = {
+		versions: async () => [{ seq: 2, createdAt: "x", deviceName: "d", deleted: false, size: 3 }],
+		restoreVersion: async (p, s) => void log.push(`restoreVersion ${p} ${s}`),
+		preview: async (at) => [{ path: "a.md", change: "changed" as const, extra: at.toISOString() } as { path: string; change: "changed" }],
+		restoreTo: async () => [{ path: "a.md", change: "removed" }],
+	};
+	const status: SyncStatus = { state: "idle", pendingChanges: 0, lastSuccess: null, conflicts: 0, rollbacks: 0, rejected: 0 };
+	let reminder = true;
+	const deps: VaultRouteDeps = {
+		serverUrl: "https://vault.example",
+		Vault,
+		options: () => ({ opts: true }),
+		checkPassword: async (p) => (p.length < 12 ? { ok: false, reason: "too_short" } : { ok: true, onlineChecked: false }),
+		sync: { start: () => void sync.started++, stop: () => void sync.stopped++, status: () => status, syncNow: async () => status },
+		restorer: () => restorer,
+		leaveVault: async (o) => ({ unpushed: o.dryRun ? 3 : 0 }),
+		exportReminder: { get: () => reminder, set: (b) => void (reminder = b) },
+		now: () => clock.t,
+	};
+	return { routes: createVaultRoutes(deps), vault, log, sync, clock };
+}
+
+async function call(w: World, method: string, path: string, body?: unknown, query?: Record<string, string>) {
+	return w.routes.handle({ method, path, body, ...(query ? { query } : {}) });
+}
+
+test("unknown route and wrong method", async () => {
+	const w = world();
+	assert.equal((await call(w, "GET", "/nope")).status, 404);
+	assert.equal((await call(w, "DELETE", "/session")).status, 405);
+});
+
+test("routes need a session", async () => {
+	const w = world();
+	const r = await call(w, "GET", "/devices");
+	assert.equal(r.status, 401);
+	assert.deepEqual(r.body, { error: "no_session", message: "Not signed in" });
+	assert.deepEqual((await call(w, "GET", "/session")).body, { state: "signed_out" });
+});
+
+test("signup: start, verify, finish returns secrets once, confirm clears them", async () => {
+	const w = world();
+	assert.equal((await call(w, "POST", "/signup/start", { email: "learner@example.org" })).status, 200);
+	assert.equal((await call(w, "POST", "/signup/finish", { password: "x" })).status, 409, "needs verify first");
+	await call(w, "POST", "/signup/verify", { email: "learner@example.org", code: "ABCD1234" });
+	const fin = await call(w, "POST", "/signup/finish", { password: "a-long-password-1" });
+	const body = fin.body as { display: { recoveryKey: string; backupCodes: string[] }; kit: { recoveryKey: string } };
+	assert.equal(fin.status, 200);
+	assert.equal(body.display.recoveryKey, "ABCD-EFGH");
+	assert.deepEqual(body.display.backupCodes, ["CODE-1", "CODE-2"]);
+	assert.equal(w.sync.started, 1, "sync starts after signup");
+	assert.deepEqual((await call(w, "POST", "/signup/confirm", { typed: "nope" })).body, { ok: false });
+	assert.deepEqual((await call(w, "POST", "/signup/confirm", { typed: "CODE-1" })).body, { ok: true });
+	assert.equal((await call(w, "POST", "/signup/confirm", { typed: "CODE-1" })).status, 409, "secrets are gone from server memory");
+});
+
+test("the session route never exposes keys or tokens", async () => {
+	const w = world();
+	await call(w, "POST", "/sign-in/password", { email: "learner@example.org", password: "pw" });
+	const r = await call(w, "GET", "/session");
+	assert.deepEqual(r.body, { state: "signed_in", accountId: "acc", deviceId: "dev-me", ephemeral: false, offline: false });
+	assert.doesNotMatch(JSON.stringify(r.body), /token|key|grant/i);
+});
+
+test("password sign-in: wrong password is 401 login_failed", async () => {
+	const w = world();
+	const r = await call(w, "POST", "/sign-in/password", { email: "learner@example.org", password: "bad" });
+	assert.equal(r.status, 401);
+	assert.equal((r.body as { error: string }).error, "login_failed");
+	assert.equal(w.sync.started, 0);
+});
+
+test("passkey sign-in: with PRF unlocks, without PRF needs unlock then password", async () => {
+	const w = world();
+	const start = await call(w, "POST", "/sign-in/passkey/start", { email: "learner@example.org" });
+	assert.equal((start.body as { ceremonyId: string }).ceremonyId, "c1");
+	const noPrf = await call(w, "POST", "/sign-in/passkey/finish", { email: "Learner@Example.org", ceremonyId: "c1", credential: {}, prfOutput: null });
+	assert.deepEqual(noPrf.body, { state: "needs_unlock", email: "learner@example.org" });
+	assert.equal(w.sync.started, 0);
+	const unlock = await call(w, "POST", "/unlock/password", { password: "pw" });
+	assert.equal((unlock.body as { state: string }).state, "signed_in");
+	assert.equal(w.sync.started, 1);
+	const w2 = world();
+	const withPrf = await call(w2, "POST", "/sign-in/passkey/finish", { email: "a@b.co", ceremonyId: "c1", credential: {}, prfOutput: "AAAA" });
+	assert.equal((withPrf.body as { state: string }).state, "signed_in");
+	assert.equal((await call(world(), "POST", "/unlock/password", { password: "pw" })).status, 409);
+});
+
+test("recovery: signed in but must set a password, sync stays off until it is set", async () => {
+	const w = world();
+	const r = await call(w, "POST", "/recover", { email: "learner@example.org", secret: "ABCD-EFGH-JKMN-PQRS" });
+	assert.deepEqual(r.body, { state: "must_set_password" });
+	assert.equal(w.sync.started, 0);
+	await call(w, "POST", "/recover/new-password", { password: "a-new-long-password" });
+	assert.equal(w.sync.started, 1);
+	assert.equal(w.vault.mustSetPassword, false);
+});
+
+test("open on launch adopts the stored vault and starts sync", async () => {
+	const w = world();
+	const r = await call(w, "POST", "/session/open");
+	assert.equal((r.body as { state: string }).state, "signed_in");
+	assert.equal(w.sync.started, 1);
+	const none = world({ open: async () => null });
+	assert.deepEqual((await call(none, "POST", "/session/open")).body, { state: "signed_out" });
+});
+
+test("password check passes through the client's checkPassword", async () => {
+	const w = world();
+	assert.deepEqual((await call(w, "POST", "/password/check", { password: "short" })).body, { ok: false, reason: "too_short" });
+	assert.deepEqual((await call(w, "POST", "/password/check", { password: "long-enough-password" })).body, { ok: true, onlineChecked: false });
+	assert.equal((await call(w, "POST", "/password/check", {})).status, 400);
+});
+
+async function signedIn(w: World) {
+	await call(w, "POST", "/sign-in/password", { email: "learner@example.org", password: "pw" });
+}
+
+test("revoke needs a grant; the grant is single-use; the result comes back as pending", async () => {
+	const w = world();
+	await signedIn(w);
+	assert.equal((await call(w, "POST", "/devices/lost/revoke", { reauthId: "bogus" })).status, 403);
+	const g = (await call(w, "POST", "/reauth/password", { password: "good" })).body as { reauthId: string; strength: string };
+	assert.equal(g.strength, "password");
+	assert.doesNotMatch(g.reauthId, /grant-pw/);
+	w.vault.rotation = { status: "pending", pendingAction: { id: "p1", kind: "revoke_device", strength: "password", requestedBy: "dev-me", requestedByName: "Me", targetDeviceId: "lost", runsAt: "2026-11-02T00:00:00Z", createdAt: "x", cancellable: true } };
+	const r = await call(w, "POST", "/devices/lost/revoke", { reauthId: g.reauthId });
+	assert.equal(r.status, 200);
+	assert.equal((r.body as RotationDto).status, "pending");
+	assert.deepEqual(w.vault.grantsSeen, ["grant-pw"]);
+	assert.equal((await call(w, "POST", "/devices/lost/revoke", { reauthId: g.reauthId })).status, 403, "grant already used");
+});
+
+test("revoke with recovery material applies immediately; revoking this device is refused", async () => {
+	const w = world();
+	await signedIn(w);
+	const g = (await call(w, "POST", "/reauth/recovery", { secret: "CODE" })).body as { reauthId: string; strength: string };
+	assert.equal(g.strength, "recovery");
+	assert.equal(((await call(w, "POST", "/devices/lost/revoke", { reauthId: g.reauthId })).body as RotationDto).status, "applied");
+	const g2 = (await call(w, "POST", "/reauth/password", { password: "good" })).body as { reauthId: string };
+	assert.equal((await call(w, "POST", "/devices/dev-me/revoke", { reauthId: g2.reauthId })).status, 400);
+});
+
+test("an expired grant is refused", async () => {
+	const w = world();
+	await signedIn(w);
+	const g = (await call(w, "POST", "/reauth/password", { password: "good" })).body as { reauthId: string };
+	w.clock.t += 6 * 60_000;
+	assert.equal((await call(w, "POST", "/devices/lost/revoke", { reauthId: g.reauthId })).status, 403);
+});
+
+test("a wrong re-authentication password is 401 and issues no grant", async () => {
+	const w = world();
+	await signedIn(w);
+	const r = await call(w, "POST", "/reauth/password", { password: "bad" });
+	assert.equal(r.status, 401);
+});
+
+test("devices route returns rows and the pending action; rename, confirm, cancel map to client calls", async () => {
+	const w = world();
+	await signedIn(w);
+	const d = (await call(w, "GET", "/devices")).body as { devices: DeviceRow[]; pendingAction: unknown };
+	assert.equal(d.devices.length, 1);
+	assert.equal(d.pendingAction, null);
+	await call(w, "PATCH", "/devices/dev-x", { name: "Spare" });
+	assert.equal((await call(w, "POST", "/pending/p9/confirm", { reauthId: "bogus" })).status, 403);
+	const g1 = (await call(w, "POST", "/reauth/recovery", { secret: "CODE" })).body as { reauthId: string };
+	await call(w, "POST", "/pending/p9/confirm", { id: "p9", reauthId: g1.reauthId });
+	const g2 = (await call(w, "POST", "/reauth/password", { password: "good" })).body as { reauthId: string };
+	await call(w, "POST", "/pending/p9/cancel", { id: "p9", reauthId: g2.reauthId });
+	assert.deepEqual(w.vault.calls.filter((c) => !c.startsWith("api")), ["rename dev-x Spare", "confirm p9", "cancel p9"]);
+});
+
+test("sign out stops sync, signs the device out and forgets the vault", async () => {
+	const w = world();
+	await signedIn(w);
+	await call(w, "POST", "/session/sign-out");
+	assert.equal(w.sync.stopped, 1);
+	assert.ok(w.vault.calls.includes("signOut"));
+	assert.deepEqual((await call(w, "GET", "/session")).body, { state: "signed_out" });
+});
+
+test("regenerate returns the new secrets once, with the emergency kit for the recovery key", async () => {
+	const w = world();
+	await signedIn(w);
+	const g1 = (await call(w, "POST", "/reauth/password", { password: "good" })).body as { reauthId: string };
+	const rk = (await call(w, "POST", "/account/recovery-key", { reauthId: g1.reauthId })).body as { recoveryKey: string; kit: { email: string; recoveryKey: string }; rotation: RotationDto };
+	assert.equal(rk.recoveryKey, "RK-NEW");
+	assert.equal(rk.kit.email, "learner@example.org");
+	assert.equal(rk.rotation.status, "applied");
+	assert.equal("recoveryKey" in rk.rotation, false);
+	const g2 = (await call(w, "POST", "/reauth/password", { password: "good" })).body as { reauthId: string };
+	const bc = (await call(w, "POST", "/account/backup-codes", { reauthId: g2.reauthId })).body as { backupCodes: string[] };
+	assert.deepEqual(bc.backupCodes, ["BC-1", "BC-2"]);
+});
+
+test("pairing: show keeps the secret on the server, review then approve", async () => {
+	const w = world();
+	await signedIn(w);
+	const shown = (await call(w, "POST", "/pairing/show")).body as Record<string, unknown>;
+	assert.deepEqual(Object.keys(shown).sort(), ["pairingId", "qr", "text"], "the raw secret bytes are not returned");
+	assert.equal((await call(w, "POST", "/pairing/pair1/approve")).status, 409, "approve needs a review first");
+	const rev = (await call(w, "GET", "/pairing/pair1/review")).body;
+	assert.deepEqual(rev, { name: "New phone", code: "123456" });
+	assert.equal((await call(w, "POST", "/pairing/pair1/approve")).status, 200);
+	assert.deepEqual(w.vault.calls.filter((c) => /review|approve/.test(c)), ["review pair1 3", "approve pair1 9"]);
+	assert.equal((await call(w, "GET", "/pairing/unknown/review")).status, 404);
+});
+
+test("pairing as joiner: show own code, then finish signs this device in and starts sync", async () => {
+	const w = world();
+	const shown = (await call(w, "POST", "/pairing/joiner/show")).body as { code: string; pairingId: string };
+	assert.equal(shown.code, "654321");
+	const fin = await call(w, "POST", `/pairing/${shown.pairingId}/finish`);
+	assert.equal((fin.body as { state: string }).state, "signed_in");
+	assert.equal(w.sync.started, 1);
+	const w2 = world();
+	const j = (await call(w2, "POST", "/pairing/joiner/join", { code: "lhv1-pair:x" })).body as { pairingId: string; code: string };
+	assert.equal(j.code, "654321");
+});
+
+test("history routes: versions, restore one, preview and restore all drop internals", async () => {
+	const w = world();
+	await signedIn(w);
+	assert.equal(((await call(w, "GET", "/history/versions", undefined, { path: "a.md" })).body as { versions: unknown[] }).versions.length, 1);
+	await call(w, "POST", "/history/restore-version", { path: "a.md", seq: "2" });
+	assert.deepEqual(w.log.filter((l) => l.startsWith("restoreVersion")), ["restoreVersion a.md 2"]);
+	const prev = await call(w, "GET", "/history/preview", undefined, { at: "2026-10-20T10:00:00Z" });
+	assert.deepEqual(prev.body, { plan: [{ path: "a.md", change: "changed" }] });
+	assert.equal((await call(w, "GET", "/history/preview", undefined, { at: "not a date" })).status, 400);
+	assert.deepEqual((await call(w, "POST", "/history/restore", { at: "2026-10-20T10:00:00Z" })).body, { plan: [{ path: "a.md", change: "removed" }] });
+});
+
+test("export returns a tar as base64 and the reminder setting round-trips", async () => {
+	const w = world();
+	await signedIn(w);
+	const e = (await call(w, "POST", "/export")).body as { filename: string; dataBase64: string; contentType: string };
+	assert.match(e.filename, /^lhv-export-\d{8}\.tar$/);
+	assert.equal(e.contentType, "application/x-tar");
+	assert.deepEqual([...Buffer.from(e.dataBase64, "base64")], [1, 2, 3]);
+	assert.deepEqual((await call(w, "GET", "/export/reminder")).body, { enabled: true });
+	assert.deepEqual((await call(w, "PUT", "/export/reminder", { enabled: false })).body, { enabled: false });
+	assert.deepEqual((await call(w, "GET", "/export/reminder")).body, { enabled: false });
+	assert.equal((await call(w, "PUT", "/export/reminder", { enabled: "no" })).status, 400);
+});
+
+test("manage plan maps billing_disabled to 404", async () => {
+	const w = world();
+	await signedIn(w);
+	const r = await call(w, "POST", "/account/plan-link");
+	assert.equal(r.status, 404);
+	assert.equal((r.body as { error: string }).error, "billing_disabled");
+});
+
+test("delete account: needs the typed email and a grant, then forgets the session", async () => {
+	const w = world();
+	await signedIn(w);
+	const g = (await call(w, "POST", "/reauth/password", { password: "good" })).body as { reauthId: string };
+	assert.equal((await call(w, "DELETE", "/account", { email: "someone@else.org", reauthId: g.reauthId })).status, 400);
+	const ok = await call(w, "DELETE", "/account", { email: "LEARNER@example.org", reauthId: g.reauthId });
+	assert.equal(ok.status, 200);
+	assert.deepEqual(w.vault.grantsSeen, ["grant-pw"]);
+	assert.equal(w.sync.stopped, 1);
+	assert.equal((await call(w, "GET", "/account")).status, 401);
+});
+
+test("leave vault: a dry run reports unpushed changes and keeps the session", async () => {
+	const w = world();
+	await signedIn(w);
+	assert.deepEqual((await call(w, "POST", "/session/leave", { dryRun: true })).body, { unpushed: 3 });
+	assert.equal((await call(w, "GET", "/session")).status, 200);
+	assert.equal(w.sync.stopped, 0);
+	await call(w, "POST", "/session/leave", {});
+	assert.equal(w.sync.stopped, 1);
+	assert.deepEqual((await call(w, "GET", "/session")).body, { state: "signed_out" });
+});
+
+test("error mapping: ApiError, NetworkError, VaultError and unknown errors", () => {
+	assert.deepEqual([toRouteError(new ApiErr(403, "reauth_required", { message: "m" })).status, toRouteError(new ApiErr(403, "reauth_required", { message: "m" })).message], [403, "m"]);
+	assert.equal(toRouteError(Object.assign(new Error("x"), { name: "NetworkError" })).status, 503);
+	assert.equal(toRouteError(Object.assign(new Error("x"), { name: "VaultError", code: "password_breached" })).status, 422);
+	assert.equal(toRouteError(Object.assign(new Error("x"), { name: "VaultError", code: "pairing_cancelled" })).status, 409);
+	const u = toRouteError(new Error("secret internals"));
+	assert.equal(u.status, 500);
+	assert.doesNotMatch(u.message, /secret internals/);
+});
+
+test("the renderer API client talks to the routes end to end", async () => {
+	const w = world();
+	const api = createVaultApi({
+		base: "/api/vault",
+		fetch: async (url, init) => {
+			const u = new URL(url, "http://x");
+			const r = await w.routes.handle({
+				method: init?.method ?? "GET",
+				path: u.pathname.replace(/^\/api\/vault/, ""),
+				query: Object.fromEntries(u.searchParams),
+				body: init?.body ? JSON.parse(init.body as string) : undefined,
+			});
+			return new Response(JSON.stringify(r.body), { status: r.status });
+		},
+	});
+	assert.deepEqual(await api.session(), { state: "signed_out" });
+	await assert.rejects(api.devices(), (e) => e instanceof VaultApiError && e.status === 401 && errorCode(e) === "no_session");
+	await api.signIn({ email: "learner@example.org", password: "pw" });
+	await api.renameDevice({ deviceId: "dev-x", name: "Spare" });
+	assert.ok(w.vault.calls.includes("rename dev-x Spare"));
+	const prev = await api.historyPreview({ at: "2026-10-20T10:00:00Z" });
+	assert.equal(prev.plan[0]?.path, "a.md");
+	assert.equal(errorCode(new Error("x")), "generic");
+});
