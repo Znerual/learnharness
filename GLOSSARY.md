@@ -12,6 +12,10 @@ _Avoid_: client, instance, host
 The folder holding a learner's synced records (sessions, knowledge graph, jobs, prompt overrides). Every device has its own copy; the sync tool keeps the copies identical.
 _Avoid_: data dir, store, vault
 
+**Vault**:
+The optional hosted service that keeps a learner's data folders in sync and backed up, end-to-end encrypted, instead of a sync tool such as Syncthing. Off unless the learner signs in to it; a data folder that the vault syncs is not shared through another sync tool. Not the Obsidian vault (Settings → Graph).
+_Avoid_: cloud, account sync
+
 **Device-local data**:
 Records that belong to one device and never sync: settings, API keys, debug recordings.
 _Avoid_: private data, local settings
