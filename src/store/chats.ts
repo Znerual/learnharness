@@ -249,8 +249,9 @@ function setActiveTurn(id: string, activeTurn: ActiveTurn | null): void {
 
 // ─── conflict copies (multi-device, GLOSSARY "Conflict copy") ──────────────────
 
-/** Syncthing's name for the version it kept beside a file two devices
- *  changed: <name>.sync-conflict-<date>-<time>-<device>.<ext>. */
+/** The name a file-sync tool gives the version it kept beside a file two
+ *  devices changed — Syncthing's naming, the one recognized here:
+ *  <name>.sync-conflict-<date>-<time>-<device>.<ext>. */
 function conflictPattern(id: string): RegExp {
 	return new RegExp(`^${id}\\.sync-conflict-[A-Za-z0-9-]+\\.json$`);
 }

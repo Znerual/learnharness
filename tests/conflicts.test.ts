@@ -1,6 +1,6 @@
 /**
  * CONFLICT COPIES OF SESSIONS (multi-device, GLOSSARY "Conflict copy"):
- * when two devices changed one session before syncing, Syncthing keeps the
+ * when two devices changed one session before syncing, the file-sync tool keeps the
  * other version beside it as chat_<id>.sync-conflict-<date>-<time>-<device>.json.
  * The session list ignores such files, the session lists them, and the
  * learner picks the version to keep; the other one moves to the
