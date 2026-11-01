@@ -71,6 +71,42 @@ afterEach(async () => {
 	globalThis.fetch = originalFetch;
 });
 
+describe("Android app: Check for updates through LHAndroid", () => {
+	type W = { LHAndroid?: unknown; lhAndroidUpdate?: (s: unknown) => void; lh?: unknown };
+	afterEach(() => { delete (window as unknown as W).LHAndroid; });
+
+	it("offers the button next to the version, calls the bridge, and shows each outcome", async () => {
+		let calls = 0;
+		const w = window as unknown as W;
+		delete w.lh;
+		w.LHAndroid = { updateCheckAvailable: () => true, checkForUpdates: () => { calls++; } };
+		const host = await mount(<UpdateSettings {...props} version="0.4.2102" homepage="" />);
+		const button = q(host, "update-check");
+		assert.ok(button, "the button is there");
+		assert.match(q(host, "row-version")?.textContent ?? "", /Version 0\.4\.2102/);
+		await act(async () => { button!.click(); });
+		assert.equal(calls, 1);
+		assert.equal(q(host, "update-status")?.textContent, "Checking for updates…");
+		await act(async () => { w.lhAndroidUpdate?.({ status: "up-to-date", version: "0.4.2102" }); });
+		assert.equal(q(host, "update-status")?.textContent, "You have the latest version.");
+		await act(async () => { w.lhAndroidUpdate?.({ status: "available", version: "0.4.2103" }); });
+		assert.match(q(host, "update-status")?.textContent ?? "", /Version 0\.4\.2103 is available/);
+		await act(async () => { w.lhAndroidUpdate?.({ status: "error" }); });
+		assert.equal(q(host, "update-status")?.textContent, "Couldn’t check for updates. Try again later.");
+	});
+
+	it("no button where the app has no update check (free edition) or outside the app", async () => {
+		const w = window as unknown as W;
+		delete w.lh;
+		w.LHAndroid = { updateCheckAvailable: () => false, checkForUpdates: () => {} };
+		const host = await mount(<UpdateSettings {...props} />);
+		assert.equal(q(host, "update-check"), null);
+		delete w.LHAndroid;
+		const plain = await mount(<UpdateSettings {...props} />);
+		assert.equal(q(plain, "update-check"), null);
+	});
+});
+
 describe("version and contextual copy", () => {
 	it("build metadata comes from package.json and exposes only public version/homepage values", () => {
 		const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));

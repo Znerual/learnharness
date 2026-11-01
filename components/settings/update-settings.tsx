@@ -46,6 +46,48 @@ export function useUpdateState() {
 	return { state, failed };
 }
 
+/** The Android app's update check (learnharness-android AppUpdate, pro edition): `LHAndroid`
+ * offers it, and the result comes back through `window.lhAndroidUpdate`. */
+export type AndroidUpdateStatus = { status: "checking" | "up-to-date" | "available" | "error"; version?: string };
+type AndroidUpdateWindow = {
+	LHAndroid?: { updateCheckAvailable?: () => boolean; checkForUpdates?: () => void };
+	lhAndroidUpdate?: (s: AndroidUpdateStatus) => void;
+};
+
+export function androidUpdateText(s: AndroidUpdateStatus | null): string | null {
+	switch (s?.status) {
+		case "checking": return "Checking for updates…";
+		case "up-to-date": return "You have the latest version.";
+		case "available": return `Version ${s.version ?? "?"} is available. Follow the prompt to install it.`;
+		case "error": return UPDATE_ERROR;
+		default: return null;
+	}
+}
+
+export function useAndroidUpdate() {
+	const [available, setAvailable] = useState(false);
+	const [status, setStatus] = useState<AndroidUpdateStatus | null>(null);
+	useEffect(() => {
+		const w = window as unknown as AndroidUpdateWindow;
+		try {
+			setAvailable(!!w.LHAndroid?.checkForUpdates && w.LHAndroid.updateCheckAvailable?.() === true);
+		} catch {
+			setAvailable(false);
+		}
+		w.lhAndroidUpdate = (s) => setStatus(s);
+		return () => { if (w.lhAndroidUpdate) delete w.lhAndroidUpdate; };
+	}, []);
+	const check = () => {
+		setStatus({ status: "checking" });
+		try {
+			(window as unknown as AndroidUpdateWindow).LHAndroid?.checkForUpdates?.();
+		} catch {
+			setStatus({ status: "error" });
+		}
+	};
+	return { available, status, check };
+}
+
 export function updateStatusText(state: UpdateState | null): string | null {
 	switch (state?.status) {
 		case "checking": return "Checking for updates…";
@@ -73,11 +115,13 @@ export function UpdateSettings({
 	releaseNotesUrl?: string;
 }) {
 	const { state, failed } = useUpdateState();
+	const android = useAndroidUpdate();
 	const [checkFailed, setCheckFailed] = useState(false);
 	useEffect(() => setCheckFailed(false), [state]);
 	const active = state !== null && state.status !== "disabled";
 	const busy = state?.status === "checking" || state?.status === "downloading";
-	const status = state?.status === "downloaded" ? updateStatusText(state)
+	const status = !active && android.available ? androidUpdateText(android.status)
+		: state?.status === "downloaded" ? updateStatusText(state)
 		: failed || checkFailed ? UPDATE_ERROR : updateStatusText(state);
 	const releaseNotes = releaseNotesUrl || (version && homepage ? `${homepage}/releases/tag/v${version}` : null);
 	const check = () => {
@@ -98,6 +142,12 @@ export function UpdateSettings({
 					</>
 				}
 			>
+				{!active && android.available && (
+					<Button type="button" size="xs" variant="outline" className="cursor-pointer disabled:cursor-not-allowed" data-testid="update-check" disabled={android.status?.status === "checking"} aria-busy={android.status?.status === "checking"} onClick={android.check}>
+						{android.status?.status === "checking" && <BrailleSpinner label="Checking for updates" />}
+						Check for updates
+					</Button>
+				)}
 				{active && (state.status === "downloaded" ? (
 					<Button type="button" size="xs" className="cursor-pointer" data-testid="update-restart" onClick={() => window.lh?.installUpdate?.()}>Restart</Button>
 				) : (
