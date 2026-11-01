@@ -1,0 +1,15 @@
+{
+	"id": "job_mvy5oaqz_ac395b38",
+	"kind": "research",
+	"chatId": "chat_mvy5oaqv_8d0f4dd5",
+	"toolCallId": "call_fixture_done",
+	"status": "done",
+	"deviceId": "dev_56iy6l5a",
+	"deviceName": "Desktop",
+	"activity": "delivered",
+	"createdAt": "2026-11-01T18:20:44.265Z",
+	"updatedAt": "2026-11-01T18:20:44.267Z",
+	"result": {
+		"brief": "fixture"
+	}
+}

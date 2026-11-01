@@ -1,0 +1,15 @@
+{
+	"id": "chat_mvy5o8dy_b5edbc96",
+	"title": "Relational model",
+	"createdAt": "2026-11-01T18:20:41.206Z",
+	"updatedAt": "2026-11-01T18:20:41.206Z",
+	"messages": [
+		{
+			"id": "msg_fx3",
+			"role": "user",
+			"content": "Explain keys.",
+			"timestamp": 1790000000003
+		}
+	],
+	"version": 1
+}

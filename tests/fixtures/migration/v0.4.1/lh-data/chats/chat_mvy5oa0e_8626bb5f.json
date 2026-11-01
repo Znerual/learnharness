@@ -1,0 +1,26 @@
+{
+	"id": "chat_mvy5oa0e_8626bb5f",
+	"title": "Photosynthesis",
+	"createdAt": "2026-11-01T18:20:43.310Z",
+	"updatedAt": "2026-11-01T18:20:43.312Z",
+	"messages": [
+		{
+			"id": "msg_fx1",
+			"role": "user",
+			"content": "What is chlorophyll?",
+			"timestamp": 1790000000001
+		},
+		{
+			"id": "msg_fx2",
+			"role": "assistant",
+			"content": [
+				{
+					"type": "text",
+					"text": "A pigment that absorbs light."
+				}
+			],
+			"timestamp": 1790000000002
+		}
+	],
+	"version": 1
+}

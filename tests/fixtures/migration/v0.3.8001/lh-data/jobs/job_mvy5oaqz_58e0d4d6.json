@@ -1,0 +1,12 @@
+{
+	"id": "job_mvy5oaqz_58e0d4d6",
+	"kind": "research",
+	"chatId": "chat_mvy5oaqx_d3f79099",
+	"toolCallId": "call_fixture_running",
+	"status": "running",
+	"deviceId": "dev_56iy6l5a",
+	"deviceName": "Desktop",
+	"activity": "starting",
+	"createdAt": "2026-11-01T18:20:44.267Z",
+	"updatedAt": "2026-11-01T18:20:44.267Z"
+}
