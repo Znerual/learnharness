@@ -90,6 +90,8 @@ export * from "./dictation.ts";
 export * from "./speech.ts";
 // speech-script.ts (read-aloud wave): reply markdown → what gets spoken.
 export * from "./speech-script.ts";
+// voice-mode.ts (ADR-0005): what each voice-mode utterance does on the page.
+export * from "./voice-mode.ts";
 // keyboard.ts: the shortcut registry + binding normalization (pure, browser-safe).
 export * from "./keyboard.ts";
 export * from "./coverage.ts";

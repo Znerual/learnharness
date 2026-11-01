@@ -33,6 +33,7 @@ import { attachDockSwipeFold, forwardDockWheel, useDockHeight } from "@/componen
 import { QueuedSteersBody, type QueuedSteerLine } from "@/components/queued-steers";
 import { DictationBar, finishDictation, joinDictation, useDictation } from "@/components/dictation";
 import { ReadAloudButton, ReadAloudSpeed, ReadAloudToggle, stopReadAloud, useAutoRead } from "@/components/read-aloud";
+import { useVoiceComposer, useVoiceMode, useVoiceNext, useVoiceReveal, VoiceModeStatus, VoiceModeToggle } from "@/components/voice-mode";
 import { useFieldCycle } from "@/components/field-cycle";
 import { JobsContext } from "@/components/jobs-context";
 import { StatsBar } from "@/components/stats-bar";
@@ -857,6 +858,9 @@ export function Chat({
 		if (!nextReady) return;
 		void send({ type: "next" });
 	}, [nextReady, send]);
+	// Voice mode's "next" (ADR-0005): the same move-on, offered only in the pause.
+	useVoiceNext(nextReady ? sendNext : null);
+	const voice = useVoiceMode();
 
 	/* ENTER FROM ANYWHERE (owner round 16 refinement, 2026-10-06 —
 	 * keyboard-first): the move-on must not require composer focus. The
@@ -1341,6 +1345,18 @@ export function Chat({
 		}
 		doSend();
 	};
+	/* Voice mode's "send" with the composer as the target (ADR-0005): the
+	 * same send-or-steer as Enter; false (the refused earcon) when there is
+	 * nothing to send. */
+	const voiceSendRef = useRef<() => boolean>(() => false);
+	voiceSendRef.current = () => {
+		if (pending || compacting || !textRef.current.trim()) return false;
+		// Missing keys or model: the send opens its dialog on screen and sends nothing.
+		const refused = !busy && (zeroKeys || selectedModelUnavailable(catalog, selectedModel));
+		onSend();
+		return !refused;
+	};
+	useVoiceComposer(useCallback(() => voiceSendRef.current(), []));
 
 	return (
 		<ChatActionsContext.Provider
@@ -1815,9 +1831,11 @@ export function Chat({
 						// The auto-read toggle and speed slider ride beside the mic (read-aloud, owner 2026-10-24).
 						<div className="flex w-full min-w-0 items-center gap-2">
 							<ReadAloudToggle />
+							<VoiceModeToggle />
 							<ReadAloudSpeed />
 							<div className="flex min-w-0 flex-1 items-center justify-center">
-								<DictationBar dictation={dictation} />
+								{/* Voice mode holds the microphone in the app, so the page's mic waits. */}
+								{voice.phase === "off" ? <DictationBar dictation={dictation} /> : <VoiceModeStatus />}
 							</div>
 						</div>
 					}
@@ -2409,6 +2427,11 @@ function DockOverlay({
 	};
 	const expandAndRevealRef = useRef(expandAndReveal);
 	expandAndRevealRef.current = expandAndReveal;
+	// Voice mode's "reveal" (ADR-0005): the same opening as Enter on the waiting check.
+	const voiceReveal = useCallback(() => {
+		void finishDictation().then(() => expandAndRevealRef.current());
+	}, []);
+	useVoiceReveal(pending && revealPending ? voiceReveal : null);
 	// ENTER OPENS THE WAITING CHECK (owner, keyboard round 2026-10-06):
 	// while a question waits with the dock CLOSED — behind its reveal
 	// invitation or collapsed by scroll — Enter is never dead. Any live

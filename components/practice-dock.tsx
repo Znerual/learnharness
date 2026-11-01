@@ -5,6 +5,7 @@ import { ChevronRightIcon } from "lucide-react";
 import { ToolContentResponse } from "@/components/ai-elements/message";
 import { Button } from "@/components/ui/button";
 import { joinDictation, useDictationTarget } from "@/components/dictation";
+import { useVoiceTarget } from "@/components/voice-mode";
 import { useEnterSubmits, enterSubmits } from "@/components/enter-submits";
 import { PathInput } from "@/components/path-input";
 import { cn } from "@/lib/utils";
@@ -84,6 +85,14 @@ export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmi
 	 * (typing surfaces and buttons excluded) submits the trace. Mounted
 	 * while the dock is — collapsed bar included (the trace survives). */
 	useEnterSubmits(submit);
+	// Voice mode's "send" (ADR-0005): the same submit; false when there is nothing to send.
+	const voiceSubmitRef = useRef<() => boolean>(() => false);
+	voiceSubmitRef.current = () => {
+		if (compactionRunning || thinkingRef.current.trim().length === 0) return false;
+		submit();
+		return true;
+	};
+	useVoiceTarget("practice", useCallback(() => voiceSubmitRef.current(), []), true);
 
 	/* ── the collapsed bar ── */
 	if (!expanded) {

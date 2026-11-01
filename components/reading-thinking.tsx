@@ -2,6 +2,7 @@
 
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { joinDictation, useDictationTarget } from "@/components/dictation";
+import { useVoiceTarget } from "@/components/voice-mode";
 import { PathInput } from "@/components/path-input";
 
 /**
@@ -54,6 +55,8 @@ export function ReadingThinkingField({
 		useCallback((text: string) => applyDraft(joinDictation(draftRef.current, text)), [applyDraft]),
 		claim,
 	);
+	// Voice mode: no submit of its own — "send" here opens the check (core voiceAction).
+	useVoiceTarget("reading-thinking", null, claim);
 	return (
 		<div
 			data-testid="reading-thinking-field"

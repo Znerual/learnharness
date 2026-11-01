@@ -26,6 +26,11 @@
  *   arrives after a quiet spell starts at once.
  * - Playback stops on Esc (after dictation in the chain), when dictation
  *   starts, when the learner sends, and when another reply is played.
+ * - Voice mode (ADR-0005): a barge-in PAUSES — the cut block goes back to
+ *   the head of the queue and the reply keeps queuing; resume replays that
+ *   block from its start. Restart replays the last reply from its first
+ *   block, also after a stop or its end. While voice mode is on,
+ *   auto-read is on for the window without touching the saved setting.
  *
  * Module-level state, the dictation flag's pattern: the Esc chain and the
  * dictation start need synchronous answers, and the buttons live in
@@ -49,6 +54,7 @@ import {
 	type SpeechSettings,
 	type SpokenBlock,
 	type UserSettings,
+	type VoiceReading,
 } from "@/src/core";
 import { Hint } from "@/components/ui/hint";
 import { notifySettingsSaved, onSettingsSaved } from "@/components/settings-signal";
@@ -66,9 +72,13 @@ export interface ReadAloudState {
 	autoRead: boolean;
 	/** The synthesis speed (`speech.speed`), shown and set by the composer slider. */
 	speed: number;
+	/** A barge-in paused the speech of `owner` (voice mode). */
+	paused: boolean;
+	/** Voice mode reads every live reply, whatever `autoRead` says. */
+	voiceAutoRead: boolean;
 }
 
-let state: ReadAloudState = { owner: null, error: null, ready: false, autoRead: false, speed: 1 };
+let state: ReadAloudState = { owner: null, error: null, ready: false, autoRead: false, speed: 1, paused: false, voiceAutoRead: false };
 const listeners = new Set<() => void>();
 
 function set(patch: Partial<ReadAloudState>): void {
@@ -98,6 +108,8 @@ let endCurrent: (() => void) | null = null;
 let lastEnded: number | null = null;
 /** Turns the learner silenced: later blocks of the same turn stay quiet. */
 const muted = new Set<string>();
+/** The reply spoken last, every block queued for it so far: what a restart replays. */
+let lastReply: { owner: string; blocks: SpokenBlock[] } | null = null;
 /** Blocks fetched ahead of the playing one. One fetch
  *  at a time: the speech engine synthesizes one block at a time anyway,
  *  and a request queued behind others would eat into its timeout. */
@@ -149,7 +161,6 @@ function playUrl(url: string): Promise<void> {
 			audio.onended = null;
 			audio.onerror = null;
 			endCurrent = null;
-			URL.revokeObjectURL(url);
 			resolve();
 		};
 		endCurrent = () => {
@@ -181,16 +192,21 @@ function pauseBefore(entry: Entry): Promise<void> {
 
 async function pump(): Promise<void> {
 	const gen = generation;
-	if (pumpingGeneration === gen) return;
+	if (pumpingGeneration === gen || state.paused) return;
 	pumpingGeneration = gen;
 	try {
-		while (gen === generation) {
+		while (gen === generation && !state.paused) {
 			prefetch();
 			const entry = queue.shift();
 			if (!entry) break;
 			const url = await load(entry);
 			if (gen !== generation) {
 				URL.revokeObjectURL(url);
+				break;
+			}
+			// A pause puts the block back: resume plays it from its start.
+			if (state.paused) {
+				queue.unshift(entry);
 				break;
 			}
 			// The block just fetched freed a place ahead.
@@ -200,7 +216,16 @@ async function pump(): Promise<void> {
 				URL.revokeObjectURL(url);
 				break;
 			}
+			if (state.paused) {
+				queue.unshift(entry);
+				break;
+			}
 			await playUrl(url);
+			if (gen === generation && state.paused) {
+				queue.unshift(entry);
+				break;
+			}
+			URL.revokeObjectURL(url);
 			// A stop resolves the block it cut: its end is no pause to keep.
 			if (gen === generation) lastEnded = performance.now();
 		}
@@ -211,7 +236,7 @@ async function pump(): Promise<void> {
 		}
 	} finally {
 		if (pumpingGeneration === gen) pumpingGeneration = -1;
-		if (gen === generation) {
+		if (gen === generation && !state.paused) {
 			if (queue.length) void pump();
 			else set({ owner: null });
 		}
@@ -231,7 +256,48 @@ export function stopReadAloud(): void {
 	lastEnded = null;
 	if (state.owner) muted.add(state.owner);
 	pendingQuestions.clear();
-	if (state.owner !== null) set({ owner: null });
+	if (state.owner !== null || state.paused) set({ owner: null, paused: false });
+}
+
+/** A barge-in (voice mode): cut the playing block and hold the queue. */
+export function pauseReadAloud(): void {
+	if (state.owner === null || state.paused) return;
+	set({ paused: true });
+	endCurrent?.();
+}
+
+/** Go on after a barge-in: the cut block first, from its start. */
+export function resumeReadAloud(): void {
+	if (!state.paused) return;
+	// The learner spoke in between: no pause to keep before the block.
+	lastEnded = null;
+	set({ paused: false });
+	void pump();
+}
+
+/** Replay the last reply from its first block (voice mode's restart). */
+export function restartReadAloud(): boolean {
+	if (!lastReply) return false;
+	const { owner, blocks } = lastReply;
+	stopReadAloud();
+	muted.delete(owner);
+	lastReply = { owner, blocks };
+	queue.push(...blocks.map(({ block, pauseBefore }) => ({ block, pauseBefore })));
+	set({ owner, error: null });
+	void pump();
+	return true;
+}
+
+/** Where read-aloud stands, for voice mode's commands. */
+export function readAloudReading(): VoiceReading {
+	if (state.paused) return "paused";
+	if (state.owner !== null) return "playing";
+	return lastReply ? "stopped" : "idle";
+}
+
+/** Voice mode turns auto-read on for the window, never in the saved setting. */
+export function setVoiceAutoRead(on: boolean): void {
+	if (state.voiceAutoRead !== on) set({ voiceAutoRead: on });
 }
 
 /** Is anything queued or playing? The Esc chain's synchronous question. */
@@ -249,6 +315,7 @@ export function speakReply(owner: string, blocks: SpeechBlock[]): void {
 	stopReadAloud();
 	muted.delete(owner);
 	if (blocks.length === 0) return;
+	lastReply = { owner, blocks: paragraphs(blocks) };
 	queue.push(...paragraphs(blocks));
 	set({ owner, error: null });
 	void pump();
@@ -259,6 +326,8 @@ export function speakReply(owner: string, blocks: SpeechBlock[]): void {
 function appendReply(owner: string, blocks: SpokenBlock[]): void {
 	if (blocks.length === 0 || muted.has(owner)) return;
 	if (state.owner !== null && state.owner !== owner) stopReadAloud();
+	if (lastReply?.owner !== owner) lastReply = { owner, blocks: [] };
+	lastReply.blocks.push(...blocks);
 	queue.push(...blocks.map((spoken) => ({ ...spoken })));
 	if (state.owner !== owner) set({ owner, error: null });
 	// A block that streams in while another plays is fetched now, not when that one ends.
@@ -296,7 +365,7 @@ function speakQuestion(toolCallId: string, blocks: SpokenBlock[]): void {
 
 /** The dock shows a question: read it if auto-read is on and it arrived live. */
 export function offerQuestion(toolCallId: string, blocks: SpokenBlock[]): void {
-	if (!state.autoRead || spokenQuestions.has(toolCallId)) return;
+	if (!(state.autoRead || state.voiceAutoRead) || spokenQuestions.has(toolCallId)) return;
 	if (liveQuestions.has(toolCallId)) speakQuestion(toolCallId, blocks);
 	else pendingQuestions.set(toolCallId, blocks);
 }
@@ -396,7 +465,8 @@ const QUESTION_PART_TYPES = new Set(["tool-quiz", "tool-probe", "tool-ask_user_q
  * where it stood — a new turn from its own start.
  */
 export function useAutoRead(messages: LhViewMessage[], status: string): void {
-	const { autoRead } = useReadAloud();
+	const { autoRead: saved, voiceAutoRead } = useReadAloud();
+	const autoRead = saved || voiceAutoRead;
 	/** Blocks already handed over (or skipped), per turn. */
 	const spoken = useRef(new Map<string, number>());
 	/** The closed text last parsed, per turn — parse only when it moves. */
