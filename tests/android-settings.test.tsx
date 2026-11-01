@@ -41,7 +41,7 @@ describe("tabs", () => {
 	it("phone: no Keyboard, most used first, Graph last, Session short", () => {
 		assert.deepEqual(ids({ android: true, session: true, vault: true }), ["session", "keys", "agent", "dictation", "readAloud", "appearance", "general", "vault", "graph"]);
 		assert.deepEqual(ids({ android: true, session: false, vault: false }), ["keys", "agent", "dictation", "readAloud", "appearance", "general", "graph"]);
-		assert.equal(visibleSections({ android: true, session: true, vault: false })[0].label, "Session");
+		assert.equal(visibleSections({ android: true, session: true, vault: false })[0]?.label, "Session");
 	});
 	it("desktop keeps every tab in the old order", () => {
 		assert.deepEqual(ids({ android: false, session: true, vault: true }), ["keys", "agent", "dictation", "readAloud", "appearance", "graph", "keyboard", "general", "vault"]);
