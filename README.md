@@ -16,6 +16,16 @@
   <a href="https://discord.gg/5tCHHQEB2e">Discord</a>
 </p>
 
+> **This fork** ([Znerual/learnharness](https://github.com/Znerual/learnharness)) follows upstream
+> [amosblomqvist/learnharness](https://github.com/amosblomqvist/learnharness) and adds:
+>
+> - **Several custom endpoints** — any number of OpenAI-compatible servers (vLLM, LM Studio, Ollama, Open WebUI, …), each with its own key and thinking format ([custom providers](docs/custom-providers.md)).
+> - **Local dictation and read-aloud** through your own OpenAI-compatible speech server, alongside Deepgram ([local speech](docs/local-speech.md)).
+> - **Obsidian vault sync** — the knowledge graph as notes in a vault, and vault notes imported back.
+> - **Several devices** — keep the data folder in sync with any file-sync tool and use LearnHarness on more than one computer ([how it stays safe](docs/architecture.md#several-devices-one-data-folder-multi-device)). An Android app is in the works.
+>
+> **Download** this fork from its [releases](https://github.com/Znerual/learnharness/releases): Windows (unsigned installer), Linux (AppImage or `.deb`) and macOS on Apple Silicon (not notarized — allow it under System Settings → Privacy & Security). Windows and Linux update in the app from this fork's releases, never from upstream. Everything works on one device with no sync setup; the rest of this README is upstream's.
+
 LearnHarness uses AI agents to plan and teach lessons from your current understanding to your goal. It builds a detailed picture of what you understand and how you reason. That picture is updated as you learn.
 
 Instead of just giving you an explanation, it uses your answers and thinking to decide what you need next. Teaching builds understanding one reasoning step at a time. Practice makes it usable. A persistent knowledge graph carries it across sessions.
