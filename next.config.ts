@@ -1,10 +1,27 @@
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import type { NextConfig } from "next";
 import { MAX_IMPORT_BODY_BYTES } from "./lib/notes-import-limits.ts";
 
 const pkg = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")) as { version: string; homepage: string };
 
+// The vault client is a private optional dependency (src/server/vault/service.ts). Without it the
+// vault glue is type-checked against stand-in types (tsconfig.novault.json) and the vault reports
+// itself unavailable at runtime.
+const hasVaultClient = (() => {
+	try {
+		createRequire(import.meta.url).resolve("@znerual/learnharness-vault-client");
+		return true;
+	} catch {
+		return false;
+	}
+})();
+
 const nextConfig: NextConfig = {
+	typescript: { tsconfigPath: hasVaultClient ? "tsconfig.json" : "tsconfig.novault.json" },
+	// Turbopack fails on an import it cannot resolve; without the package the vault runtime's import
+	// resolves to a stub that throws "not installed" when (and only when) the vault is switched on.
+	...(hasVaultClient ? {} : { turbopack: { resolveAlias: { "@znerual/learnharness-vault-client": "./src/server/vault/client-stub.ts" } } }),
 	// Public build metadata only; no new runtime Electron version API.
 	env: { LH_VERSION: pkg.version, LH_HOMEPAGE: pkg.homepage },
 	// Leave multipart headroom above the 25 MiB file allowance. This is a
@@ -126,6 +143,9 @@ const nextConfig: NextConfig = {
 		"@silvia-odwyer/photon-node", // CJS loads its adjacent WASM from disk
 		"@resvg/resvg-js", // native binding — same
 		"speech-rule-engine", // read-aloud math: resolves its locale dir from its own install path
+		"@znerual/learnharness-vault-client", // the private vault client: optional, loads WASM crypto
+		"@serenity-kit/opaque", // its OPAQUE WASM
+		"libsodium-wrappers", // its WASM libsodium
 	],
 };
 

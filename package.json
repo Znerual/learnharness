@@ -18,7 +18,7 @@
 		"start": "next start",
 		"test": "NODE_ENV=test tsx --test tests/*.test.ts tests/*.test.tsx",
 		"lint": "eslint .",
-		"typecheck": "tsc --noEmit",
+		"typecheck": "node scripts/typecheck.mjs",
 		"desktop:dev": "concurrently -k \"next dev\" \"LH_DEV_URL=http://localhost:3000 electron .\"",
 		"dev:fresh": "bash scripts/dev-fresh.sh",
 		"desktop:dist": "rm -rf dist .next/standalone && next build && node scripts/smoke-provider-runtime.mjs && node scripts/build-server.mjs && node scripts/smoke-server.mjs && DEVELOPER_DIR=${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer} APPLE_KEYCHAIN_PROFILE=LH_NOTARY APPLE_TEAM_ID=JS6XN22HY6 electron-builder --mac --arm64"
@@ -65,6 +65,7 @@
 		"next-themes": "^0.4.6",
 		"pdfjs-dist": "^6.3.289",
 		"puppeteer-core": "^25.8.0",
+		"qrcode": "1.5.4",
 		"radix-ui": "^1.6.7",
 		"react": "^19.2.8",
 		"react-dom": "^19.2.8",
@@ -86,6 +87,7 @@
 		"@next/eslint-plugin-next": "^16.4.3",
 		"@tailwindcss/postcss": "^4.3.3",
 		"@types/node": "^24.0.0",
+		"@types/qrcode": "1.5.6",
 		"@types/react": "^19.2.18",
 		"@types/react-dom": "^19.2.4",
 		"@types/turndown": "^5.0.6",
@@ -99,5 +101,8 @@
 		"tailwindcss": "^4.3.3",
 		"tsx": "^4.19.0",
 		"typescript": "^5.6.0"
+	},
+	"optionalDependencies": {
+		"@znerual/learnharness-vault-client": "file:vendor/znerual-learnharness-vault-client-0.2.0.tgz"
 	}
 }
