@@ -35,19 +35,26 @@ export function modelStateLine(model: OnDeviceModel): string {
 	}
 }
 
+const PROVIDER_LABEL: Record<string, string> = { cpu: "CPU", nnapi: "NNAPI", gpu: "GPU" };
+
 /** The benchmark's verdict in words. Pure — exported for tests. */
 export function benchmarkLine(result: SpeechBenchmarkResult | null): string {
 	if (!result) return "Not run yet — voice mode appears once a run finds this phone fast enough.";
 	const speed = (part: SpeechBenchmarkModel | null | undefined, name: string) =>
-		part ? `${name} ${part.rtf.toFixed(2)} s per second of audio (${part.provider === "nnapi" ? "GPU/NPU" : "CPU"})` : `${name} failed`;
+		part ? `${name} ${part.rtf.toFixed(2)} s per second of audio (${PROVIDER_LABEL[part.provider] ?? part.provider})` : `${name} failed`;
 	const verdict = result.voiceMode ? "Fast enough for voice mode" : "Too slow for voice mode";
+	const split = result.kokoro !== undefined || result.piperHigh !== undefined || result.piperMedium !== undefined;
 	const voices = [
-		result.kokoro !== undefined || result.piper !== undefined ? null : speed(result.voice, "read-aloud"),
+		split ? null : speed(result.voice, "read-aloud"),
 		result.kokoro ? speed(result.kokoro, "Kokoro") : null,
-		result.piper ? speed(result.piper, "Piper") : null,
+		result.piperHigh ? speed(result.piperHigh, "Piper high") : null,
+		result.piperMedium ? speed(result.piperMedium, "Piper medium") : null,
 	].filter((part): part is string => part !== null);
-	const kokoro = result.kokoroFast === false ? " Kokoro is too slow here, so only the Piper voices are offered." : "";
-	return `${verdict}: ${[speed(result.dictation, "dictation"), ...voices].join(", ")}.${kokoro}`;
+	const slow = [result.kokoroFast === false ? "Kokoro" : null, result.piperHighFast === false ? "the high-quality Piper voices" : null].filter(
+		(name): name is string => name !== null,
+	);
+	const hidden = slow.length ? ` Too slow here, so not offered: ${slow.join(" and ")}.` : "";
+	return `${verdict}: ${[speed(result.dictation, "dictation"), ...voices].join(", ")}.${hidden}`;
 }
 
 /** Settings row: run the phone's speed check, which decides whether voice mode is offered. */

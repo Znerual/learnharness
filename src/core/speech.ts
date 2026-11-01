@@ -119,7 +119,7 @@ export function sanitizeSpeech(raw: Record<string, unknown>): SpeechSettings {
 /** One model's speed in the phone's speed check: seconds of work per
  *  second of audio, and where it runs ("cpu" or "nnapi"). */
 export interface SpeechBenchmarkModel {
-	/** "parakeet", "kokoro" or "piper". */
+	/** "parakeet", "kokoro", "piper-high" or "piper-medium". */
 	engine?: string;
 	provider: string;
 	rtf: number;
@@ -135,9 +135,12 @@ export interface SpeechBenchmarkResult {
 	/** The voice voice mode reads with: Kokoro when fast enough, else Piper. */
 	voice: SpeechBenchmarkModel | null;
 	kokoro?: SpeechBenchmarkModel | null;
-	piper?: SpeechBenchmarkModel | null;
+	piperHigh?: SpeechBenchmarkModel | null;
+	piperMedium?: SpeechBenchmarkModel | null;
 	/** Absent or null when Kokoro was not downloaded for the run. */
 	kokoroFast?: boolean | null;
+	/** The high-quality Piper voices are offered; absent or null when none was downloaded. */
+	piperHighFast?: boolean | null;
 	voiceMode: boolean;
 }
 
