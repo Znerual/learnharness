@@ -35,7 +35,7 @@ export function modelStateLine(model: OnDeviceModel): string {
 	}
 }
 
-const PROVIDER_LABEL: Record<string, string> = { cpu: "CPU", nnapi: "NNAPI", gpu: "GPU" };
+const PROVIDER_LABEL: Record<string, string> = { cpu: "CPU", nnapi: "NNAPI", gpu: "GPU", npu: "NPU" };
 
 /** The benchmark's verdict in words. Pure — exported for tests. */
 export function benchmarkLine(result: SpeechBenchmarkResult | null): string {
