@@ -12,8 +12,19 @@
  */
 
 import * as fs from "node:fs";
+import * as path from "node:path";
 import { moveFile } from "./fs-files.ts";
 import { LEGACY_DEVICE_LOCAL, PATHS, POSITIONS_FILE, RENDER_SETTINGS_FILE, SETTINGS_FILE } from "../../config.ts";
+
+/** The records that moved from the data folder to the device-local folder, as [from, to] pairs. */
+export function deviceLocalMoves(dataDir: string, localDir: string): ReadonlyArray<readonly [from: string, to: string]> {
+	return [
+		[path.join(dataDir, "settings.json"), path.join(localDir, "settings.json")],
+		[path.join(dataDir, "graph", "positions.json"), path.join(localDir, "positions.json")],
+		[path.join(dataDir, "graph", "render-settings.json"), path.join(localDir, "render-settings.json")],
+		[path.join(dataDir, "debug"), path.join(localDir, "debug")],
+	];
+}
 
 const MOVES: ReadonlyArray<readonly [from: string, to: string]> = [
 	[LEGACY_DEVICE_LOCAL.settings, SETTINGS_FILE],
