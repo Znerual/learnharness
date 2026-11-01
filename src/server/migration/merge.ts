@@ -30,6 +30,9 @@ export type { MergeReport };
 export interface MergeSink {
 	noteDocumentChanged(path: string): Promise<void>;
 	noteLedgerAppended(file: string, offset: number): Promise<void>;
+	/** The vault's knowledge of a document (vault client SyncEngine.documentState, after a sync). A document
+	 *  deleted in the vault is not brought back from old local data. Absent: every missing document is added. */
+	documentState?(path: string): "live" | "deleted" | "unknown";
 }
 
 export interface MergeOptions {
@@ -124,6 +127,7 @@ export async function mergePreVault(o: MergeOptions): Promise<MergeReport> {
 		sources: { added: 0 },
 		graphLines: { added: 0, linked: 0 },
 		leftBehind: [],
+		deletedInVault: [],
 	};
 	const changedPaths: string[] = [];
 	const live = (rel: string) => path.join(o.dataDir, rel);
@@ -131,6 +135,12 @@ export async function mergePreVault(o: MergeOptions): Promise<MergeReport> {
 	const setAside = (rel: string, text: string) => {
 		const to = freePath(path.join(o.localDir, "conflicts", `${rel}.${s.date}-${s.time}`));
 		writeFileAtomic(to, text);
+	};
+	/** True when the vault deleted this document: the old local copy stays in the moved-aside folder. */
+	const deletedInVault = (rel: string): boolean => {
+		if (o.sink.documentState?.(rel) !== "deleted") return false;
+		report.deletedInVault.push(rel);
+		return true;
 	};
 	/** Intent first, then the write. */
 	const put = async (rel: string, text: string) => {
@@ -149,6 +159,7 @@ export async function mergePreVault(o: MergeOptions): Promise<MergeReport> {
 		if (!isObject(json(local))) continue;
 		const vault = read(live(f));
 		if (vault === null) {
+			if (deletedInVault(f)) continue;
 			await put(f, local);
 			report.sessions.added++;
 			continue;
@@ -188,6 +199,7 @@ export async function mergePreVault(o: MergeOptions): Promise<MergeReport> {
 		}
 		const vault = read(live(f));
 		if (vault === null) {
+			if (deletedInVault(f)) continue;
 			await put(f, local);
 			report.jobs.added++;
 		} else if (vault === local) report.jobs.identical++;
@@ -215,6 +227,7 @@ export async function mergePreVault(o: MergeOptions): Promise<MergeReport> {
 			continue;
 		}
 		if (vault === null) {
+			if (deletedInVault(f)) continue;
 			await put(f, local);
 			report.prompts.added++;
 		} else if (vault === local) report.prompts.identical++;

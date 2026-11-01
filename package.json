@@ -103,6 +103,6 @@
 		"typescript": "^5.6.0"
 	},
 	"optionalDependencies": {
-		"@znerual/learnharness-vault-client": "file:vendor/znerual-learnharness-vault-client-0.2.0.tgz"
+		"@znerual/learnharness-vault-client": "file:vendor/znerual-learnharness-vault-client-0.3.0.tgz"
 	}
 }

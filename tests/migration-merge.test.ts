@@ -153,6 +153,21 @@ describe("merging moved-aside data into the vault", () => {
 	});
 });
 
+test("a document the vault deleted is not brought back; the report names it", async () => {
+	const s = setup();
+	const [a] = s.ids as [string];
+	fs.rmSync(path.join(s.dataDir, "chats", `${a}.json`));
+	const record = json(s.from, "chats", `${a}.json`);
+	fs.writeFileSync(path.join(s.from, "chats", "chat_new_phone.json"), JSON.stringify({ ...record, id: "chat_new_phone", title: "Phone only" }, null, "\t"));
+	const sink = { ...s.sink, documentState: (p: string) => (p === `chats/${a}.json` ? "deleted" as const : "unknown" as const) };
+	const r = await mergePreVault({ dataDir: s.dataDir, localDir: s.localDir, fromDir: s.from, deviceId: PHONE, sink, now: () => new Date("2026-11-01T15:30:00Z") });
+	assert.ok(!fs.existsSync(path.join(s.dataDir, "chats", `${a}.json`)), "the deleted session stays deleted");
+	assert.ok(fs.existsSync(path.join(s.from, "chats", `${a}.json`)), "its old copy stays in the moved-aside folder");
+	assert.deepEqual(r.deletedInVault, [`chats/${a}.json`]);
+	assert.equal(r.sessions.added, 1, "a session the vault never had is still added");
+	assert.ok(fs.existsSync(path.join(s.dataDir, "chats", "chat_new_phone.json")));
+});
+
 test("a node line merged as a link is not merged again by the next run", async () => {
 	const s = setup();
 	const first = JSON.parse(read(s.from, "graph", "nodes.dev_fixture1.jsonl").trim().split("\n")[0] as string);

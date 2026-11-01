@@ -92,10 +92,12 @@ describe("migration into a real vault: old data folders sign up, join and merge"
 	}
 
 	/** A device whose folders start as a copy of a fixture. */
-	function device(name: string, fixture: string): Device {
+	/** `newIdentity`: drop the fixture's device.json, as a second installation with a copy of the same data folder would have its own. */
+	function device(name: string, fixture: string, newIdentity = false): Device {
 		const dataDir = join(tmp, name);
 		cpSync(join(FIXTURES, fixture, "lh-data"), dataDir, { recursive: true });
 		if (existsSync(join(FIXTURES, fixture, "lh-local"))) cpSync(join(FIXTURES, fixture, "lh-local"), `${dataDir}-local`, { recursive: true });
+		if (newIdentity) rmSync(join(`${dataDir}-local`, "device.json"), { force: true });
 		const d = new Device(dataDir, serverUrl);
 		children.push(d);
 		return d;
@@ -256,6 +258,29 @@ describe("migration into a real vault: old data folders sign up, join and merge"
 		assert.equal((await a.route("POST", "/sync/now")).status, 200);
 		assert.ok(own.every((f) => existsSync(join(a.dataDir, "chats", f))), "and uploaded to the other device");
 		assert.equal(((await c.route("GET", "/migration/report")).body as MigrationStateDto).movedAside[0]?.merged, true);
+	});
+
+	test("a session deleted in the vault is not brought back by a later merge of old data", async () => {
+		const a = device("deleter-desktop", "v0.4.2001");
+		const email = "mig-deleted@example.org";
+		await signUp(a, email);
+		const chats = (await a.call("chats")) as { id: string; title: string }[];
+		const gone = chats[0] as { id: string; title: string };
+		assert.ok(await a.call("deleteChat", { id: gone.id }));
+		assert.equal((await a.route("POST", "/sync/now")).status, 200);
+		// A second device still holds the same old data, including the deleted session.
+		const c = device("stale-laptop", "v0.4.2001", true);
+		assert.ok(existsSync(join(c.dataDir, "chats", `${gone.id}.json`)));
+		assert.equal(((await c.route("POST", "/sign-in/password", { email, password: PASSWORD })).body as { state: string }).state, "joining");
+		const joined = await c.route("POST", "/session/join", { choice: "merge" });
+		assert.equal(joined.status, 200, JSON.stringify(joined.body));
+		assert.equal((await c.route("POST", "/sync/now")).status, 200);
+		assert.ok(!existsSync(join(c.dataDir, "chats", `${gone.id}.json`)), "not restored on the joining device");
+		assert.equal((await a.route("POST", "/sync/now")).status, 200);
+		assert.ok(!existsSync(join(a.dataDir, "chats", `${gone.id}.json`)), "and not uploaded again");
+		const mergeFile = readdirSync(join(c.local, "migration")).find((f) => f.startsWith("merge-pre-vault-")) as string;
+		const report = JSON.parse(readFileSync(join(c.local, "migration", mergeFile), "utf-8")) as MergeReport;
+		assert.deepEqual(report.deletedInVault, [`chats/${gone.id}.json`]);
 	});
 
 	test("data of a newer build stops the first sign-in and changes nothing", async () => {

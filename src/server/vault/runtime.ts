@@ -151,6 +151,9 @@ async function bootstrap(wired: WiredVault<Stores>, vault: Vault, choice: JoinCh
 
 /** Folds a moved-aside folder into the live data folder (migration/merge.ts), then syncs. */
 async function mergeInto(wired: WiredVault<Stores>, fromDir: string) {
+	// Current heads first: documentState must know what the vault deleted, or old copies come back.
+	// A failed sync throws, and the moved-aside folder stays as it is for a later try.
+	await wired.engine.sync();
 	const report = await mergePreVault({
 		dataDir: PATHS.data,
 		localDir: PATHS.local,

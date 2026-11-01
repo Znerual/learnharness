@@ -376,8 +376,9 @@ export const strings = {
 		merge: "Merge into the vault",
 		merging: "Merging...",
 		merged: "Merged",
-		mergeResult: (r: { sessions: number; conflicts: number; graph: number }) =>
-			`Added ${r.sessions} ${r.sessions === 1 ? "session" : "sessions"} and ${r.graph} graph ${r.graph === 1 ? "line" : "lines"}. ${r.conflicts} conflict ${r.conflicts === 1 ? "copy" : "copies"} to review.`,
+		mergeResult: (r: { sessions: number; conflicts: number; graph: number; deleted?: number }) =>
+			`Added ${r.sessions} ${r.sessions === 1 ? "session" : "sessions"} and ${r.graph} graph ${r.graph === 1 ? "line" : "lines"}. ${r.conflicts} conflict ${r.conflicts === 1 ? "copy" : "copies"} to review.` +
+			(r.deleted ? ` ${r.deleted} deleted in the vault, not brought back.` : ""),
 	},
 
 	scan: {

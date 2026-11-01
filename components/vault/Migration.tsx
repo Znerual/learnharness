@@ -116,7 +116,7 @@ export function MovedAsideView({ folders, busy, done, error, onMerge }: { folder
 					<div key={f.name} data-testid="moved-aside-folder" className="flex flex-wrap items-center gap-2 text-sm">
 						<span>{strings.migration.aside(f)}</span>
 						{r ? (
-							<span data-testid="merge-result">{strings.migration.mergeResult({ sessions: r.sessions.added + r.sessions.continued, conflicts: r.sessions.conflictCopies, graph: r.graphLines.added })}</span>
+							<span data-testid="merge-result">{strings.migration.mergeResult({ sessions: r.sessions.added + r.sessions.continued, conflicts: r.sessions.conflictCopies, graph: r.graphLines.added, deleted: r.deletedInVault?.length ?? 0 })}</span>
 						) : (
 							<Button variant="secondary" disabled={busy !== null} onClick={() => onMerge(f.name)}>
 								{busy === f.name ? strings.migration.merging : f.merged ? strings.migration.merged : strings.migration.merge}

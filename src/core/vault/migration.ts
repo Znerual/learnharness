@@ -65,6 +65,8 @@ export interface MergeReport {
 	graphLines: { added: number; linked: number };
 	/** Files that stay in the moved-aside folder (other devices' ledgers come from the vault). */
 	leftBehind: string[];
+	/** Documents deleted in the vault since: not brought back, the old copies stay in the moved-aside folder. */
+	deletedInVault: string[];
 }
 
 export interface MovedAsideDto {

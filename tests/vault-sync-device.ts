@@ -20,6 +20,7 @@ const ops: Record<string, (a: Record<string, unknown>) => unknown> = {
 	createChat: (a) => stores.chatStore.createChat(String(a.title)).id,
 	saveMessages: (a) => stores.chatStore.saveMessages(String(a.id), a.messages as never),
 	renameChat: (a) => stores.chatStore.renameChat(String(a.id), String(a.title)),
+	deleteChat: (a) => stores.chatStore.deleteChat(String(a.id)),
 	chats: () => stores.chatStore.listChats().map((c) => ({ id: c.id, title: c.title })),
 	messages: (a) => stores.chatStore.getChat(String(a.id))?.messages ?? null,
 	events: () => events.splice(0),

@@ -87,7 +87,7 @@ Two devices, diverged copies, in one line each: sessions never duplicate (same i
 
 `DataLocation.migrateSharedToPrivate` (Android repo, `vault-integration`) copies everything under `/storage/emulated/0/LearnHarness/data` into app-private `files/data` once, never overwrites, never deletes the shared folder. Consequences for this flow:
 
-- Files, not folders, are copied: `.stignore` and `.stversions/**` arrive in the private folder, `.stfolder` (an empty folder) does not. The vault would refuse the private folder; the same Syncthing guide and set-aside handle it, because the markers are then inside the data folder.
+- Since the Android repo's c67f701 the copy leaves Syncthing's files (`.stfolder`, `.stignore`, `.stversions`) behind. Builds before that copied them; for such a private folder the same Syncthing guide and set-aside apply, because the markers are then inside the data folder.
 - Conflict copies are copied too, and the upgrade sorts them as above.
 - The shared folder stays behind and keeps syncing with the desktop through Syncthing. The user must remove it from Syncthing on every device (the guide's step 2), otherwise the shared copy and the private copy diverge. Nothing in this repo deletes it.
 - The upgrade runs on the private copy (`LH_DATA_DIR` = `files/data`), with the backup in the private local folder, so the backup never sits in shared storage.
@@ -111,12 +111,13 @@ Two devices, diverged copies, in one line each: sessions never duplicate (same i
 - `tests/migration-upgrade.test.ts`: per release dry run (reads only), backup byte for byte, every step, nothing synced altered, second run is a no-op, a crash after every step and during the backup is finished by the next run with the first backup; Syncthing markers, conflict copies, set-aside; newer data; torn files; local folder inside the data folder.
 - `tests/migration-merge.test.ts`: merge rules above, intent-first notes, idempotence.
 - `tests/migration-ui.test.tsx`, additions to `tests/vault-routes.test.ts`: screens and routes.
-- `tests/migration-vault.test.ts`: against a real vault server (`LHV_REPO`, `LHV_TEST_DATABASE_URL`, `GOTOOLCHAIN=go1.26.0`): upstream 0.4.1 folder signs up and a second device receives every record byte for byte; Syncthing folder refused, guided, migrated; two diverged devices merge; "Use the vault" then a later merge; newer data stops the sign-in.
+- `tests/migration-vault.test.ts`: against a real vault server (`LHV_REPO`, `LHV_TEST_DATABASE_URL`, `GOTOOLCHAIN=go1.26.0`): upstream 0.4.1 folder signs up and a second device receives every record byte for byte; Syncthing folder refused, guided, migrated; two diverged devices merge; "Use the vault" then a later merge; a session deleted in the vault stays deleted when an old copy is merged; newer data stops the sign-in.
 
 ## Limits and open points
 
-- A session that was **deleted in the vault** but still exists in a moved-aside folder is added back by the merge (the client gives the fork no tombstone to check; ADR 0002 accepts the same for Syncthing). The learner deletes it again.
-- A ledger copy merged from a Syncthing conflict can bring back lines that upstream's session deletion removed from the other branch.
+- A document **deleted in the vault** is not brought back: the merge first syncs, then asks the vault client (`SyncEngine.documentState`, client 0.3.0, from the authenticated record headers) and skips documents whose head is a deletion. The report lists them (`deletedInVault`), and the old copies stay in the moved-aside folder. If the sync fails, the merge stops and the folder stays for a later try.
+- A ledger copy merged from a Syncthing conflict can bring back lines that upstream's session deletion removed from the other branch. Owner decision (2026-11-01): keep lines rather than risk losing them.
+- The join screen offers "Merge with the vault" as the main button (owner decision, 2026-11-01).
 - Merging does not run on devices that already completed their first start; the "Moved aside" list is the only entry point later.
 - Unreadable sessions (including those from before the native message record) are set aside and named in the report, never repaired.
 - Upstream-format data cannot be moved back to an upstream build.
