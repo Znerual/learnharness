@@ -120,6 +120,8 @@ export interface VaultContract {
 	pairShow: { req: Empty; res: { pairingId: string; qr: string; text: string } };
 	pairReview: { req: { pairingId: string }; res: { name: string; code: string } };
 	pairApprove: { req: { pairingId: string }; res: Empty };
+	/** Signed-in device scanned the code a new device shows; review and approve follow as usual. */
+	pairApproverScan: { req: { code: string }; res: { pairingId: string } };
 	pairCancel: { req: { pairingId: string }; res: Empty };
 	pairJoinerShow: { req: Empty; res: { pairingId: string; qr: string; text: string; code: string } };
 	pairJoin: { req: { code: string }; res: { pairingId: string; code: string } };
@@ -194,6 +196,7 @@ export const routeTable: { [K in RouteName]: { method: HttpMethod; path: string 
 	pairShow: { method: "POST", path: "/pairing/show" },
 	pairReview: { method: "GET", path: "/pairing/:pairingId/review" },
 	pairApprove: { method: "POST", path: "/pairing/:pairingId/approve" },
+	pairApproverScan: { method: "POST", path: "/pairing/approver/scan" },
 	pairCancel: { method: "POST", path: "/pairing/:pairingId/cancel" },
 	pairJoinerShow: { method: "POST", path: "/pairing/joiner/show" },
 	pairJoin: { method: "POST", path: "/pairing/joiner/join" },

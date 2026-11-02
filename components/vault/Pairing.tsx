@@ -9,7 +9,8 @@ import { Button, ErrorLine, Field, Notice, QrSvg, SecretBlock, TextInput } from 
 
 // ---------------------------------------------------------------- approver (signed-in device)
 
-export function PairingApproverView({ state, dispatch, onStart, onApprove }: { state: ApproverState; dispatch: Dispatch<ApproverEvent>; onStart: () => void; onApprove: () => void }) {
+/** `onScan` is given only where the app has a camera scanner (Android): scan the code a new device shows. */
+export function PairingApproverView({ state, dispatch, onStart, onApprove, onScan }: { state: ApproverState; dispatch: Dispatch<ApproverEvent>; onStart: () => void; onApprove: () => void; onScan?: () => void }) {
 	return (
 		<section data-testid="pairing-approver" data-step={state.step} className="flex flex-col gap-3">
 			<h2 className="text-lg font-semibold">{strings.pairing.showTitle}</h2>
@@ -20,7 +21,20 @@ export function PairingApproverView({ state, dispatch, onStart, onApprove }: { s
 					<Button disabled={state.busy} onClick={onStart}>
 						{state.busy ? strings.common.working : strings.pairing.showTitle}
 					</Button>
+					{onScan ? (
+						<>
+							<p className="text-sm">{strings.pairing.scanJoinerHelp}</p>
+							<Button variant="secondary" disabled={state.busy} onClick={onScan}>
+								{state.busy ? strings.scan.scanning : strings.pairing.scanJoiner}
+							</Button>
+						</>
+					) : null}
 				</>
+			) : null}
+			{state.step === "checking" ? (
+				<p className="text-sm" aria-live="polite">
+					{strings.pairing.checking}
+				</p>
 			) : null}
 			{state.step === "showing" ? (
 				<>
@@ -73,7 +87,14 @@ export function PairingApproverView({ state, dispatch, onStart, onApprove }: { s
 /** Approver wired to the routes: show, wait for the join, review, approve. */
 export function PairingApprover({ api }: { api: VaultApi }) {
 	const [state, dispatch] = useReducer(reduceApprover, initialApprover);
-	const pairingId = state.step === "showing" ? state.pairingId : null;
+	const pairingId = state.step === "showing" || state.step === "checking" ? state.pairingId : null;
+	// the Android app's camera scanner, for a code the new device shows
+	const [canScan, setCanScan] = useState(false);
+	const stopScan = useRef<(() => void) | null>(null);
+	useEffect(() => {
+		setCanScan(androidScannerAvailable());
+		return () => stopScan.current?.();
+	}, []);
 	useEffect(() => {
 		if (!pairingId) return;
 		let live = true;
@@ -97,6 +118,21 @@ export function PairingApprover({ api }: { api: VaultApi }) {
 					.then((r) => dispatch({ type: "shown", ...r }))
 					.catch((e) => dispatch({ type: "failed", code: errorCode(e) }));
 			}}
+			onScan={
+				canScan
+					? () => {
+						dispatch({ type: "scan" });
+						stopScan.current?.();
+						stopScan.current = startAndroidScan((r) => {
+							stopScan.current = null;
+							if (!r.ok || !r.payload) return dispatch({ type: "scan_ended" });
+							api.pairApproverScan({ code: r.payload })
+								.then((x) => dispatch({ type: "scanned", pairingId: x.pairingId }))
+								.catch((e) => dispatch({ type: "failed", code: errorCode(e) }));
+						});
+					}
+					: undefined
+			}
 			onApprove={() => {
 				if (state.step !== "review") return;
 				dispatch({ type: "approve" });

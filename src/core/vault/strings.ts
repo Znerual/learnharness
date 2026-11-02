@@ -177,6 +177,9 @@ export const strings = {
 	pairing: {
 		showTitle: "Add a device",
 		showHelp: "On the new device, choose \"Add this device from another device\" and scan this code. If it cannot scan, type the text code instead.",
+		scanJoiner: "Scan the new device's code",
+		scanJoinerHelp: "Does the new device already show a QR code? Scan it with this phone's camera instead.",
+		checking: "Reading the new device...",
 		textLabel: "Text code (52 characters)",
 		waiting: "Waiting for the new device...",
 		expires: "The code works for 10 minutes and once.",

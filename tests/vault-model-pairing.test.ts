@@ -96,3 +96,15 @@ test("joiner scanner (Android): a scanned payload joins at once; failures say wh
 	assert.equal(pasted.step === "scan" && pasted.error, undefined);
 	assert.equal(reduceJoiner(pasted, { type: "join" }).busy, true);
 });
+
+test("approver: scan the new device's code, then review and approve", () => {
+	let s = reduceApprover(initialApprover, { type: "scan" });
+	assert.equal(s.busy, true);
+	assert.equal(reduceApprover(s, { type: "scan_ended" }).busy, false, "camera closed without a code: back to the start");
+	s = reduceApprover(s, { type: "scanned", pairingId: "jp" });
+	assert.equal(s.step, "checking");
+	assert.equal(reduceApprover(s, { type: "reject" }).step, "cancelled");
+	s = reduceApprover(s, { type: "reviewed", name: "Laptop", code: "654321" });
+	assert.equal(s.step, "review");
+	assert.equal(s.step === "review" && s.pairingId, "jp");
+});

@@ -1,6 +1,7 @@
 // Pairing (#32, ADR 0003). Approver side (a signed-in device): show a QR code and the 52-character
 // text code, wait for the join, show the new device's name and 6-digit code, approve only after
-// the learner confirms the codes match. Joiner side (the new device): either scan or paste the
+// the learner confirms the codes match. Or, when the new device shows its own code, scan that code
+// (Android camera) and go straight to the review. Joiner side (the new device): either scan or paste the
 // approver's code, or show its own code; it displays the same 6-digit code.
 
 interface Common {
@@ -13,6 +14,8 @@ interface Common {
 export type ApproverState =
 	| ({ step: "idle" } & Common)
 	| ({ step: "showing"; pairingId: string; qr: string; text: string } & Common)
+	/** Scanned the new device's own code; reading its name and 6-digit code. */
+	| ({ step: "checking"; pairingId: string } & Common)
 	| ({ step: "review"; pairingId: string; deviceName: string; code: string } & Common)
 	| { step: "approved"; busy: false; deviceName: string }
 	| { step: "cancelled"; busy: false }
@@ -21,6 +24,10 @@ export type ApproverState =
 export type ApproverEvent =
 	| { type: "start" }
 	| { type: "shown"; pairingId: string; qr: string; text: string }
+	/** Started scanning the new device's code; `scan_ended` when the camera was closed without one. */
+	| { type: "scan" }
+	| { type: "scan_ended" }
+	| { type: "scanned"; pairingId: string }
 	| { type: "reviewed"; name: string; code: string }
 	| { type: "approve" }
 	| { type: "approved" }
@@ -38,6 +45,13 @@ export function reduceApprover(s: ApproverState, e: ApproverEvent): ApproverStat
 		case "idle":
 			if (e.type === "start") return s.busy ? s : { ...s, busy: true, error: undefined };
 			if (e.type === "shown") return { step: "showing", pairingId: e.pairingId, qr: e.qr, text: e.text, busy: false };
+			if (e.type === "scan") return s.busy ? s : { ...s, busy: true, error: undefined };
+			if (e.type === "scan_ended") return { ...s, busy: false };
+			if (e.type === "scanned") return { step: "checking", pairingId: e.pairingId, busy: false };
+			return s;
+		case "checking":
+			if (e.type === "reviewed") return { step: "review", pairingId: s.pairingId, deviceName: e.name, code: e.code, busy: false };
+			if (e.type === "reject") return { step: "cancelled", busy: false };
 			return s;
 		case "showing":
 			if (e.type === "reviewed") return { step: "review", pairingId: s.pairingId, deviceName: e.name, code: e.code, busy: false };

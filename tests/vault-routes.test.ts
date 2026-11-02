@@ -192,6 +192,11 @@ function world(over: Partial<VaultStatics> = {}, migration?: VaultRouteDeps["mig
 		unlockSessionWithPassword: async () => vault,
 		pairShowAsJoiner: async () => joiner,
 		pairJoin: async () => joiner,
+		parsePairingCode: (code) => {
+			const [, url, id] = /^lhv1-pair:(https:\/\/[^ ]+) ([^ ]+)$/.exec(code) ?? [];
+			if (!url || !id) throw Object.assign(new Error("bad"), { name: "VaultError", code: "bad_code" });
+			return { serverUrl: url, pairingId: id, secret: new Uint8Array([7, 7]) };
+		},
 		...over,
 	};
 	void confirmed;
@@ -482,6 +487,19 @@ test("pairing: show keeps the secret on the server, review then approve", async 
 	assert.equal((await call(w, "POST", "/pairing/pair1/approve")).status, 200);
 	assert.deepEqual(w.vault.calls.filter((c) => /review|approve/.test(c)), ["review pair1 3", "approve pair1 9"]);
 	assert.equal((await call(w, "GET", "/pairing/unknown/review")).status, 404);
+});
+
+test("pairing: a signed-in device scans the code a new device shows, then reviews and approves", async () => {
+	const w = world();
+	assert.equal((await call(w, "POST", "/pairing/approver/scan", { code: "lhv1-pair:https://vault.example jp2" })).status, 401, "needs a signed-in device");
+	await signedIn(w);
+	assert.equal((await call(w, "POST", "/pairing/approver/scan", { code: "ABCD" })).status, 400, "only a full lhv1-pair: code");
+	assert.equal((await call(w, "POST", "/pairing/approver/scan", { code: "lhv1-pair:https://other.example jp2" })).status, 400, "another server's code");
+	const r = await call(w, "POST", "/pairing/approver/scan", { code: "lhv1-pair:https://vault.example/ jp2" });
+	assert.deepEqual(r.body, { pairingId: "jp2" }, "the secret stays on the server");
+	assert.equal((await call(w, "GET", "/pairing/jp2/review")).status, 200);
+	assert.equal((await call(w, "POST", "/pairing/jp2/approve")).status, 200);
+	assert.deepEqual(w.vault.calls.filter((c) => /review|approve/.test(c)), ["review jp2 2", "approve jp2 9"]);
 });
 
 test("pairing as joiner: show own code, then finish signs this device in and starts sync", async () => {

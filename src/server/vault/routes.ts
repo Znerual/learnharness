@@ -91,6 +91,8 @@ export interface VaultStatics {
 	unlockSessionWithPassword(o: VaultOptionsLike, session: unknown, email: string, password: string): Promise<VaultLike>;
 	pairShowAsJoiner(o: VaultOptionsLike): Promise<JoinerLike>;
 	pairJoin(o: VaultOptionsLike, qr: string): Promise<JoinerLike>;
+	/** Reads a `lhv1-pair:` code; a signed-in device uses it for a code the new device shows. */
+	parsePairingCode(qrOrText: string): { serverUrl: string; pairingId: string; secret: Uint8Array };
 }
 
 /** What a first start on this device would do (see `VaultRouteDeps.sync.plan`). */
@@ -535,6 +537,15 @@ export function createVaultRoutes(deps: VaultRouteDeps): VaultRoutes {
 			await v.pairApprove(id, a.secret, a.publicKey);
 			approvals.delete(id);
 			return {};
+		},
+		async pairApproverScan(req) {
+			needVault();
+			const code = str(req, "code").trim();
+			if (!code.startsWith("lhv1-pair:")) throw new RouteError(400, "bad_code", "Scan the code the new device shows");
+			const p = deps.Vault.parsePairingCode(code);
+			if (p.serverUrl.replace(/\/+$/, "") !== deps.serverUrl.replace(/\/+$/, "")) throw new RouteError(400, "bad_code", "This pairing code is for another vault server");
+			approvals.set(p.pairingId, { secret: p.secret });
+			return { pairingId: p.pairingId };
 		},
 		async pairCancel(req) {
 			approvals.delete(str(req, "pairingId"));
