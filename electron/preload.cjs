@@ -77,6 +77,7 @@ contextBridge.exposeInMainWorld("lh", {
 		},
 	},
 	expandWindow: () => ipcRenderer.send("lh:expand-window"),
+	setTheme: (mode, background) => ipcRenderer.send("lh:theme", mode, background),
 	onZoom: (cb) => {
 		const listener = (_event, factor) => cb(factor);
 		ipcRenderer.on("lh:zoom", listener);

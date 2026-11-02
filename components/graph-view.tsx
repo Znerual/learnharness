@@ -79,6 +79,7 @@ import { ChainTableOverlay } from "@/components/chain-table.tsx";
 import { Hint } from "@/components/ui/hint";
 import { useAndroidShell, useAndroidBack } from "@/components/android-shell";
 import { VaultSyncButton } from "@/components/vault-sync";
+import { useAppearance } from "@/components/settings/appearance";
 import {
 	ARROW_LENGTH_LADDER,
 	CHARGE_RANGE,
@@ -215,6 +216,21 @@ function cssColorToHex(css: string): string {
 function tokenHex(cssVar: string): string {
 	const value = getComputedStyle(document.documentElement).getPropertyValue(cssVar).trim();
 	return value ? cssColorToHex(value) : "#888888";
+}
+
+/** The canvas's theme colors, read from the tokens showing now. Cluster
+ *  labels keep their hue; light mode darkens them to 32% lightness so they
+ *  read on #fafafa as the 78% pastel reads on #141414. (Region tints stay:
+ *  their faint washes show on both backgrounds.) */
+function canvasColors() {
+	const dark = document.documentElement.classList.contains("dark");
+	return {
+		node: tokenHex(NODE_COLOR_TOKEN),
+		edge: tokenHex("--ring"),
+		label: tokenHex("--muted-foreground"),
+		hoverText: tokenHex("--foreground"),
+		clusterLabelLightness: dark ? 78 : 32,
+	};
 }
 
 // ---- Component ------------------------------------------------------------
@@ -1438,16 +1454,19 @@ export function GraphView({
 			logicalEdges: snapshot.logicalEdges.map((e) => ({ from: e.from, to: e.to })),
 			impLinks: snapshot.impLinks,
 			clusters: snapshot.clusters.map((c) => ({ id: c.id, label: c.label, members: c.members })),
-			colors: {
-				node: tokenHex(NODE_COLOR_TOKEN),
-				edge: tokenHex("--ring"),
-				label: tokenHex("--muted-foreground"),
-				hoverText: tokenHex("--foreground"),
-			},
+			colors: canvasColors(),
 			// Match the app typography (Geist via the body's stack).
 			fontFamily: getComputedStyle(document.body).fontFamily,
 		});
 	}, [snapshot, isEmpty]);
+
+	// The mode changed (light mode wave): the tokens moved, so repaint with
+	// them. The provider swaps the class in a LAYOUT effect, so the computed
+	// tokens are already the new mode's when this passive effect reads them.
+	const { resolvedMode } = useAppearance();
+	useEffect(() => {
+		rendererRef.current?.setColors(canvasColors());
+	}, [resolvedMode]);
 
 	// Feed #2 — settings: just marks the frame dirty. No rebuild, no
 	// re-layout, no camera touch (the whole point of the new renderer).

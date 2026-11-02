@@ -159,7 +159,7 @@ export function DictationEngineRows() {
 				</button>
 			)}
 			{error && (
-				<p role="alert" data-testid="dictation-engine-error" className="px-1 text-xs text-red-500">
+				<p role="alert" data-testid="dictation-engine-error" className="px-1 text-xs text-red-600 dark:text-red-500">
 					{error}
 				</p>
 			)}

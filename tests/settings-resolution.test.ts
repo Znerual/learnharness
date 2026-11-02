@@ -36,7 +36,7 @@ describe("resolveSettings", () => {
 		assert.equal(eff.models.strong, null);
 		assert.equal(eff.models.cheap, null);
 		assert.equal(eff.models.vision, null);
-		assert.equal(eff.appearance.mode, "dark");
+		assert.equal(eff.appearance.mode, "system");
 		assert.equal(eff.appearance.background, null);
 		assert.equal(eff.appearance.fontFamily, null);
 		assert.equal(eff.appearance.proseFontSize, 16);

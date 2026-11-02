@@ -410,10 +410,15 @@ export interface MdRenderingSettings {
 	italicColor?: string | null;
 }
 
+/** The color modes the setting offers (light mode wave, 2026-11-02):
+ *  "system" follows the OS (prefers-color-scheme / the phone's theme). */
+export const APPEARANCE_MODES = ["dark", "light", "system"] as const;
+export type AppearanceMode = (typeof APPEARANCE_MODES)[number];
+
 /** Appearance settings — mode, colors, type, markdown emphasis. */
 export interface AppearanceSettings {
-	/** "dark" | "light" (default dark). */
-	mode?: "dark" | "light";
+	/** "dark" | "light" | "system" (default system = follow the OS). */
+	mode?: AppearanceMode;
 	/** The one user-chosen color; everything else derives per-mode in code.
 	 *  null = the mode's default background. */
 	background?: string | null;
@@ -532,7 +537,7 @@ export interface FactorySettings {
 	general: Required<GeneralSettings>;
 	dictation: { language: DictationLanguage };
 	appearance: {
-		mode: "dark" | "light";
+		mode: AppearanceMode;
 		background: string | null;
 		fontFamily: string | null;
 		proseFontSize: number;
@@ -552,8 +557,8 @@ export const FACTORY_SETTINGS: FactorySettings = {
 	general: { autoUpdate: true },
 	dictation: { language: "en" },
 	appearance: {
-		mode: "dark",
-		background: null, // the dark default (#141414) lives in the mode's derivation curve
+		mode: "system",
+		background: null, // each mode's default (#141414 dark, #fafafa light) lives in its derivation curve
 		fontFamily: null, // Source Sans 3
 		proseFontSize: 16,
 		sessionNameSerif: true,
@@ -799,7 +804,7 @@ function sanitizeMdRendering(raw: unknown): MdRenderingSettings {
 
 function sanitizeAppearance(raw: Record<string, unknown>): AppearanceSettings {
 	const out: AppearanceSettings = {};
-	if (raw.mode === "dark" || raw.mode === "light") out.mode = raw.mode;
+	if ((APPEARANCE_MODES as readonly unknown[]).includes(raw.mode)) out.mode = raw.mode as AppearanceMode;
 	if (raw.background !== undefined) out.background = sanitizeHexOrNull(raw.background);
 	if (raw.fontFamily !== undefined) {
 		out.fontFamily = typeof raw.fontFamily === "string" && raw.fontFamily.trim() ? raw.fontFamily : null;

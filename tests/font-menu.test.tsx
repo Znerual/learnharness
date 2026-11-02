@@ -138,10 +138,14 @@ describe("the emphasis-ink factory ruling (globals.css)", () => {
 		assert.ok(!css.includes("--lh-ink-italic: #6fa9d6"), "italic factory is not the old blue");
 	});
 
-	it("both blocks default the inks to the regular text color", () => {
+	it("the inks default to the regular text color in both modes", () => {
 		const css = fs.readFileSync("app/globals.css", "utf-8");
-		assert.equal((css.match(/--lh-ink-strong: var\(--foreground\)/g) ?? []).length, 2, "both theme blocks");
-		assert.equal((css.match(/--lh-ink-italic: var\(--foreground\)/g) ?? []).length, 2, "both theme blocks");
+		// :root sets them once; .dark (light mode wave) redefines only colors,
+		// so var(--foreground) resolves to each mode's own text color.
+		assert.equal((css.match(/--lh-ink-strong: var\(--foreground\)/g) ?? []).length, 1, ":root block");
+		assert.equal((css.match(/--lh-ink-italic: var\(--foreground\)/g) ?? []).length, 1, ":root block");
+		const darkBlock = css.slice(css.indexOf("\n.dark {"), css.indexOf("}", css.indexOf("\n.dark {")));
+		assert.ok(!darkBlock.includes("--lh-ink"), ".dark leaves the inks alone");
 	});
 
 	it("the appearance rows' empty-state labels say 'same as text'", () => {
