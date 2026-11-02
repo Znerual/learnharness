@@ -11,6 +11,7 @@
 export type SecretBundle = any;
 export type KeyStorageErrorCode = "no_secure_storage" | "locked" | "corrupt" | "io";
 export type KeyStorageStatus = { available: true; protection: string; backend?: string } | { available: false; reason: string; backend?: string };
+export type NoSecureStorageReason = string;
 export interface KeyStorage {
 	status(): Promise<KeyStorageStatus>;
 	load(): Promise<SecretBundle | null>;

@@ -4,10 +4,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, describe, it } from "node:test";
 
-import { decodeBundle, encodeBundle, type SecretBundle } from "@znerual/learnharness-vault-client";
+import type { SecretBundle } from "@znerual/learnharness-vault-client";
 
-import { AndroidKeyStorage } from "../src/server/vault/keystorage-android.ts";
+import { hasVaultClient, loadIfVaultClient } from "./vault-helpers.ts";
 import { startFakeKeystore, type FakeKeystore } from "./vault-fake-keystore-server.ts";
+
+// The adapter encodes bundles with the private vault client; skipped without it (public CI).
+const { decodeBundle, encodeBundle } = await loadIfVaultClient<typeof import("@znerual/learnharness-vault-client")>("@znerual/learnharness-vault-client");
+const { AndroidKeyStorage } = await loadIfVaultClient<typeof import("../src/server/vault/keystorage-android.ts")>("../src/server/vault/keystorage-android.ts");
 
 const dirs: string[] = [];
 const servers: FakeKeystore[] = [];
@@ -35,7 +39,7 @@ async function setup(init: Parameters<typeof startFakeKeystore>[0] = {}, secret?
 	return { fake, file, ks };
 }
 
-describe("AndroidKeyStorage against the KeystoreServer contract", () => {
+describe("AndroidKeyStorage against the KeystoreServer contract", { skip: !hasVaultClient && "the vault client package is not installed" }, () => {
 	it("round-trips, stores 0x01||iv||ct||tag at mode 0600, and clear deletes file and key", async () => {
 		const { fake, file, ks } = await setup();
 		assert.deepEqual(await ks.status(), { available: true, protection: "keystore-tee", backend: "tee" });
