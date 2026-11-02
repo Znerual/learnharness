@@ -6,10 +6,12 @@
  *
  * Why variables and not className swaps: every seam the settings touch was
  * built token-first (--font-prose, --lh-prose-size, --lh-ink-strong, …),
- * so application is setProperty and nothing re-renders. The ONE thing the
- * variables can't reach — the mode — is dark-only this wave (the light
- * palette is designed in the later design wave; <html class="dark"> is
- * static in app/layout.tsx).
+ * so application is setProperty and nothing re-renders. The MODE is the one
+ * class swap (light mode wave, 2026-11-02): globals.css carries the light
+ * palette on :root and the dark palette on .dark; this provider toggles
+ * `dark` on <html>. The first paint is already right — app/layout.tsx runs
+ * themeScript before the page paints — so the provider only follows
+ * changes: the setting, and the OS flipping while the mode is "system".
  *
  * The provider is mounted at the ROOT LAYOUT level (like ActivityProvider):
  * every page picks appearance up on load. The settings page writes a
@@ -19,8 +21,40 @@
  * with the other navigations — mod+, pushes /settings from anywhere.)
  */
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { FACTORY_SETTINGS, type AppearanceSettings } from "@/src/core";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { FACTORY_SETTINGS, type AppearanceMode, type AppearanceSettings } from "@/src/core";
+import { DARK_QUERY, MODE_BACKGROUNDS, resolveMode, type ResolvedMode } from "./theme-mode";
+
+export type { ResolvedMode } from "./theme-mode";
+
+/** One MediaQueryList for the page's life (browser only). */
+let darkQuery: MediaQueryList | null = null;
+function osDarkQuery(): MediaQueryList {
+	darkQuery ??= window.matchMedia(DARK_QUERY);
+	return darkQuery;
+}
+
+function subscribeOsMode(onChange: () => void): () => void {
+	const query = osDarkQuery();
+	query.addEventListener("change", onChange);
+	return () => query.removeEventListener("change", onChange);
+}
+
+const osPrefersDarkNow = () => osDarkQuery().matches;
+
+/** Whether the OS prefers dark right now; re-renders when it flips. The
+ *  hydration snapshot is the LIVE value too, not the server's false: with
+ *  false, the first client commit would resolve "system" to light and strip
+ *  the `dark` class the pre-paint script just set — the flash themeScript
+ *  exists to prevent. Nothing in the server markup depends on this value
+ *  (its readers run in effects or in the client-opened settings dialog). */
+function useOsPrefersDark(): boolean {
+	return useSyncExternalStore(
+		subscribeOsMode,
+		osPrefersDarkNow,
+		() => (typeof window === "undefined" ? false : osPrefersDarkNow()),
+	);
+}
 
 /** The resolved, fully-concrete appearance view (delta + factory merged). */
 export function resolveAppearance(delta: AppearanceSettings | undefined) {
@@ -39,25 +73,30 @@ export function resolveAppearance(delta: AppearanceSettings | undefined) {
 	};
 }
 
-/** One channel clamped on the dark curve: additive offsets matching today's
- *  hand-picked palette (#141414 → card #1c1c1c (+8) → accent #2a2a2a (+22)
- *  → border #434343 (+47)) — the "per-mode derivation in code" the schema
- *  promises, as the thinnest curve that keeps the palette's relationships. */
+/** One channel moved along the mode's curve, clamped to 0–255: offsets
+ *  matching the hand-picked palettes (dark #141414 → card #1c1c1c (+8) →
+ *  accent #2a2a2a (+22) → border #434343 (+47); light mirrors them, #fafafa
+ *  → #f2f2f2 (-8) → #e4e4e4 (-22) → #cbcbcb (-47)) — the "per-mode
+ *  derivation in code" the schema promises, as the thinnest curve that
+ *  keeps the palette's relationships. */
 function raise(hex: string, add: number): string {
 	const n = hex.length === 4
 		? hex.slice(1).split("").map((c) => parseInt(c + c, 16))
 		: [parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16)];
-	return `#${n.map((c) => Math.min(255, c + add).toString(16).padStart(2, "0")).join("")}`;
+	return `#${n.map((c) => Math.max(0, Math.min(255, c + add)).toString(16).padStart(2, "0")).join("")}`;
 }
 
-/** The derived palette a chosen background implies (dark curve): background
- *  itself, the raised surfaces (card/popover/secondary/muted, +8), the
- *  accent (+22), the edges (border/input, +47), and primary-foreground
- *  (the inverted text on primary = the background's own color, as today). */
-export function derivedPalette(background: string): Record<string, string> {
-	const card = raise(background, 8);
-	const accent = raise(background, 22);
-	const border = raise(background, 47);
+/** The derived palette a chosen background implies, on the active mode's
+ *  curve (owner, light mode wave: one shared background, curve by mode —
+ *  dark lightens the surfaces, light darkens them): background itself, the
+ *  raised surfaces (card/popover/secondary/muted, ±8), the accent (±22),
+ *  the edges (border/input, ±47), and primary-foreground (the inverted text
+ *  on primary = the background's own color, as today). */
+export function derivedPalette(background: string, mode: ResolvedMode = "dark"): Record<string, string> {
+	const sign = mode === "dark" ? 1 : -1;
+	const card = raise(background, sign * 8);
+	const accent = raise(background, sign * 22);
+	const border = raise(background, sign * 47);
 	return {
 		"--background": background,
 		"--card": card,
@@ -74,9 +113,12 @@ export function derivedPalette(background: string): Record<string, string> {
 /** THE mapping: resolved appearance → the CSS variables to set on <html>.
  *  Absent entries = leave the factory stylesheet value in place. Pure —
  *  exported for tests. */
-export function appearanceVars(a: ReturnType<typeof resolveAppearance>): Record<string, string> {
+export function appearanceVars(
+	a: ReturnType<typeof resolveAppearance>,
+	mode: ResolvedMode = "dark",
+): Record<string, string> {
 	const vars: Record<string, string> = {};
-	if (a.background !== null) Object.assign(vars, derivedPalette(a.background));
+	if (a.background !== null) Object.assign(vars, derivedPalette(a.background, mode));
 	if (a.fontFamily !== null) {
 		vars["--font-prose"] = `"${a.fontFamily}", var(--font-sans3), ui-sans-serif, system-ui, sans-serif`;
 	}
@@ -110,12 +152,15 @@ export function staleVarNames(
 interface AppearanceContextValue {
 	/** Resolved appearance; factory until the record arrives. */
 	appearance: ReturnType<typeof resolveAppearance>;
+	/** The palette showing now ("system" resolved against the OS). */
+	resolvedMode: ResolvedMode;
 	/** Called by the settings page after a successful section PUT. */
 	onAppearanceChange: (delta: AppearanceSettings | undefined) => void;
 }
 
 const AppearanceContext = createContext<AppearanceContextValue>({
 	appearance: resolveAppearance(undefined),
+	resolvedMode: "dark",
 	onAppearanceChange: () => {},
 });
 
@@ -123,12 +168,35 @@ export function useAppearance() {
 	return useContext(AppearanceContext);
 }
 
-export function AppearanceProvider({ children }: { children: React.ReactNode }) {
+export function AppearanceProvider({
+	initialMode,
+	children,
+}: {
+	/** The mode the server read from the settings record (app/layout.tsx) —
+	 *  holds until this provider's own fetch arrives, so the class never
+	 *  flips to the factory mode in between. */
+	initialMode: AppearanceMode;
+	children: React.ReactNode;
+}) {
 	const [delta, setDelta] = useState<AppearanceSettings | undefined>(undefined);
+	const [loaded, setLoaded] = useState(false);
 	const appliedRef = useRef<string>("");
+	const osPrefersDark = useOsPrefersDark();
+	const mode = loaded ? resolveAppearance(delta).mode : initialMode;
+	const resolvedMode = resolveMode(mode, osPrefersDark);
+
+	// The mode is the one class swap; the Electron shell repaints its title
+	// bar and window background to match (electron/main.cjs, lh:theme). A
+	// LAYOUT effect: it lands before any child's passive effect, so readers
+	// of computed tokens (the graph canvas) already see the new mode.
+	const shownBackground = resolveAppearance(delta).background ?? MODE_BACKGROUNDS[resolvedMode];
+	useLayoutEffect(() => {
+		document.documentElement.classList.toggle("dark", resolvedMode === "dark");
+		window.lh?.setTheme?.(resolvedMode, shownBackground);
+	}, [resolvedMode, shownBackground]);
 
 	// The vars apply on every change — stringified as the change signal.
-	const vars = useMemo(() => appearanceVars(resolveAppearance(delta)), [delta]);
+	const vars = useMemo(() => appearanceVars(resolveAppearance(delta), resolvedMode), [delta, resolvedMode]);
 	const key = useMemo(() => JSON.stringify(vars), [vars]);
 	// REMOVAL is half the job (owner repro, fix wave): a later write that
 	// OMITS a var (empty field = factory, serif toggle back on) must clear
@@ -166,6 +234,7 @@ export function AppearanceProvider({ children }: { children: React.ReactNode }) 
 				setDelta(
 					appearance && typeof appearance === "object" ? (appearance as AppearanceSettings) : undefined,
 				);
+				setLoaded(true);
 			})
 			.catch(() => {/* settings stay factory — not worth a crash */});
 		return () => {
@@ -175,11 +244,12 @@ export function AppearanceProvider({ children }: { children: React.ReactNode }) 
 
 	const onAppearanceChange = useCallback((next: AppearanceSettings | undefined) => {
 		setDelta(next);
+		setLoaded(true);
 	}, []);
 
 	const value = useMemo(
-		() => ({ appearance: resolveAppearance(delta), onAppearanceChange }),
-		[delta, onAppearanceChange],
+		() => ({ appearance: resolveAppearance(delta), resolvedMode, onAppearanceChange }),
+		[delta, resolvedMode, onAppearanceChange],
 	);
 	return <AppearanceContext.Provider value={value}>{children}</AppearanceContext.Provider>;
 }

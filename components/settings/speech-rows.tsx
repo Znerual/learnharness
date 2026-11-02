@@ -240,7 +240,7 @@ export function SpeechRows({ hideEndpoint = false }: { hideEndpoint?: boolean } 
 				</button>
 			)}
 			{error && (
-				<p role="alert" data-testid="speech-error" className="px-1 text-xs text-red-500">
+				<p role="alert" data-testid="speech-error" className="px-1 text-xs text-red-600 dark:text-red-500">
 					{error}
 				</p>
 			)}

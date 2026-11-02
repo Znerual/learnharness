@@ -25,7 +25,8 @@ import type {
 	ModelSlot,
 	RoleModelOverride,
 } from "../core/settings.ts";
-import { BACKGROUND_MODEL_ROLES, CACHE_RETENTIONS, COMPACTION_THRESHOLD_FLOOR, CUSTOM_MODEL_PIN_FLOOR, EXTRACTION_CHUNK_TOKENS_FLOOR, MODEL_SLOTS, normalizeBaseUrl } from "../core/settings.ts";
+import { APPEARANCE_MODES, BACKGROUND_MODEL_ROLES, CACHE_RETENTIONS, COMPACTION_THRESHOLD_FLOOR, CUSTOM_MODEL_PIN_FLOOR, EXTRACTION_CHUNK_TOKENS_FLOOR, MODEL_SLOTS, normalizeBaseUrl } from "../core/settings.ts";
+import type { AppearanceMode } from "../core/settings.ts";
 import { WRITABLE_TOOL_KEYS } from "../core/pending.ts";
 import { DICTATION_ENGINES, isDictationLanguage, type DictationSettings } from "../core/dictation.ts";
 import { SPEECH_LANGUAGES, SPEECH_SPEED_MAX, SPEECH_SPEED_MIN, isSpeechLanguage, isSpeechSpeed, type SpeechSettings } from "../core/speech.ts";
@@ -227,10 +228,10 @@ export function parseAppearanceSettingsBody(body: unknown): SettingsBodyResult<A
 	if (!raw) return { ok: false, error: "Invalid JSON body" };
 	const settings: AppearanceSettings = {};
 	if (raw.mode !== undefined) {
-		if (raw.mode !== "dark" && raw.mode !== "light") {
-			return { ok: false, error: "mode must be \"dark\" or \"light\"" };
+		if (!(APPEARANCE_MODES as readonly unknown[]).includes(raw.mode)) {
+			return { ok: false, error: "mode must be \"dark\", \"light\" or \"system\"" };
 		}
-		settings.mode = raw.mode;
+		settings.mode = raw.mode as AppearanceMode;
 	}
 	if (raw.background !== undefined) {
 		const parsed = parseHexOrNull(raw.background, "background");

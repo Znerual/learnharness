@@ -31,7 +31,7 @@ export function SessionConflicts({ chatId, current, conflicts }: { chatId: strin
 	return (
 		<div data-testid="session-conflicts" className="pointer-events-auto mb-2 rounded-sm border border-border bg-card px-4 py-3 font-ui text-sm">
 			<p className="text-foreground">This session was changed on two devices. Pick the version to keep; the other is set aside on this device.</p>
-			{error && <p className="mt-1 text-xs text-red-500">{error}</p>}
+			{error && <p className="mt-1 text-xs text-red-600 dark:text-red-500">{error}</p>}
 			<div className="mt-2 flex flex-wrap gap-2">
 				<button type="button" disabled={busy} className={button} onClick={() => void keep("current")}>
 					Keep this one ({current.messageCount} messages, {when(current.updatedAt)})

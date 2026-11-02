@@ -82,6 +82,8 @@ declare global {
 			checkForUpdates?: () => Promise<void>;
 			installUpdate?: () => void;
 			onOpenSettings?: (cb: (section: string) => void) => () => void;
+			/** The palette now showing and its main background; the shell matches its title bar and window background. */
+			setTheme?: (mode: "dark" | "light", background: string) => void;
 		};
 	}
 }

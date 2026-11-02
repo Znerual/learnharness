@@ -39,7 +39,7 @@ export function OwnedElsewhereBanner({ chatId, owner, onTakenOver }: { chatId: s
 			<p className="text-foreground">
 				{what} on {owner.deviceName} since {since}. It is read-only here until that finishes and syncs.
 			</p>
-			{error && <p className="mt-1 text-xs text-red-500">{error}</p>}
+			{error && <p className="mt-1 text-xs text-red-600 dark:text-red-500">{error}</p>}
 			<div className="mt-2 flex flex-wrap items-center gap-2">
 				{confirming ? (
 					<>

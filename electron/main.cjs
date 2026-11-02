@@ -24,7 +24,7 @@
  *     would shadow every settings-page key change until restart.
  */
 
-const { app, BrowserWindow, Menu, ipcMain, safeStorage, session, shell } = require("electron");
+const { app, BrowserWindow, Menu, ipcMain, nativeTheme, safeStorage, session, shell } = require("electron");
 const { createChatGPT, fileStore } = require("./chatgpt.cjs");
 const { attachChatGPTChild, trustedSender, chatGPTControl } = require("./chatgpt-ipc.cjs");
 const { createSubscriptions, loadSubscriptionSDK } = require("./subscriptions.cjs");
@@ -339,6 +339,7 @@ function killServer() {
  *  - will-navigate pinned to the app origin; window.open always denied —
  *    external links go to the real browser via shell.openExternal. */
 function createWindow(url) {
+	const theme = startupTheme();
 	const win = new BrowserWindow({
 		width: 1440,
 		height: 900,
@@ -360,7 +361,7 @@ function createWindow(url) {
 				// height. Do not force the zoom-invariant native overlay to match
 				// the renderer's 60 CSS px bar: zooming out would cover its border.
 				// The renderer reserves the actual width via env(titlebar-area-*).
-				titleBarOverlay: { color: "#141414", symbolColor: "#e5e5e5" },
+				titleBarOverlay: { color: theme.background, symbolColor: theme.symbol },
 				// Keep the custom bar alone; Alt reveals the native menu.
 				autoHideMenuBar: true,
 			}),
@@ -375,10 +376,10 @@ function createWindow(url) {
 		// the native window surface changes size before Chromium's compositor
 		// has a frame at the new size, and the gap shows the window's NATIVE
 		// background — Electron's default is white, glaring on a dark app.
-		// The app background (#141414) fills the lag instead. `show: false` +
+		// The app background (#141414 dark, #fafafa light) fills the lag instead. `show: false` +
 		// ready-to-show is the same treatment for first paint: the window
 		// appears only once the page has actually rendered.
-		backgroundColor: "#141414",
+		backgroundColor: theme.background,
 		show: false,
 		// Narrow-window behavior (owner, 2026-09-17): 640px is the floor —
 		// below it even a wrapped chrome row gets cramped and the chat header
@@ -519,19 +520,45 @@ function reportUpdateStatus(status, version = null, notes = undefined) {
 
 /** Read the SAME settings file the packaged server uses: the device-local
  * folder, or the data folder before the server's first-launch migration
- * moved it. Only an explicit false opts out; absent/corrupt/unreadable
- * settings keep updates ON. Re-read for each automatic check so saving the
- * toggle needs no restart. */
-function automaticUpdatesEnabled() {
+ * moved it. The first readable file wins; null when neither parses. */
+function readStoredSettings() {
 	for (const file of [path.join(LOCAL_DIR(), "settings.json"), path.join(DATA_DIR(), "settings.json")]) {
 		try {
-			const settings = JSON.parse(fs.readFileSync(file, "utf8"));
-			return settings?.general?.autoUpdate !== false;
+			return JSON.parse(fs.readFileSync(file, "utf8"));
 		} catch {
 			/* try the next location */
 		}
 	}
-	return true;
+	return null;
+}
+
+/** Only an explicit false opts out; absent/corrupt/unreadable settings keep
+ * updates ON. Re-read for each automatic check so saving the toggle needs
+ * no restart. */
+function automaticUpdatesEnabled() {
+	return readStoredSettings()?.general?.autoUpdate !== false;
+}
+
+/** The native window controls' symbol color per palette (light mode wave,
+ *  2026-11-02), and each palette's default main background. */
+const THEME_SYMBOLS = { dark: "#e5e5e5", light: "#1a1a1a" };
+const THEME_BACKGROUNDS = { dark: "#141414", light: "#fafafa" };
+const HEX_COLOR = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
+
+/** The chrome the first window opens with, before the page can say: the
+ *  appearance mode from the settings file, "system" (the default) resolved
+ *  against the OS, and the custom background when one is set. The page then
+ *  reports every change itself (lh:theme). */
+function startupTheme() {
+	const appearance = readStoredSettings()?.appearance;
+	const stored = appearance?.mode;
+	const mode = stored === "dark" || stored === "light"
+		? stored
+		: nativeTheme?.shouldUseDarkColors === false ? "light" : "dark";
+	const background = typeof appearance?.background === "string" && HEX_COLOR.test(appearance.background)
+		? appearance.background
+		: THEME_BACKGROUNDS[mode];
+	return { background, symbol: THEME_SYMBOLS[mode] };
 }
 
 function checkForUpdates({ manual = false } = {}) {
@@ -829,6 +856,16 @@ async function main() {
 		const { x, y, width, height } = win.getBounds();
 		const target = SIDEBAR_AUTOCLOSE;
 		if (width < target) win.setBounds({ x, y, width: target, height });
+	});
+	// The palette changed in the page (light mode wave): the window's native
+	// background and the Windows/Linux control overlay follow it — the
+	// background the page shows, custom or the mode's default.
+	ipcMain.on("lh:theme", (event, mode, background) => {
+		const win = BrowserWindow.fromWebContents(event.sender);
+		if (!win || !trustedAppWindows.has(win)) return;
+		if ((mode !== "dark" && mode !== "light") || typeof background !== "string" || !HEX_COLOR.test(background)) return;
+		win.setBackgroundColor(background);
+		if (process.platform !== "darwin") win.setTitleBarOverlay({ color: background, symbolColor: THEME_SYMBOLS[mode] });
 	});
 	reopenWindow = () => { chatgpt?.resume(); subscriptions?.resume(); return createWindow(url); };
 	app.on("activate", () => {

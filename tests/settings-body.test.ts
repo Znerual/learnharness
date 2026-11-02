@@ -134,6 +134,12 @@ describe("parseAppearanceSettingsBody", () => {
 		for (const body of cases) {
 			assert.equal(parseAppearanceSettingsBody(body).ok, false, JSON.stringify(body));
 		}
+		// every mode the setting offers passes (light mode wave, 2026-11-02)
+		for (const mode of ["dark", "light", "system"]) {
+			const parsed = parseAppearanceSettingsBody({ mode });
+			assert.ok(parsed.ok, mode);
+			assert.deepEqual(parsed.settings, { mode });
+		}
 		// boundary values that MUST pass: 12 and 24, 100 and 900, #fff
 		assert.ok(parseAppearanceSettingsBody({ proseFontSize: 12 }));
 		assert.ok(parseAppearanceSettingsBody({ proseFontSize: 24 }));

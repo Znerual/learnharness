@@ -7,9 +7,8 @@
  * variables move IMMEDIATELY (the section's whole point — it must DO
  * something). Hex inputs commit on blur/Enter; the background derives the
  * raised/accent/edge palette in code (components/settings/appearance.tsx).
- * Mode is dark-only this wave: control rendered DISABLED with a note — the
- * light palette is the design wave's work, and a lying control is worse
- * than an honest disabled one.
+ * Mode (light mode wave, 2026-11-02): Dark / Light / System; System follows
+ * the OS. The background's empty state names the ACTIVE mode's default.
  *
  * Graph graying (owner, 2026-09-20) follows the graph viewer's render-panel
  * convention: the whole row dims when a parent is off (stored values
@@ -34,6 +33,7 @@ import { useEffect, useRef, useState } from "react";
 import {
 	EXTRACTION_CHUNK_TOKENS_FLOOR,
 	resolveSettings,
+	type AppearanceMode,
 	type AppearanceSettings,
 	type GraphSettings,
 } from "@/src/core";
@@ -41,6 +41,7 @@ import { MenuShell } from "@/components/menu-shell";
 import { Hint } from "@/components/ui/hint";
 import { useAndroidShell } from "@/components/android-shell";
 import { useAppearance } from "./appearance.tsx";
+import { MODE_BACKGROUNDS } from "./theme-mode";
 import { FontMenuList } from "./model-menu";
 import { CommitInput, SettingsMenuTrigger, SettingsRow, ThinSelect, Toggle } from "./controls.tsx";
 
@@ -98,7 +99,8 @@ export function AppearanceSection({
 	/** PUT the whole appearance section; the page re-applies on success. */
 	onSectionChange: (next: AppearanceSettings) => void;
 }) {
-	const { appearance: resolved } = useAppearance();
+	const { appearance: resolved, resolvedMode } = useAppearance();
+	const defaultBackground = MODE_BACKGROUNDS[resolvedMode];
 	const android = useAndroidShell();
 	const md = appearance?.mdRendering;
 
@@ -188,22 +190,27 @@ export function AppearanceSection({
 
 	return (
 		<>
-			{/* A disabled "coming soon" row is noise on the phone. */}
-			{!android && (
-			<SettingsRow label="Mode" hint="Coming soon" testid="row-mode" dimmed>
-				<ThinSelect value="dark" ariaLabel="mode" onChange={() => {}} testid="select-mode" disabled>
+			{/* The mode works everywhere now, so the phone shows it too (light mode, 2026-11-02). */}
+			<SettingsRow label="Mode" hint="System follows your OS" testid="row-mode">
+				<ThinSelect
+					value={resolved.mode}
+					ariaLabel="mode"
+					onChange={(v) => onSectionChange({ ...appearance, mode: v as AppearanceMode })}
+					testid="select-mode"
+				>
 					<option value="dark">Dark</option>
+					<option value="light">Light</option>
+					<option value="system">System</option>
 				</ThinSelect>
 			</SettingsRow>
-			)}
 			<SettingsRow
 				label="Background"
-				hint={`Empty = ${resolved.background ?? "#141414"}`}
+				hint={`Empty = ${resolved.background ?? defaultBackground}`}
 				testid="row-background"
 			>
 				<CommitInput
 					value={appearance?.background ?? ""}
-					placeholder="#141414"
+					placeholder={defaultBackground}
 					ariaLabel="background hex"
 					testid="input-background"
 					onCommit={(v) => onSectionChange({ ...appearance, background: v === "" ? null : v })}

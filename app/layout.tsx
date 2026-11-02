@@ -7,9 +7,11 @@ import { AppShell, SidebarProvider } from "@/components/sidebar";
 import { ActivityProvider } from "@/components/activity-dock";
 import { ServerEventsProvider } from "@/components/server-events";
 import { AppearanceProvider } from "@/components/settings/appearance";
+import { themeScript } from "@/components/settings/theme-mode";
 import UpdateBanner from "@/components/update-banner";
 import { AndroidShellProvider } from "@/components/android-shell";
-import { isAndroidShell } from "@/src/core";
+import { FACTORY_SETTINGS, isAndroidShell } from "@/src/core";
+import { readSettingsRecord } from "@/src/server";
 
 // Chrome = JetBrains Mono, teaching prose = Source Sans 3, titles = CMU
 // Serif (the bundled lh-cmu @font-face in globals.css — no CDN).
@@ -25,14 +27,22 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 	// The phone layout applies only inside the Android app (owner, step 3):
 	// its WebView marks the user agent; .lh-android keys the android: variant.
 	const android = isAndroidShell((await headers()).get("user-agent") ?? undefined);
+	// Light mode wave (2026-11-02): the device's mode setting, read here so
+	// the pre-paint script applies it before anything shows. The `dark`
+	// class is the script's and AppearanceProvider's, never this className
+	// (suppressHydrationWarning: the script edits <html> before hydration).
+	const mode = readSettingsRecord()?.appearance?.mode ?? FACTORY_SETTINGS.appearance.mode;
 	return (
-		<html lang="en" className={`dark ${ui.variable} ${prose.variable}${android ? " lh-android" : ""}`}>
+		<html lang="en" className={`${ui.variable} ${prose.variable}${android ? " lh-android" : ""}`} suppressHydrationWarning>
+			<head>
+				<script dangerouslySetInnerHTML={{ __html: themeScript(mode) }} />
+			</head>
 			<body className="min-h-dvh antialiased">
 			<AndroidShellProvider android={android}>
 			{/* The notification channel rides OUTSIDE everything: sidebar, dock,
 				 and pages all subscribe as the polls retire (push S3, 2026-10-02). */}
 			<ServerEventsProvider>
-				<AppearanceProvider>
+				<AppearanceProvider initialMode={mode}>
 					<SidebarProvider>
 						<ActivityProvider>
 							<AppShell>{children}</AppShell>

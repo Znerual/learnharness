@@ -27,7 +27,7 @@ describe("FACTORY_SETTINGS (the compiled factory layer)", () => {
 		// with the message anchors (owner, 2026-10-13)
 		assert.deepEqual(FACTORY_SETTINGS.graph, { enabled: true, rendering: true, extractionChunkTokens: 4096, obsidianVault: null });
 		const a = FACTORY_SETTINGS.appearance;
-		assert.equal(a.mode, "dark");
+		assert.equal(a.mode, "system"); // follows the OS (light mode wave, 2026-11-02)
 		assert.equal(a.background, null); // the mode's own default, not a factory hex
 		assert.equal(a.fontFamily, null); // Source Sans 3
 		assert.equal(a.proseFontSize, 16);
@@ -109,6 +109,11 @@ describe("sanitizeUserSettings", () => {
 		assert.deepEqual(out.agent, {});
 		assert.deepEqual(out.appearance, {});
 		assert.deepEqual(out.graph, {});
+
+		// every stored mode the setting offers survives (light mode wave)
+		for (const mode of ["dark", "light", "system"] as const) {
+			assert.deepEqual(sanitizeUserSettings({ version: 1, appearance: { mode } })?.appearance, { mode });
+		}
 
 		// extractionChunkTokens (extraction-UX redesign, 2026-09-24):
 		// clamp-never-reject — a finite positive value survives (fractions

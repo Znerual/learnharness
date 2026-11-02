@@ -55,9 +55,9 @@ describe("tabs", () => {
 });
 
 describe("desktop-only rows", () => {
-	it("Mode and the Obsidian path are hidden on the phone and kept on desktop", () => {
+	it("the Obsidian path is hidden on the phone and kept on desktop; Mode (light mode) shows on both", () => {
 		const a = renderToStaticMarkup(android(<><AppearanceSection appearance={undefined} onSectionChange={() => {}} /><GraphSection graph={undefined} onSectionChange={() => {}} /></>));
-		assert.ok(!a.includes("row-mode") && !a.includes("graph-row-obsidian-vault"));
+		assert.ok(a.includes("row-mode") && !a.includes("graph-row-obsidian-vault"));
 		assert.ok(a.includes("row-background") && a.includes("graph-row-enabled"));
 		const d = renderToStaticMarkup(<><AppearanceSection appearance={undefined} onSectionChange={() => {}} /><GraphSection graph={undefined} onSectionChange={() => {}} /></>);
 		assert.ok(d.includes("row-mode") && d.includes("graph-row-obsidian-vault"));
