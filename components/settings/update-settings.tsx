@@ -3,12 +3,15 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { BrailleSpinner } from "@/components/braille-spinner";
+import { ReleaseNotesList, type UpdateNote } from "@/components/release-notes-list";
 import { SettingsRow, Toggle } from "./controls.tsx";
 
 /** Observational snapshot from electron/main.cjs; never updater permission. */
 export type UpdateState = {
 	status: "idle" | "checking" | "downloading" | "up-to-date" | "downloaded" | "error" | "disabled";
 	version: string | null;
+	/** What's new between the installed and the offered version (Vault builds; may be missing or empty). */
+	notes?: UpdateNote[];
 	revision: number;
 };
 
@@ -138,6 +141,12 @@ export function UpdateSettings({
 					<>
 						{status && <span className="block" role="status" data-testid="update-status">{status}</span>}
 						{active && <span className="block">{MANUAL_UPDATE_HINT}</span>}
+						{active && (state.status === "downloading" || state.status === "downloaded") && state.notes && state.notes.length > 0 && (
+							<details className="mt-1 block" data-testid="update-whats-new">
+								<summary className="cursor-pointer text-foreground">What&apos;s new in {state.version ?? "this update"}</summary>
+								<div className="mt-2 max-h-72 overflow-y-auto"><ReleaseNotesList notes={state.notes} /></div>
+							</details>
+						)}
 						{releaseNotes && <a href={releaseNotes} target="_blank" rel="noopener noreferrer" className="underline-offset-2 hover:text-foreground hover:underline" data-testid="release-notes">Release notes</a>}
 					</>
 				}

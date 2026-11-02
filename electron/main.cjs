@@ -30,6 +30,7 @@ const { attachChatGPTChild, trustedSender, chatGPTControl } = require("./chatgpt
 const { createSubscriptions, loadSubscriptionSDK } = require("./subscriptions.cjs");
 const { attachSubscriptionChild, subscriptionControl } = require("./subscription-ipc.cjs");
 const { createKeyStorageService, attachKeyStorageChild } = require("./keystorage-main.cjs");
+const { changelogUrlFor, fetchChanges } = require("./changelog.cjs");
 const { passkeyHost, createPasskeyCeremony, attachPasskeyChild } = require("./passkey-window.cjs");
 const { desktopAPIHeaders } = require("./desktop-api.cjs");
 const { openWebSubscriptionBrowser } = require("./web-subscription-browser.cjs");
@@ -492,13 +493,18 @@ const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 let autoUpdater = null; // electron-updater's, packaged builds only
 // Observational only: this snapshot NEVER gates a check, download or install.
 // The revision lets late subscribers reject an older in-flight IPC snapshot.
-let updateState = { status: "idle", version: null, revision: 0 };
+let updateState = { status: "idle", version: null, notes: [], revision: 0 };
+// The vault host's changelog beside a generic feed (electron/changelog.cjs); null for GitHub feeds.
+let changelogUrl = null;
 
-function reportUpdateStatus(status, version = null) {
+function reportUpdateStatus(status, version = null, notes = undefined) {
 	try {
 		// A later check/error must not hide an update already staged for quit.
 		if (updateState.status === "downloaded" && status !== "downloaded") return;
-		updateState = { status, version: typeof version === "string" ? version : null, revision: updateState.revision + 1 };
+		const v = typeof version === "string" ? version : null;
+		// The notes stay with their version across downloading → downloaded.
+		const kept = Array.isArray(notes) ? notes : v && v === updateState.version ? updateState.notes : [];
+		updateState = { status, version: v, notes: kept, revision: updateState.revision + 1 };
 		for (const win of BrowserWindow.getAllWindows()) {
 			try {
 				win.webContents.send("lh:update-status", updateState);
@@ -580,9 +586,11 @@ function setupAutoUpdater() {
 	const feed = process.env.LH_UPDATE_FEED;
 	if (feed) {
 		autoUpdater.setFeedURL({ provider: "generic", url: feed });
+		changelogUrl = changelogUrlFor(feed);
 		log(`auto-update: LH_UPDATE_FEED override → ${feed}`);
 	} else if (typeof BUILD.updateFeed === "string" && /^https:\/\//.test(BUILD.updateFeed)) {
 		autoUpdater.setFeedURL({ provider: "generic", url: BUILD.updateFeed });
+		changelogUrl = changelogUrlFor(BUILD.updateFeed);
 		log(`auto-update: build feed → ${BUILD.updateFeed}`);
 	}
 	autoUpdater.autoDownload = true;
@@ -596,7 +604,18 @@ function setupAutoUpdater() {
 		error: (m) => log(`updater error: ${m}`),
 	};
 	autoUpdater.on("checking-for-update", () => reportUpdateStatus("checking"));
-	autoUpdater.on("update-available", (info) => reportUpdateStatus("downloading", info?.version));
+	autoUpdater.on("update-available", (info) => {
+		const offered = info?.version;
+		reportUpdateStatus("downloading", offered);
+		// What's new since this version, for the banner (Vault feeds only); never blocks or fails the update.
+		if (changelogUrl) {
+			void fetchChanges(changelogUrl, app.getVersion(), offered)
+				.then((notes) => {
+					if (notes.length && updateState.version === offered) reportUpdateStatus(updateState.status, offered, notes);
+				})
+				.catch(() => {});
+		}
+	});
 	autoUpdater.on("update-not-available", () => reportUpdateStatus("up-to-date"));
 	autoUpdater.on("update-downloaded", (info) => {
 		log(`update downloaded: ${info?.version} — banner shown`);
