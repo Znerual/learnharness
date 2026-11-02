@@ -52,6 +52,17 @@ export interface OneTimeSecrets {
 	backupCodes: string[];
 }
 
+/** A document that Settings, History can restore by itself, with a readable title (GET /history/documents). */
+export interface HistoryDocumentDto {
+	path: string;
+	kind: "chat" | "job" | "other";
+	title: string;
+	/** ISO time of the last change, when known. */
+	updatedAt: string | null;
+	/** Server-side only while listing. */
+	chatId?: string | undefined;
+}
+
 export interface HistoryVersionDto {
 	seq: number;
 	createdAt: string;
@@ -139,6 +150,7 @@ export interface VaultContract {
 	syncNow: { req: Empty; res: SyncStatus };
 
 	// history
+	historyDocuments: { req: Empty; res: { documents: HistoryDocumentDto[] } };
 	historyVersions: { req: { path: string }; res: { versions: HistoryVersionDto[] } };
 	historyRestoreVersion: { req: { path: string; seq: number }; res: Empty };
 	historyPreview: { req: { at: string }; res: { plan: RestorePlanDto[] } };
@@ -209,6 +221,7 @@ export const routeTable: { [K in RouteName]: { method: HttpMethod; path: string 
 	syncStatus: { method: "GET", path: "/sync/status" },
 	syncNow: { method: "POST", path: "/sync/now" },
 
+	historyDocuments: { method: "GET", path: "/history/documents" },
 	historyVersions: { method: "GET", path: "/history/versions" },
 	historyRestoreVersion: { method: "POST", path: "/history/restore-version" },
 	historyPreview: { method: "GET", path: "/history/preview" },

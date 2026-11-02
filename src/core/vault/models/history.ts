@@ -2,7 +2,7 @@
 // Whole vault: pick a time, preview what would change, add back or be removed, then confirm.
 // A restore is a forward write; history is never rewritten.
 
-import type { HistoryVersionDto, RestorePlanDto } from "../contract.ts";
+import type { HistoryDocumentDto, HistoryVersionDto, RestorePlanDto } from "../contract.ts";
 import { formatBytes, formatDateTime } from "../format.ts";
 import { strings } from "../strings.ts";
 
@@ -117,4 +117,14 @@ export function versionViews(versions: HistoryVersionDto[]): VersionView[] {
 		size: v.deleted ? strings.history.versionDeleted : formatBytes(v.size),
 		deleted: v.deleted,
 	}));
+}
+
+/** The document picker's search: every word must appear in the title or the path, ignoring case. */
+export function filterDocuments(docs: HistoryDocumentDto[], query: string): HistoryDocumentDto[] {
+	const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+	if (!words.length) return docs;
+	return docs.filter((d) => {
+		const hay = `${d.title} ${d.path}`.toLowerCase();
+		return words.every((w) => hay.includes(w));
+	});
 }

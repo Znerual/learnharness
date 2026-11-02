@@ -476,6 +476,13 @@ test("regenerate returns the new secrets once, with the emergency kit for the re
 	assert.deepEqual(bc.backupCodes, ["BC-1", "BC-2"]);
 });
 
+test("history documents: needs a signed-in device, lists what the runtime finds", async () => {
+	const w = world();
+	assert.equal((await call(w, "GET", "/history/documents")).status, 401);
+	await signedIn(w);
+	assert.deepEqual((await call(w, "GET", "/history/documents")).body, { documents: [] }, "no lister: an empty list");
+});
+
 test("pairing: show keeps the secret on the server, review then approve", async () => {
 	const w = world();
 	await signedIn(w);

@@ -18,7 +18,7 @@ import { DeleteAccountView } from "../components/vault/DeleteAccount.tsx";
 import { DevicesView } from "../components/vault/Devices.tsx";
 import { EmergencyKit } from "../components/vault/EmergencyKit.tsx";
 import { ExportReminderView, ExportSettingsView } from "../components/vault/ExportReminder.tsx";
-import { HistoryView } from "../components/vault/History.tsx";
+import { DocumentPickerView, HistoryView } from "../components/vault/History.tsx";
 import { PairingApproverView, PairingJoinerView } from "../components/vault/Pairing.tsx";
 import { RecoverView } from "../components/vault/Recover.tsx";
 import { SignInView } from "../components/vault/SignIn.tsx";
@@ -243,12 +243,35 @@ test("history: versions, preview groups and the confirmation", () => {
 		],
 	});
 	s = reduceHistory(s, { type: "ask_restore_all" });
-	const html = renderToString(<HistoryView state={s} dispatch={noop} now={NOW} actions={{ loadVersions: noop, restoreVersion: noop, preview: noop, restoreAll: noop }} />);
+	const html = renderToString(<HistoryView state={s} dispatch={noop} now={NOW} docTitle="My notes" actions={{ chooseDocument: noop, loadVersions: noop, restoreVersion: noop, preview: noop, restoreAll: noop }} />);
+	assert.match(html, /My notes/);
+	assert.match(html, /Choose another document/);
+	assert.doesNotMatch(html, /<input[^>]*value="notes\/a.md"/, "no path to type");
 	assert.match(html, /kept for up to 90 days/);
 	assert.match(html, /2026-10-30 10:00 UTC, on Laptop/);
 	assert.match(html, /1 will change, 1 will be added back, 1 will be removed/);
 	assert.match(html, /data-group="added"/);
 	assert.match(html, /Restore 3 documents\? The current versions stay in history/);
+});
+
+test("history: nothing chosen yet offers the document picker, which searches titles and paths", () => {
+	const html = renderToString(<HistoryView state={initialHistory()} dispatch={noop} now={NOW} actions={{ chooseDocument: noop, loadVersions: noop, restoreVersion: noop, preview: noop, restoreAll: noop }} />);
+	assert.match(html, /No document chosen yet/);
+	assert.match(html, />Choose a document</);
+	const docs = [
+		{ path: "chats/chat_a.json", kind: "chat" as const, title: "Machine learning basics", updatedAt: "2026-10-30T10:00:00Z" },
+		{ path: "jobs/job_b.json", kind: "job" as const, title: 'research for "Machine learning basics"', updatedAt: "2026-10-29T10:00:00Z" },
+		{ path: "notes/todo.md", kind: "other" as const, title: "notes/todo.md", updatedAt: null },
+	];
+	const picker = (q: string, d: typeof docs | null = docs) => renderToString(<DocumentPickerView documents={d} query={q} onQuery={noop} onPick={noop} onClose={noop} />);
+	assert.match(picker(""), /role="dialog"/);
+	assert.equal((picker("").match(/data-testid="document-option"/g) ?? []).length, 3);
+	assert.equal((picker("research LEARNING").match(/data-testid="document-option"/g) ?? []).length, 1);
+	assert.equal((picker("todo").match(/data-testid="document-option"/g) ?? []).length, 1, "the path is searched too");
+	assert.match(picker("zzz"), /No document matches/);
+	assert.match(picker("", []), /There are no documents yet/);
+	assert.match(picker("", null), /Loading your documents/);
+	assert.match(picker(""), /Background job/);
 });
 
 const oldAccount = { lastExportAt: "2026-06-01T00:00:00Z", createdAt: "2026-01-01T00:00:00Z" };

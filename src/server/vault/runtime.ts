@@ -28,6 +28,7 @@ import { joinWithExistingData, seedFirstDevice, vaultIsEmpty, VaultNotEmptyError
 import { AndroidKeyStorage } from "./keystorage-android.ts";
 import { IpcKeyStorage } from "./keystorage-ipc.ts";
 import { IpcPasskeys } from "./passkey-ipc.ts";
+import { listHistoryDocuments } from "./documents.ts";
 import { createVaultRoutes, type VaultRoutes } from "./routes.ts";
 import { assertNotSyncthing } from "./syncthing.ts";
 import { leaveLocalVault, wireVault, type WiredVault } from "./wire.ts";
@@ -243,6 +244,7 @@ export async function createVaultRuntime(serverUrl: string): Promise<VaultRoutes
 					return mergeInto(wired, join(PATHS.local, name));
 				}),
 		},
+		documents: () => listHistoryDocuments(PATHS.data),
 		restorer: (vault) => {
 			if (!wired) throw new Error("the vault is not syncing");
 			return new Restorer(vault as unknown as Vault, wired.engine, wired.host);

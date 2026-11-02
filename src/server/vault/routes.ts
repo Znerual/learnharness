@@ -12,7 +12,7 @@
 // The module imports no runtime code from the client, so it can be tested against a fake Vault
 // and does not drag libsodium into anything that merely imports the contract.
 
-import { routeTable, type HttpMethod, type OneTimeSecrets, type ReauthStrength, type RotationDto, type RouteErrorBody, type RouteName, type SessionDto, type VaultContract } from "../../core/vault/contract.ts";
+import { routeTable, type HistoryDocumentDto, type HttpMethod, type OneTimeSecrets, type ReauthStrength, type RotationDto, type RouteErrorBody, type RouteName, type SessionDto, type VaultContract } from "../../core/vault/contract.ts";
 import type { AccountResponse, DeviceRow, EmergencyKit, SyncStatus } from "../../core/vault/deps.ts";
 import type { JoinChoice, MergeReport, MigrationStateDto } from "../../core/vault/migration.ts";
 import type { PasswordCheckResult } from "../../core/vault/models/password.ts";
@@ -140,6 +140,8 @@ export interface VaultRouteDeps {
 		merge(name: string): Promise<MergeReport>;
 	};
 	restorer: (vault: VaultLike) => RestorerLike;
+	/** The documents History can restore one by one, newest first (documents.ts). */
+	documents?: () => Promise<HistoryDocumentDto[]> | HistoryDocumentDto[];
 	/** The client's `leaveVault(dataDir, storage, opts)`, bound to this installation. */
 	leaveVault: (opts: { dryRun?: boolean }) => Promise<{ unpushed: number }>;
 	/** Local setting "Remind me to export every 90 days" (default on). */
@@ -595,6 +597,10 @@ export function createVaultRoutes(deps: VaultRouteDeps): VaultRoutes {
 		},
 
 		// history
+		async historyDocuments() {
+			needVault();
+			return { documents: deps.documents ? await deps.documents() : [] };
+		},
 		async historyVersions(req) {
 			return { versions: await deps.restorer(needVault()).versions(str(req, "path")) };
 		},
