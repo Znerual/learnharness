@@ -31,8 +31,13 @@ export function modelStateLine(model: OnDeviceModel): string {
 		case "failed":
 			return `Download failed — ${model.error ?? "try again"}`;
 		default:
-			return modelSize(model.bytes);
+			return `Not downloaded — ${modelSize(model.bytes)}`;
 	}
+}
+
+/** The voice model an NPU voice reads from: the same Piper voice, found by its label. Pure — exported for tests. */
+export function npuVoiceModel(v: NpuSpeechStatus["voices"][number], models: OnDeviceModel[]): OnDeviceModel | undefined {
+	return models.find((m) => m.kind === "voice" && m.label === v.label);
 }
 
 const PROVIDER_LABEL: Record<string, string> = { cpu: "CPU", nnapi: "NNAPI", gpu: "GPU", npu: "NPU" };
@@ -58,7 +63,7 @@ export function benchmarkLine(result: SpeechBenchmarkResult | null): string {
 }
 
 /** Settings row: run the phone's speed check, which decides whether voice mode is offered. */
-function BenchmarkRow() {
+export function BenchmarkRow() {
 	const [result, setResult] = useState<SpeechBenchmarkResult | null | undefined>(undefined);
 	const [running, setRunning] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -113,7 +118,7 @@ function BenchmarkRow() {
 export function npuVoiceLine(v: NpuSpeechStatus["voices"][number]): string {
 	switch (v.state) {
 		case "voice-missing":
-			return "Download this voice first";
+			return "Not downloaded";
 		case "off":
 			return "Off";
 		case "waiting":
@@ -132,7 +137,7 @@ export function npuVoiceLine(v: NpuSpeechStatus["voices"][number]): string {
 }
 
 /** Settings row: NPU speech (experimental), only on a phone whose chip supports it. */
-function NpuSpeechRow() {
+function NpuSpeechRow({ models, onChange }: { models: OnDeviceModel[]; onChange: (id: string, method: "POST" | "DELETE") => Promise<void> }) {
 	const [npu, setNpu] = useState<NpuSpeechStatus | null>(null);
 	const [error, setError] = useState<string | null>(null);
 
@@ -147,9 +152,11 @@ function NpuSpeechRow() {
 		setNpu(body);
 	}, []);
 
+	// Read again when a voice finishes downloading or is removed.
+	const readyVoices = models.filter((m) => m.kind === "voice" && m.state === "ready").map((m) => m.id).join(",");
 	useEffect(() => {
 		void call();
-	}, [call]);
+	}, [call, readyVoices]);
 
 	// Follow the preparation while a voice downloads, compiles or tests.
 	const busy = npu?.voices.some((v) => v.state === "waiting" || v.state === "downloading" || v.state === "compiling" || v.state === "testing") ?? false;
@@ -160,6 +167,8 @@ function NpuSpeechRow() {
 	}, [busy, call]);
 
 	if (!npu?.offered) return null;
+	const noVoice = npu.voices.length > 0 && npu.voices.every((v) => v.state === "voice-missing");
+	const rows = npu.enabled || noVoice ? npu.voices : [];
 	return (
 		<div className="px-1 py-1.5" data-testid="npu-speech">
 			<label className="flex items-center justify-between gap-3">
@@ -179,14 +188,32 @@ function NpuSpeechRow() {
 					className="size-4 accent-foreground"
 				/>
 			</label>
-			{npu.enabled &&
-				npu.voices
-					.filter((v) => v.state !== "voice-missing")
-					.map((v) => (
-						<span key={v.voice} className="mt-1 block truncate font-mono text-[11px] text-muted-foreground" data-testid={`npu-voice-${v.voice}`}>
-							{v.label} · {npuVoiceLine(v)}
+			{noVoice && (
+				<p className="mt-1 text-[11px] text-muted-foreground" data-testid="npu-no-voice">
+					{npu.enabled ? "NPU speech needs a Piper voice." : "Turning this on needs a Piper voice."} Download one:
+				</p>
+			)}
+			{rows.map((v) => {
+				const model = v.state === "voice-missing" ? npuVoiceModel(v, models) : undefined;
+				const canDownload = model && (model.state === "missing" || model.state === "failed");
+				return (
+					<span key={v.voice} className="mt-1 flex items-center justify-between gap-3" data-testid={`npu-voice-${v.voice}`}>
+						<span className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground">
+							{v.label} · {model ? modelStateLine(model) : v.state === "voice-missing" ? "Not downloaded — see the voices above" : npuVoiceLine(v)}
 						</span>
-					))}
+						{canDownload && (
+							<button
+								type="button"
+								onClick={() => void onChange(model.id, "POST")}
+								data-testid={`npu-voice-download-${v.voice}`}
+								className="shrink-0 text-xs text-foreground underline-offset-2 hover:underline"
+							>
+								Download
+							</button>
+						)}
+					</span>
+				);
+			})}
 			{error && (
 				<p role="alert" className="mt-1 text-xs text-red-600 dark:text-red-500">
 					{error}
@@ -202,8 +229,73 @@ function modelName(model: OnDeviceModel): string {
 	return `Read-aloud voice · ${language}`;
 }
 
-/** The group, or nothing while the speech server is not an on-device one. */
-export function OnDeviceSpeechGroup() {
+/** The voices with a bundled sample (public/voice-samples, from the Piper and Kokoro model pages),
+ *  so a voice can be heard before its download. Pure — exported for tests. */
+export function voiceSampleUrl(model: Pick<OnDeviceModel, "id" | "kind">): string | null {
+	if (model.kind !== "voice") return null;
+	if (model.id === "voice-en" || model.id === "voice-en-gpu") return "/voice-samples/kokoro.mp3";
+	return VOICE_SAMPLES.has(model.id) ? `/voice-samples/${model.id}.mp3` : null;
+}
+
+const VOICE_SAMPLES = new Set([
+	"voice-de", "voice-de-medium", "voice-en-lessac", "voice-en-lessac-medium", "voice-en-ryan", "voice-en-ryan-medium",
+	"voice-en-ljspeech", "voice-en-ljspeech-medium", "voice-en-cori", "voice-en-cori-medium",
+]);
+
+/** Play / Stop for one voice sample; one sample plays at a time. */
+let playing: { audio: HTMLAudioElement; stop: () => void } | null = null;
+function SampleButton({ url, id }: { url: string; id: string }) {
+	const [on, setOn] = useState(false);
+	useEffect(() => () => {
+		if (playing && playing.audio.dataset.id === id) playing.stop();
+	}, [id]);
+	function toggle() {
+		if (on) return playing?.stop();
+		playing?.stop();
+		const audio = new Audio(url);
+		audio.dataset.id = id;
+		const stop = () => {
+			audio.pause();
+			setOn(false);
+			if (playing?.audio === audio) playing = null;
+		};
+		audio.onended = stop;
+		audio.onerror = stop;
+		playing = { audio, stop };
+		setOn(true);
+		void audio.play().catch(stop);
+	}
+	return (
+		<button
+			type="button"
+			onClick={toggle}
+			aria-label={on ? "Stop the sample" : "Play a sample of this voice"}
+			data-testid={`speech-model-sample-${id}`}
+			className="shrink-0 text-xs text-foreground underline-offset-2 hover:underline"
+		>
+			{on ? "Stop" : "Listen"}
+		</button>
+	);
+}
+
+/** Settings group: the voice-mode speed check (Android app), outside the Dictation and Read aloud tabs
+ *  because it measures both and decides whether voice mode is offered. Nothing while the phone's
+ *  speech server does not answer. */
+export function VoiceModeGroup() {
+	return (
+		<SettingsGroup label="Voice mode" testid="group-voice-mode">
+			<p className="px-1 text-[11px] leading-relaxed text-muted-foreground/70">
+				Voice mode lets you talk and listen without typing. It appears once this check finds the phone fast enough for on-device dictation and read-aloud.
+			</p>
+			<BenchmarkRow />
+		</SettingsGroup>
+	);
+}
+
+/** The group, or nothing while the speech server is not an on-device one.
+ *  `part` picks the tab it sits in: the dictation model under Dictation (inside the
+ *  "On this phone" choice, `bare`: no group of its own), the voices and NPU speech under Read aloud. */
+export function OnDeviceSpeechGroup({ part, bare = false }: { part: "dictation" | "read-aloud"; bare?: boolean }) {
 	const [models, setModels] = useState<OnDeviceModel[] | null>(null);
 	const [error, setError] = useState<string | null>(null);
 
@@ -240,9 +332,9 @@ export function OnDeviceSpeechGroup() {
 		notifySettingsSaved("speech");
 	}
 
-	return (
-		<SettingsGroup label="On-device speech" testid="group-on-device-speech">
-			{models.map((model) => (
+	const body = (
+		<>
+			{models.filter((model) => (model.kind === "dictation") === (part === "dictation")).map((model) => (
 				<div key={model.id} className="flex items-center justify-between gap-3 px-1 py-1.5" data-testid={`speech-model-${model.id}`}>
 					<span className="min-w-0 flex-1">
 						<span className="block font-ui text-xs text-foreground">{modelName(model)}</span>
@@ -250,6 +342,7 @@ export function OnDeviceSpeechGroup() {
 							{model.label} · {modelStateLine(model)}
 						</span>
 					</span>
+					{voiceSampleUrl(model) ? <SampleButton url={voiceSampleUrl(model)!} id={model.id} /> : null}
 					{model.state === "ready" ? (
 						<button
 							type="button"
@@ -266,21 +359,32 @@ export function OnDeviceSpeechGroup() {
 							data-testid={`speech-model-download-${model.id}`}
 							className="shrink-0 text-xs text-foreground underline-offset-2 hover:underline"
 						>
-							Download
+							{model.state === "failed" ? "Retry" : "Download"}
 						</button>
 					) : null}
 				</div>
 			))}
-			<BenchmarkRow />
-			<NpuSpeechRow />
+			{part === "read-aloud" ? <NpuSpeechRow models={models} onChange={change} /> : null}
 			<p className="px-1 text-[11px] leading-relaxed text-muted-foreground/70">
-				Models download over Wi-Fi only and run on this phone. Dictation recognizes German and English by itself; read-aloud uses the voice of the language chosen under Read aloud.
+				{part === "dictation"
+					? "Downloads over Wi-Fi only and runs on this phone, without the internet. It recognizes German, English and more languages by itself, so there is no language to choose."
+					: "Models download over Wi-Fi only and run on this phone. \"Listen\" plays a short sample, also before the download. Read-aloud uses the voice of the language chosen below."}
 			</p>
 			{error && (
 				<p role="alert" className="px-1 text-xs text-red-600 dark:text-red-500">
 					{error}
 				</p>
 			)}
+		</>
+	);
+	// Plain JSX, not a wrapper component made here: that would remount the rows (and stop a sample) on every poll.
+	return bare ? (
+		<div data-testid={`group-on-device-speech-${part}`} className="flex flex-col gap-2">
+			{body}
+		</div>
+	) : (
+		<SettingsGroup label={part === "dictation" ? "On-device speech" : "Voices on this phone"} testid={`group-on-device-speech-${part}`}>
+			{body}
 		</SettingsGroup>
 	);
 }

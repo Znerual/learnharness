@@ -5,6 +5,7 @@ import React, { act } from "react";
 
 import assert from "node:assert/strict";
 import { describe, it, afterEach } from "node:test";
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createRoot, type Root } from "react-dom/client";
@@ -70,10 +71,63 @@ afterEach(async () => {
 	globalThis.fetch = originalFetch;
 });
 
+describe("Android app: Check for updates through LHAndroid", () => {
+	type W = { LHAndroid?: unknown; lhAndroidUpdate?: (s: unknown) => void; lh?: unknown };
+	afterEach(() => { delete (window as unknown as W).LHAndroid; });
+
+	it("offers the button next to the version, calls the bridge, and shows each outcome", async () => {
+		let calls = 0;
+		const w = window as unknown as W;
+		delete w.lh;
+		w.LHAndroid = { updateCheckAvailable: () => true, checkForUpdates: () => { calls++; } };
+		const host = await mount(<UpdateSettings {...props} version="0.4.2102" homepage="" />);
+		const button = q(host, "update-check");
+		assert.ok(button, "the button is there");
+		assert.match(q(host, "row-version")?.textContent ?? "", /Version 0\.4\.2102/);
+		await act(async () => { button!.click(); });
+		assert.equal(calls, 1);
+		assert.equal(q(host, "update-status")?.textContent, "Checking for updates…");
+		await act(async () => { w.lhAndroidUpdate?.({ status: "up-to-date", version: "0.4.2102" }); });
+		assert.equal(q(host, "update-status")?.textContent, "You have the latest version.");
+		await act(async () => { w.lhAndroidUpdate?.({ status: "available", version: "0.4.2103" }); });
+		assert.match(q(host, "update-status")?.textContent ?? "", /Version 0\.4\.2103 is available/);
+		await act(async () => { w.lhAndroidUpdate?.({ status: "error" }); });
+		assert.equal(q(host, "update-status")?.textContent, "Couldn’t check for updates. Try again later.");
+	});
+
+	it("no button where the app has no update check (free edition) or outside the app", async () => {
+		const w = window as unknown as W;
+		delete w.lh;
+		w.LHAndroid = { updateCheckAvailable: () => false, checkForUpdates: () => {} };
+		const host = await mount(<UpdateSettings {...props} />);
+		assert.equal(q(host, "update-check"), null);
+		delete w.LHAndroid;
+		const plain = await mount(<UpdateSettings {...props} />);
+		assert.equal(q(plain, "update-check"), null);
+	});
+});
+
 describe("version and contextual copy", () => {
 	it("build metadata comes from package.json and exposes only public version/homepage values", () => {
 		const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
-		assert.deepEqual(nextConfig.env, { LH_VERSION: pkg.version, LH_HOMEPAGE: pkg.homepage });
+		assert.deepEqual(nextConfig.env, { LH_VERSION: pkg.version, LH_HOMEPAGE: pkg.homepage, LH_RELEASE_NOTES: "" });
+	});
+
+	it("a Vault release build shows its own number and no release-notes link (LH_BUILD_VERSION)", () => {
+		const env = (extra: Record<string, string>) => {
+			const out = execFileSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", "const c = (await import('./next.config.ts')).default; console.log(JSON.stringify(c.env));"], {
+				cwd: new URL("..", import.meta.url), env: { ...process.env, LH_BUILD_VERSION: "0.4.2101", ...extra }, encoding: "utf8",
+			});
+			return JSON.parse(out.trim().split("\n").at(-1) as string);
+		};
+		assert.deepEqual(env({}), { LH_VERSION: "0.4.2101", LH_HOMEPAGE: "", LH_RELEASE_NOTES: "" });
+		assert.deepEqual(env({ LH_RELEASE_NOTES_URL: "https://learn-vault.example/releases/" }), { LH_VERSION: "0.4.2101", LH_HOMEPAGE: "", LH_RELEASE_NOTES: "https://learn-vault.example/releases/" });
+		assert.equal(env({ LH_RELEASE_NOTES_URL: "javascript:alert(1)" }).LH_RELEASE_NOTES, "", "only https notes pages");
+		const html = renderToStaticMarkup(<UpdateSettings autoUpdate onAutoUpdateChange={() => {}} version="0.4.2101" homepage="" releaseNotesUrl="" />);
+		assert.match(html, /Version 0\.4\.2101/);
+		assert.doesNotMatch(html, /release-notes/);
+		const linked = renderToStaticMarkup(<UpdateSettings autoUpdate onAutoUpdateChange={() => {}} version="0.4.2101" homepage="" releaseNotesUrl="https://learn-vault.example/releases/" />);
+		assert.match(linked, /href="https:\/\/learn-vault\.example\/releases\/"[^>]*data-testid="release-notes"/);
 	});
 
 	it("never claims live/latest information and keeps updater errors generic", () => {

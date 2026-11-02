@@ -13,6 +13,7 @@ import { LhMark } from "@/components/lh-mark";
 import { BrailleSpinner } from "@/components/braille-spinner";
 import { KeyboardShortcuts } from "@/components/keyboard-shortcuts";
 import { SettingsDialogProvider, useSettingsDialog } from "@/components/settings/settings-dialog.tsx";
+import { VaultShellBanner } from "@/components/vault/ShellBanner.tsx";
 import { Hint } from "@/components/ui/hint";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1017,6 +1018,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 			    matters for the events it dispatches, never for DOM priority.
 			    The Android app has no shortcuts and no cheat sheet (owner, 2026-10-30). */}
 			{!android && <KeyboardShortcuts />}
+			{/* The vault's sync problems (over quota, revoked, needs unlock, offline ...); null while idle. */}
+			<VaultShellBanner />
 		</SettingsDialogProvider>
 	);
 }

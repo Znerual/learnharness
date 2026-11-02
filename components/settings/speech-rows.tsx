@@ -30,10 +30,11 @@ import { notifySettingsSaved } from "@/components/settings-signal";
 const INPUT_CLASS =
 	"h-7 min-w-0 flex-1 rounded-sm border border-border bg-background px-1.5 font-mono text-xs text-foreground outline-none placeholder:text-muted-foreground/60 focus:border-muted-foreground/50";
 
-/** The row's status line. Pure — exported for tests. */
-export function speechStatusLine(section: SpeechSettings | undefined): string {
+/** The row's status line; `hideEndpoint` leaves out the server (the phone's own). Pure — exported for tests. */
+export function speechStatusLine(section: SpeechSettings | undefined, hideEndpoint = false): string {
 	const { url, voice, speed, language } = resolveSpeech(section);
-	if (!url) return "not set";
+	if (!url) return hideEndpoint ? "starting…" : "not set";
+	if (hideEndpoint) return [SPEECH_LANGUAGE_LABEL[language], voice ?? "default voice", speed !== 1 ? `${speed}×` : null].filter(Boolean).join(" · ");
 	let host = url;
 	try {
 		host = new URL(url).host;
@@ -43,7 +44,8 @@ export function speechStatusLine(section: SpeechSettings | undefined): string {
 	return [host, SPEECH_LANGUAGE_LABEL[language], voice, speed !== 1 ? `${speed}×` : null].filter(Boolean).join(" · ");
 }
 
-export function SpeechRows() {
+/** `hideEndpoint`: the Android app, which points read-aloud at its own speech server; the URL is not the learner's business there. */
+export function SpeechRows({ hideEndpoint = false }: { hideEndpoint?: boolean } = {}) {
 	const [section, setSection] = useState<SpeechSettings | null>(null);
 	const [editing, setEditing] = useState(false);
 	const [url, setUrl] = useState("");
@@ -127,7 +129,7 @@ export function SpeechRows() {
 		<>
 			{editing ? (
 				<div className="flex flex-col gap-1.5 rounded-sm px-1 py-1.5" data-testid="speech-editor">
-					<div className="flex items-center gap-2">
+					<div className={hideEndpoint ? "hidden" : "flex items-center gap-2"}>
 						<span className="shrink-0 font-ui text-xs text-foreground">Read aloud</span>
 						<input
 							value={url}
@@ -136,7 +138,7 @@ export function SpeechRows() {
 							placeholder="http://localhost:8000/v1"
 							aria-label="Text-to-speech base URL"
 							data-testid="speech-url"
-							autoFocus
+							autoFocus={!hideEndpoint}
 							className={INPUT_CLASS}
 						/>
 					</div>
@@ -233,8 +235,8 @@ export function SpeechRows() {
 					}}
 					className="flex w-full cursor-pointer items-center justify-between gap-3 rounded-sm px-1 py-1.5 text-left transition-colors hover:bg-accent/50"
 				>
-					<span className="font-ui text-xs text-foreground">Read aloud</span>
-					<span className="font-mono text-[11px] text-muted-foreground">{speechStatusLine(section)}</span>
+					<span className="font-ui text-xs text-foreground">{hideEndpoint ? "Language, voice and speed" : "Read aloud"}</span>
+					<span className="font-mono text-[11px] text-muted-foreground">{speechStatusLine(section, hideEndpoint)}</span>
 				</button>
 			)}
 			{error && (

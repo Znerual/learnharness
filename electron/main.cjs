@@ -24,11 +24,14 @@
  *     would shadow every settings-page key change until restart.
  */
 
-const { app, BrowserWindow, Menu, ipcMain, nativeTheme, session, shell } = require("electron");
+const { app, BrowserWindow, Menu, ipcMain, nativeTheme, safeStorage, session, shell } = require("electron");
 const { createChatGPT, fileStore } = require("./chatgpt.cjs");
 const { attachChatGPTChild, trustedSender, chatGPTControl } = require("./chatgpt-ipc.cjs");
 const { createSubscriptions, loadSubscriptionSDK } = require("./subscriptions.cjs");
 const { attachSubscriptionChild, subscriptionControl } = require("./subscription-ipc.cjs");
+const { createKeyStorageService, attachKeyStorageChild } = require("./keystorage-main.cjs");
+const { changelogUrlFor, fetchChanges } = require("./changelog.cjs");
+const { passkeyHost, createPasskeyCeremony, attachPasskeyChild } = require("./passkey-window.cjs");
 const { desktopAPIHeaders } = require("./desktop-api.cjs");
 const { openWebSubscriptionBrowser } = require("./web-subscription-browser.cjs");
 const { randomBytes } = require("node:crypto");
@@ -43,6 +46,23 @@ const path = require("node:path");
 const SIDEBAR_AUTOCLOSE = 928;
 
 const PRODUCT_NAME = "LearnHarness";
+
+// Build-time settings (electron-builder -c.extraMetadata.learnharnessBuild.*), for test builds:
+//   vaultUrl    the vault server, used when LH_VAULT_URL is not set in the environment
+//   updateFeed  an electron-updater "generic" feed (a URL holding latest-linux.yml etc.) instead of
+//               the GitHub releases in electron-builder.yml, e.g. vault builds updating from the vault
+//               host; LH_UPDATE_FEED still overrides it
+//   autoUpdate  false turns updates off for this build
+// A normal release sets none of them.
+const BUILD = (() => {
+	try {
+		const b = require("../package.json").learnharnessBuild;
+		return b && typeof b === "object" ? b : {};
+	} catch {
+		return {};
+	}
+})();
+if (!process.env.LH_VAULT_URL && typeof BUILD.vaultUrl === "string" && BUILD.vaultUrl) process.env.LH_VAULT_URL = BUILD.vaultUrl;
 
 // APP NAME → userData (owner, 2026-10-10): the Application Support dir is
 // exactly "LearnHarness" in dev AND packaged. Packaged Electron would
@@ -142,6 +162,14 @@ let chatgpt = null;
 let chatgptChild = null;
 let subscriptions = null;
 let subscriptionChild = null;
+// The vault's key storage (safeStorage). Server-child IPC only: no channel in
+// preload.cjs, no ipcMain.handle — the renderer never reaches the vault secrets.
+let keyStorage = null;
+let keyStorageChild = null;
+// The vault's passkey ceremony window (lh:passkey). Same rule: the server child asks over its IPC
+// channel, the window answers it; the UI renderer never sees a request or a PRF output.
+let passkeys = null;
+let passkeyChild = null;
 // Per-launch request capability, never OAuth tokens and never renderer state.
 let desktopAPISecret = null;
 let reopenWindow = null;
@@ -247,6 +275,8 @@ function startServer(port) {
 		serverProcess = child;
 		chatgptChild = attachChatGPTChild(child, chatgpt);
 		subscriptionChild = attachSubscriptionChild(child, subscriptions);
+		keyStorageChild = keyStorage ? attachKeyStorageChild(child, keyStorage) : null;
+		passkeyChild = passkeys ? attachPasskeyChild(child, passkeys) : null;
 		const fwd = (buf) => buf.toString().trimEnd().split("\n").forEach((l) => l && log(`server: ${l}`));
 		child.stdout.on("data", fwd);
 		child.stderr.on("data", fwd);
@@ -257,6 +287,10 @@ function startServer(port) {
 			chatgptChild = null;
 			subscriptionChild?.dispose();
 			subscriptionChild = null;
+			keyStorageChild?.dispose();
+			keyStorageChild = null;
+			passkeyChild?.dispose();
+			passkeyChild = null;
 			chatgpt?.close();
 			subscriptions?.close();
 		});
@@ -460,13 +494,18 @@ const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 let autoUpdater = null; // electron-updater's, packaged builds only
 // Observational only: this snapshot NEVER gates a check, download or install.
 // The revision lets late subscribers reject an older in-flight IPC snapshot.
-let updateState = { status: "idle", version: null, revision: 0 };
+let updateState = { status: "idle", version: null, notes: [], revision: 0 };
+// The vault host's changelog beside a generic feed (electron/changelog.cjs); null for GitHub feeds.
+let changelogUrl = null;
 
-function reportUpdateStatus(status, version = null) {
+function reportUpdateStatus(status, version = null, notes = undefined) {
 	try {
 		// A later check/error must not hide an update already staged for quit.
 		if (updateState.status === "downloaded" && status !== "downloaded") return;
-		updateState = { status, version: typeof version === "string" ? version : null, revision: updateState.revision + 1 };
+		const v = typeof version === "string" ? version : null;
+		// The notes stay with their version across downloading → downloaded.
+		const kept = Array.isArray(notes) ? notes : v && v === updateState.version ? updateState.notes : [];
+		updateState = { status, version: v, notes: kept, revision: updateState.revision + 1 };
 		for (const win of BrowserWindow.getAllWindows()) {
 			try {
 				win.webContents.send("lh:update-status", updateState);
@@ -559,6 +598,11 @@ function setupAutoUpdater() {
 		reportUpdateStatus("disabled");
 		return;
 	}
+	if (BUILD.autoUpdate === false) {
+		log("auto-update: turned off in this build (learnharnessBuild.autoUpdate)");
+		reportUpdateStatus("disabled");
+		return;
+	}
 	try {
 		autoUpdater = require("electron-updater").autoUpdater;
 	} catch (err) {
@@ -569,7 +613,12 @@ function setupAutoUpdater() {
 	const feed = process.env.LH_UPDATE_FEED;
 	if (feed) {
 		autoUpdater.setFeedURL({ provider: "generic", url: feed });
+		changelogUrl = changelogUrlFor(feed);
 		log(`auto-update: LH_UPDATE_FEED override → ${feed}`);
+	} else if (typeof BUILD.updateFeed === "string" && /^https:\/\//.test(BUILD.updateFeed)) {
+		autoUpdater.setFeedURL({ provider: "generic", url: BUILD.updateFeed });
+		changelogUrl = changelogUrlFor(BUILD.updateFeed);
+		log(`auto-update: build feed → ${BUILD.updateFeed}`);
 	}
 	autoUpdater.autoDownload = true;
 	autoUpdater.autoInstallOnAppQuit = true;
@@ -582,7 +631,18 @@ function setupAutoUpdater() {
 		error: (m) => log(`updater error: ${m}`),
 	};
 	autoUpdater.on("checking-for-update", () => reportUpdateStatus("checking"));
-	autoUpdater.on("update-available", (info) => reportUpdateStatus("downloading", info?.version));
+	autoUpdater.on("update-available", (info) => {
+		const offered = info?.version;
+		reportUpdateStatus("downloading", offered);
+		// What's new since this version, for the banner (Vault feeds only); never blocks or fails the update.
+		if (changelogUrl) {
+			void fetchChanges(changelogUrl, app.getVersion(), offered)
+				.then((notes) => {
+					if (notes.length && updateState.version === offered) reportUpdateStatus(updateState.status, offered, notes);
+				})
+				.catch(() => {});
+		}
+	});
 	autoUpdater.on("update-not-available", () => reportUpdateStatus("up-to-date"));
 	autoUpdater.on("update-downloaded", (info) => {
 		log(`update downloaded: ${info?.version} — banner shown`);
@@ -726,6 +786,12 @@ async function main() {
 			},
 		});
 		await subscriptions.ready;
+		keyStorage = createKeyStorageService({ safeStorage, filePath: path.join(app.getPath("userData"), "vault-secrets.bin") });
+		// The passkey relying party id is the vault host (ADR 0004); an IP, a port or http gets none.
+		const passkeyRp = passkeyHost(process.env.LH_VAULT_URL ?? "");
+		passkeys = passkeyRp
+			? createPasskeyCeremony({ host: passkeyRp, parent: () => BrowserWindow.getFocusedWindow() ?? [...trustedAppWindows][0] })
+			: null;
 		log(`starting server: ${serverEntry()}`);
 		log(`data dir: ${DATA_DIR()}${fs.existsSync(AUTH_FILE()) ? " · auth.json: present" : " · auth.json: ABSENT (no BYOK keys yet)"}`);
 		await startServer(new URL(url).port);

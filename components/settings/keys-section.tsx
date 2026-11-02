@@ -398,6 +398,14 @@ function AddProviderRow({
 	);
 }
 
+export type KeysView = "providers" | "dictation" | "read-aloud";
+
+/** The settings tab (dialog section id) that shows a tool key. Pure — exported for pins. */
+export function sectionOfKey(id: string): "keys" | "dictation" | "readAloud" {
+	const group = toolGroupOf(id);
+	return group === "Dictation" ? "dictation" : group === "Read aloud" ? "readAloud" : "keys";
+}
+
 type ToolGroup = "Dictation" | "Read aloud" | "Search";
 
 const TOOL_GROUP_TESTIDS: Record<ToolGroup, string> = {
@@ -419,8 +427,12 @@ export function KeysSection({
 	 *  while mounted too — the settings dialog's while-open retarget
 	 *  pattern. undefined = nothing seeded. */
 	initialRow,
+	view = "providers",
 }: {
 	initialRow?: string;
+	/** Which settings tab this renders: model providers + search, or the
+	 *  Dictation / Read aloud tab (owner, 2026-11-01). */
+	view?: KeysView;
 }) {
 	const android = useAndroidShell();
 	const [statuses, setStatuses] = useState<AuthKeyStatus[] | null>(null);
@@ -558,6 +570,53 @@ export function KeysSection({
 		/>
 	);
 
+	if (view === "dictation") {
+		// The engine choice first; only the chosen engine's rows follow (owner, 2026-11-02).
+		return (
+			<SettingsGroup label="Dictation" testid={TOOL_GROUP_TESTIDS.Dictation}>
+				<DictationEngineRows
+					android={android}
+					deepgram={
+						<>
+							{toolRows.filter((status) => toolGroupOf(status.id) === "Dictation" && status.id !== "LH_STT_KEY").map(toolRow)}
+							<DictationLanguageSetting />
+							<p data-testid="dictation-setup-hint" className="px-1 text-[11px] leading-relaxed text-muted-foreground/70">
+								Create a <a
+									href="https://console.deepgram.com/"
+									target="_blank"
+									rel="noreferrer"
+									className="underline underline-offset-2 hover:text-foreground"
+								>Deepgram API key</a> with the Member role or higher, then add it above.
+							</p>
+						</>
+					}
+					local={
+						android ? (
+							// The phone's own model; the app points the URL at its speech server, so no URL or key here.
+							<OnDeviceSpeechGroup part="dictation" bare />
+						) : (
+							toolRows.filter((status) => status.id === "LH_STT_KEY").map(toolRow)
+						)
+					}
+				/>
+			</SettingsGroup>
+		);
+	}
+
+	if (view === "read-aloud") {
+		return (
+			<>
+				{/* The phone's own read-aloud voices (Android app). */}
+				{android && <OnDeviceSpeechGroup part="read-aloud" />}
+				<SettingsGroup label="Read aloud" testid={TOOL_GROUP_TESTIDS["Read aloud"]}>
+					{/* On the phone the app points read-aloud at its own speech server: no URL or key to show. */}
+					<SpeechRows hideEndpoint={android} />
+					{android ? null : toolRows.filter((status) => toolGroupOf(status.id) === "Read aloud").map(toolRow)}
+				</SettingsGroup>
+			</>
+		);
+	}
+
 	return (
 		<>
 			<SettingsGroup label="Model API keys" testid="group-provider-keys">
@@ -654,35 +713,16 @@ export function KeysSection({
 			</SettingsGroup>
 			)}
 
+			{/* The Claude Code CLI is a desktop program; the phone has none. */}
+			{!android && (
 			<SettingsGroup label="External CLI" testid="group-external-cli">
 				<ClaudeCodeInstallationStatus />
 			</SettingsGroup>
+			)}
 
-			{/* The phone's own speech models (Android app, owner 2026-11-01). */}
-			{android && <OnDeviceSpeechGroup />}
-
-			{/* Tool keys by service. The fork's rows join their service: the
-			    dictation engine (local-STT wave, 2026-10-24) and LH_STT_KEY
-			    follow Deepgram's key, language and hint; read-aloud
-			    (2026-10-24) with LH_TTS_KEY. */}
-			{(["Dictation", "Read aloud", "Search"] as const).map((label) => <SettingsGroup key={label} label={label} testid={TOOL_GROUP_TESTIDS[label]}>
-				{label === "Read aloud" && <SpeechRows />}
-				{toolRows.filter((status) => toolGroupOf(status.id) === label && status.id !== "LH_STT_KEY").map(toolRow)}
-				{label === "Dictation" && <>
-					<DictationLanguageSetting />
-					<p data-testid="dictation-setup-hint" className="px-1 text-[11px] leading-relaxed text-muted-foreground/70">
-						Create a <a
-							href="https://console.deepgram.com/"
-							target="_blank"
-							rel="noreferrer"
-							className="underline underline-offset-2 hover:text-foreground"
-						>Deepgram API key</a> with the Member role or higher, then add it above.
-					</p>
-					<DictationEngineRows />
-					{toolRows.filter((status) => status.id === "LH_STT_KEY").map(toolRow)}
-				</>}
-			</SettingsGroup>)}
-
+			<SettingsGroup label="Search" testid={TOOL_GROUP_TESTIDS.Search}>
+				{toolRows.filter((status) => toolGroupOf(status.id) === "Search").map(toolRow)}
+			</SettingsGroup>
 		</>
 	);
 }

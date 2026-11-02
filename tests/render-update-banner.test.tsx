@@ -80,4 +80,29 @@ describe("update banner (Wave C)", () => {
 		root.unmount();
 		host.remove();
 	});
+
+	it("offers What's new when the shell found changelog notes, as plain text", async () => {
+		let pushed: ((s: UpdateState) => void) | null = null;
+		(window as { lh?: unknown }).lh = { onUpdateStatus: (cb: (s: UpdateState) => void) => { pushed = cb; return () => {}; }, installUpdate: () => {} };
+		const host = document.createElement("div");
+		document.body.appendChild(host);
+		const root = ReactDOMClient.createRoot(host);
+		flushSync(() => root.render(<UpdateBanner />));
+		await new Promise((r) => setTimeout(r, 0));
+		flushSync(() => pushed?.({ status: "downloaded", version: "0.4.2108", revision: 1, notes: [
+			{ version: "0.4.2108", released: "2026-11-02", notes: "- Restore a document by picking it\n- <b>not bold</b>" },
+			{ version: "0.4.2107", released: "2026-11-02", notes: "" },
+		] }));
+		assert.equal(host.querySelector("[data-testid='update-banner-notes']"), null, "closed at first");
+		host.querySelector<HTMLButtonElement>("[data-testid='update-banner-whats-new']")!.click();
+		await new Promise((r) => setTimeout(r, 0));
+		const notes = host.querySelector("[data-testid='update-banner-notes']");
+		assert.ok(notes, "opens on click");
+		assert.match(notes!.textContent!, /Version 0\.4\.2108/);
+		assert.match(notes!.textContent!, /Restore a document by picking it/);
+		assert.match(notes!.textContent!, /No notes were written for this version/);
+		assert.equal(notes!.querySelector("b"), null, "never HTML");
+		root.unmount();
+		host.remove();
+	});
 });

@@ -123,6 +123,18 @@ Additional runtime gates are separate from ordinary model use:
 
 These checks prove the exercised fixture/runtime contracts, not real provider entitlements or the quality of model-authored lessons. For frontend failures, reproduce through the actual UI and inspect runtime requests/console/state rather than inferring success from a static render alone.
 
+## The vault (optional)
+
+The vault is the hosted, end-to-end encrypted sync service (see the glossary). It stays off unless both hold: `LH_VAULT_URL` names a vault server, and the private client package `@znerual/learnharness-vault-client` is installed (an optional dependency; `vendor/*.tgz` is git-ignored, drop the packed client there and run `npm install`). Without either, nothing changes: the Settings → Vault section does not exist, `GET /api/vault/available` says why, and `npm run typecheck` / `next build` check the glue against stand-in types (`src/server/vault/client-shim.d.ts`, `tsconfig.novault.json`).
+
+Where it lives: `src/core/vault/` (view models, strings, route contract: pure), `src/server/vault/` (store adapters, host, join, routes, runtime; `service.ts` is the only door and imports no client code), `components/vault/` and `components/settings/vault-section.tsx` (UI), `electron/keystorage-main.cjs` (safeStorage bridge over the server child's IPC; never in `preload.cjs`) and `electron/passkey-window.cjs` (the passkey ceremony window, same rule). While signed in, `stores` (src/server/stores.ts) resolves the synced members to wrapped stores that record each write's intent first; never destructure `stores.x` at import.
+
+Passkeys (ADR 0004): the ceremony runs in the server process and, on desktop, in the Electron passkey window on `https://vault.<domain>` (the domain comes from `LH_VAULT_URL`, which must read `vault.<domain>`). The server child asks over IPC channel `lh:passkey` (`src/server/vault/passkey-ipc.ts`); the credential and PRF output never reach the UI renderer. Without the bridge (web/dev, Android) the passkey option is shown as unavailable with the reason; password sign-in is unaffected. The window runs headless for tests with `env -u DISPLAY -u WAYLAND_DISPLAY <electron> --no-sandbox --ozone-platform=headless`.
+
+A first sign-in or pairing on a device that holds local data into a vault that already has records does not move files by itself: the session is `joining` until the learner answers (`POST /session/join`: "Use the vault" moves local files to `<local>/pre-vault-<date>/`, or cancel signs out). The shell shows sync problems (over quota, read-only, rotation rejected, revoked, needs unlock, offline) in `components/vault/ShellBanner.tsx`, hidden while idle.
+
+`tests/vault-sync-e2e.test.ts` runs two data folders against a real vault server and Postgres; it skips unless `LHV_REPO` (the vault checkout) and `LHV_TEST_DATABASE_URL` are set.
+
 ## Lineage
 
 The teaching methodology grew from an Obsidian-based proof of concept. The harness began with Pi, moved to a standalone Next.js/AI SDK design, and now uses native Pi records, agents and events with its own browser projection. [Architecture](architecture.md) is the current reference; [the engine-swap document](pi-engine-swap.md) records an earlier transition, not today's wire contract. License and contributor acknowledgements remain in the [repository README](../README.md).

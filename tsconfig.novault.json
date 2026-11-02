@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./.next/tsconfig.novault.tsbuildinfo",
+    "paths": {
+      "@/*": ["./*"],
+      "@znerual/learnharness-vault-client": ["./src/server/vault/client-shim"]
+    }
+  }
+}

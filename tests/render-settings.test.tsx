@@ -49,7 +49,7 @@ describe("SettingsDialog (the designed surface, SSR)", () => {
 		assert.ok(html.includes('role="dialog"'));
 		assert.ok(html.includes('aria-modal="true"'));
 		assert.ok(html.includes('aria-label="Close settings"'));
-		for (const id of ["general", "keys", "agent", "appearance", "graph", "keyboard"]) {
+		for (const id of ["general", "keys", "agent", "dictation", "readAloud", "appearance", "graph", "keyboard"]) {
 			assert.ok(html.includes(`data-testid="settings-nav-${id}"`), id);
 		}
 		// Providers is the first landing section; internal keys deep links survive.
@@ -271,6 +271,23 @@ describe("KeysSection (thin SSR)", () => {
 	it("SSR = the loading state (effects never fire)", () => {
 		const html = renderToStaticMarkup(<KeysSection />);
 		assert.ok(html.includes("Loading keys…"));
+	});
+});
+
+describe("speech tabs in the dialog", () => {
+	it("Dictation and Read aloud sit after Agent, before Appearance, with short labels", () => {
+		const html = renderToStaticMarkup(<SettingsDialogBody onClose={() => {}} />);
+		const at = (id: string) => html.indexOf(`data-testid="settings-nav-${id}"`);
+		assert.ok(at("agent") < at("dictation") && at("dictation") < at("readAloud") && at("readAloud") < at("appearance"));
+		assert.ok(html.includes(">Dictation</button>") && html.includes(">Read aloud</button>"));
+	});
+
+	it("a deep link lands on the named tab", () => {
+		for (const [section, testid] of [["dictation", "section-dictation"], ["readAloud", "section-read-aloud"], ["keys", "section-keys"]] as const) {
+			const html = renderToStaticMarkup(<SettingsDialogBody onClose={() => {}} initialSection={section} />);
+			assert.ok(tagOf(html, `settings-nav-${section}`).includes('aria-current="true"'), section);
+			assert.ok(html.includes(testid) || html.includes("Loading settings…"), section);
+		}
 	});
 });
 

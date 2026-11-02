@@ -44,6 +44,7 @@ import { SettingsSection } from "./controls.tsx";
 import { UpdateSettings } from "./update-settings.tsx";
 import { DataFolderSetting, DeviceSettings } from "./device-settings.tsx";
 import { useAndroidShell, useAndroidBack } from "@/components/android-shell";
+import { VoiceModeGroup } from "./on-device-speech.tsx";
 import { SessionStatsSection } from "@/components/stats-bar";
 import { sessionStatsNow, useSessionStats } from "@/components/session-stats";
 import { AgentSection } from "./agent-section.tsx";
@@ -54,6 +55,9 @@ import { KeysSection } from "./keys-section.tsx";
 import { Hint } from "@/components/ui/hint";
 import { AppearanceSection, GraphSection } from "./appearance-section.tsx";
 import { KeyboardSection } from "./keyboard-section.tsx";
+import { VaultSection } from "./vault-section.tsx";
+import { VaultBoot } from "@/components/vault/vault-boot";
+import { useVaultAvailable } from "@/components/vault/available";
 import { ChatGPTUIProvider } from "./chatgpt-connection.tsx";
 import { NativeSubscriptionUIProvider } from "./subscription-connections.tsx";
 
@@ -65,15 +69,34 @@ const SECTIONS = [
 	{ id: "session", label: "This session" },
 	{ id: "keys", label: "Providers" },
 	{ id: "agent", label: "Agent" },
+	{ id: "dictation", label: "Dictation" },
+	{ id: "readAloud", label: "Read aloud" },
 	{ id: "appearance", label: "Appearance" },
 	{ id: "graph", label: "Graph" },
 	{ id: "keyboard", label: "Keyboard", hint: "Stored on this device" },
 	{ id: "general", label: "General" },
+	// Only while the vault is available (a vault server is configured and the private client is installed).
+	{ id: "vault", label: "Vault" },
 ] as const;
 type SectionId = (typeof SECTIONS)[number]["id"];
 
-/** `open(section?, row?)` — the optional ROW deep-links into the Keys
- *  section with that row unfolded (zero-keys wave: the dictation error's
+/** On the phone (owner, 2026-11-01): the most used tabs first, Graph last,
+ *  shortcuts hidden (no hardware keyboard), shorter name for This session. */
+const ANDROID_ORDER: readonly SectionId[] = ["session", "keys", "agent", "dictation", "readAloud", "appearance", "general", "vault", "graph"];
+const ANDROID_LABEL: Partial<Record<SectionId, string>> = { session: "Session" };
+
+/** The tabs to show. Pure — exported for tests. */
+export function visibleSections(opts: { android: boolean; session: boolean; vault: boolean }): { id: SectionId; label: string }[] {
+	const shown = SECTIONS.filter((s) => (s.id !== "session" || (opts.android && opts.session)) && (s.id !== "vault" || opts.vault));
+	if (!opts.android) return shown.map(({ id, label }) => ({ id, label }));
+	return ANDROID_ORDER.flatMap((id) => {
+		const s = shown.find((x) => x.id === id);
+		return s ? [{ id, label: ANDROID_LABEL[id] ?? s.label }] : [];
+	});
+}
+
+/** `open(section?, row?)` — the optional ROW deep-links into a Keys-store
+ *  tab (keys, dictation or readAloud) with that row unfolded (zero-keys wave: the dictation error's
  *  click lands on the Deepgram row). `row` is the KEY ID (the env-var
  *  name, e.g. DEEPGRAM_API_KEY — KeysSection's openRow state), not the
  *  row's testid. */
@@ -103,6 +126,7 @@ export function SettingsDialogProvider({
 	return (
 		<ChatGPTUIProvider><NativeSubscriptionUIProvider><DialogContext.Provider value={{ open }}>
 			{children}
+			<VaultBoot />
 			{show && (
 				<SettingsDialog onClose={() => setShow(false)} initialSection={landOn} initialRow={landOnRow} />
 			)}
@@ -192,7 +216,17 @@ export function SettingsDialogBody({
 	const [active, setActive] = useState<SectionId>(initialSection);
 	const android = useAndroidShell();
 	const sessionStats = useSessionStats();
-	const sections = SECTIONS.filter((s) => s.id !== "session" || (android && sessionStats));
+	const vaultAvailable = useVaultAvailable();
+	const sections = visibleSections({ android, session: !!sessionStats, vault: vaultAvailable });
+	// A deep link to a tab hidden here (Keyboard on the phone) lands on Providers.
+	useEffect(() => {
+		if (android && active === "keyboard") setActive("keys");
+	}, [android, active]);
+	// A deep link to a tab out of view in the sideways row scrolls it in.
+	useEffect(() => {
+		if (!android) return;
+		document.querySelector(`[data-testid="settings-nav-${active}"]`)?.scrollIntoView?.({ inline: "center", block: "nearest" });
+	}, [android, active]);
 	// Leaving the session with the dialog open drops This session — land on Providers.
 	useEffect(() => {
 		if (active === "session" && !sessionStats) setActive("keys");
@@ -386,6 +420,7 @@ export function SettingsDialogBody({
 								>
 									<DeviceSettings />
 									<DataFolderSetting />
+									{android && <VoiceModeGroup />}
 									<UpdateSettings
 										autoUpdate={record.general?.autoUpdate ?? true}
 										onAutoUpdateChange={(on) =>
@@ -397,6 +432,16 @@ export function SettingsDialogBody({
 							{active === "keys" && (
 								<SettingsSection title="Providers" testid="section-keys">
 									<KeysSection initialRow={initialRow ?? undefined} />
+								</SettingsSection>
+							)}
+							{active === "dictation" && (
+								<SettingsSection title="Dictation" testid="section-dictation">
+									<KeysSection view="dictation" initialRow={initialRow ?? undefined} />
+								</SettingsSection>
+							)}
+							{active === "readAloud" && (
+								<SettingsSection title="Read aloud" testid="section-read-aloud">
+									<KeysSection view="read-aloud" initialRow={initialRow ?? undefined} />
 								</SettingsSection>
 							)}
 							{active === "agent" && (
@@ -445,6 +490,11 @@ export function SettingsDialogBody({
 											void write("graph", next)
 										}
 									/>
+								</SettingsSection>
+							)}
+							{active === "vault" && vaultAvailable && (
+								<SettingsSection title="Vault" testid="section-vault">
+									<VaultSection />
 								</SettingsSection>
 							)}
 							{active === "keyboard" && (

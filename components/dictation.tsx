@@ -830,10 +830,10 @@ export function DictationBar({ dictation }: { dictation: Dictation }) {
 					onClick={() => {
 						if (keyless) {
 							clearError();
-							openSettings("keys", DEEPGRAM_KEY_ID);
+							openSettings("dictation", DEEPGRAM_KEY_ID);
 						} else if (localUnconfigured) {
 							clearError();
-							openSettings("keys");
+							openSettings("dictation");
 						} else {
 							toggle();
 						}

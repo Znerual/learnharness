@@ -1,0 +1,9 @@
+{
+	"version": 1,
+	"general": {},
+	"agent": {
+		"prompts": {
+			"system-prompt.md": true
+		}
+	}
+}

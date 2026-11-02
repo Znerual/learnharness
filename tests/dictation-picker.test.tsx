@@ -223,18 +223,20 @@ for (const source of ["none", "file", "env"] as const) test(`Language is below t
 		source, shadowedByEnv: false,
 	}];
 	const { KeysSection } = await import("../components/settings/keys-section.tsx");
-	await f.render(<KeysSection />);
+	await f.render(<KeysSection view="dictation" />);
 	const group = byTest("group-dictation");
 	const rows = group.lastElementChild!.children;
-	assert.equal(rows[0]!.getAttribute("data-testid"), "key-deepgram_api_key");
-	assert.equal(rows[1]!.getAttribute("data-testid"), "row-dictation-language");
-	assert.equal(rows[2]!.getAttribute("data-testid"), "dictation-setup-hint");
+	assert.equal(rows[0]!.getAttribute("data-testid"), "dictation-engine-row", "the engine choice comes first");
+	assert.equal(rows[1]!.getAttribute("data-testid"), "key-deepgram_api_key");
+	assert.equal(rows[2]!.getAttribute("data-testid"), "row-dictation-language");
+	assert.equal(rows[3]!.getAttribute("data-testid"), "dictation-setup-hint");
+	assert.equal(byTest("local-stt-row"), null, "the local server's rows stay hidden while Deepgram is chosen");
 	assert.equal(byTest("dictation-setup-hint").textContent, "Create a Deepgram API key with the Member role or higher, then add it above.");
 	assert.match(byTest("dictation-setup-hint").className, /text-muted-foreground/);
 	assert.equal(byTest("dictation-setup-hint").querySelector("a")!.href, "https://console.deepgram.com/");
 	assert.equal(byTest("dictation-setup-hint").querySelector("a")!.textContent, "Deepgram API key");
 	assert.equal(byTest("dictation-setup-hint").querySelectorAll("a").length, 1);
-	assert.match(rows[1]!.querySelector(".font-prose")!.className, /text-\(length:--lh-prose-size\)/);
+	assert.match(rows[2]!.querySelector(".font-prose")!.className, /text-\(length:--lh-prose-size\)/);
 	assert.equal(trigger().disabled, false, "language is independent of key ownership");
 	await click(byTest("key-deepgram_api_key-row"));
 	if (source !== "env") assert.ok(byTest("key-deepgram_api_key-editor"));
@@ -297,4 +299,26 @@ test("clearing each search restores the complete catalog order with Multilingual
 		await search("");
 		assert.deepEqual(order(), expected, `catalog order after clearing ${query}`);
 	}
+});
+
+test("Local dictation hides Deepgram's key and language; the phone also hides the server URL and key", async () => {
+	const f = await fixture();
+	f.state.record = { ...f.state.record, dictation: { engine: "local", localUrl: "http://127.0.0.1:8110/v1" } } as UserSettings;
+	f.state.keys = [
+		{ id: "DEEPGRAM_API_KEY", info: AUTH_KEYS.find((key) => key.id === "DEEPGRAM_API_KEY")!, present: false, masked: null, source: "none", shadowedByEnv: false },
+		{ id: "LH_STT_KEY", info: AUTH_KEYS.find((key) => key.id === "LH_STT_KEY")!, present: false, masked: null, source: "none", shadowedByEnv: false },
+	];
+	const { KeysSection } = await import("../components/settings/keys-section.tsx");
+	const { AndroidShellProvider } = await import("../components/android-shell.tsx");
+	await f.render(<KeysSection view="dictation" />);
+	assert.ok(byTest("dictation-engine-row"));
+	assert.equal(byTest("key-deepgram_api_key"), null);
+	assert.equal(byTest("row-dictation-language"), null, "the language is Deepgram's only");
+	assert.ok(byTest("local-stt-row"), "desktop: the local server's URL");
+	assert.ok(byTest("key-lh_stt_key"), "desktop: the local server's key");
+	assert.match(byTest("dictation-engine-local").textContent!, /Local server/);
+	await f.render(<AndroidShellProvider android><KeysSection view="dictation" /></AndroidShellProvider>);
+	assert.equal(byTest("local-stt-row"), null, "phone: the app points dictation at its own speech server");
+	assert.equal(byTest("key-lh_stt_key"), null);
+	assert.match(byTest("dictation-engine-local").textContent!, /On this phone/);
 });

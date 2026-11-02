@@ -9,7 +9,7 @@ import { createRequire } from "node:module";
 import { generateKeyPair, exportJWK, SignJWT } from "jose";
 import { ChatGPTBackgroundAccess, ChatGPTConnection, ChatGPTUIProvider, CHATGPT_NOTICE, CHATGPT_DISCONNECT_COPY } from "../components/settings/chatgpt-connection.tsx";
 import { SettingsDialogBody } from "../components/settings/settings-dialog.tsx";
-import { KeysSection } from "../components/settings/keys-section.tsx";
+import { KeysSection, sectionOfKey } from "../components/settings/keys-section.tsx";
 import { ModelControl } from "../components/model-picker.tsx";
 import type { ChatGPTStatus, ChatGPTControlBridge } from "../src/core/index.ts";
 import { completedWithin } from "./completion.ts";
@@ -72,12 +72,12 @@ afterEach(async () => { await act(async () => root?.unmount()); host?.remove(); 
 test("Providers is the first/default page; General is last and other pages keep relative order", () => {
  const html = renderToStaticMarkup(<SettingsDialogBody onClose={() => {}} />);
  const ids = [...html.matchAll(/data-testid="settings-nav-([^"]+)"/g)].map((m) => m[1]);
- assert.deepEqual(ids, ["keys", "agent", "appearance", "graph", "keyboard", "general"]);
+ assert.deepEqual(ids, ["keys", "agent", "dictation", "readAloud", "appearance", "graph", "keyboard", "general"]);
  assert.match(html, /settings-nav-keys[^>]*aria-current="true"/); assert.match(html, />Providers<\/button>/);
  assert.doesNotMatch(html, />Model providers<\/button>/);
 });
 
-test("Providers has its ordered sections including External CLI (fork: + Read aloud); unknown variables stay masked/read-only at the end of Model API keys", async () => {
+test("Providers has its ordered sections including External CLI (Dictation and Read aloud have their own tabs); unknown variables stay masked/read-only at the end of Model API keys", async () => {
  globalThis.fetch = async (url) => {
   if (url === "/api/claude-code") return Response.json({ state: "not-found", version: null, minimumVersion: "2.1.259" });
   assert.equal(url, "/api/keys");
@@ -85,16 +85,42 @@ test("Providers has its ordered sections including External CLI (fork: + Read al
  };
  fixture(); await mount(<KeysSection />);
  const headings = [...document.querySelectorAll('[data-testid^="group-"] > p')].map((el) => el.textContent);
- assert.deepEqual(headings, ["Model API keys", "Subscriptions", "External CLI", "Dictation", "Read aloud", "Search"]);
+ assert.deepEqual(headings, ["Model API keys", "Subscriptions", "External CLI", "Search"]);
  assert(byTest("claude-code-installation").closest('[data-testid="group-external-cli"]'));
- assert(byTest("key-deepgram_api_key").closest('[data-testid="group-dictation"]'));
- assert(byTest("key-lh_stt_key").closest('[data-testid="group-dictation"]'));
- assert(byTest("key-lh_tts_key").closest('[data-testid="group-read-aloud"]'));
+ for (const id of ["key-deepgram_api_key", "key-lh_stt_key", "key-lh_tts_key", "group-dictation", "group-read-aloud"]) assert.equal(document.querySelector(`[data-testid="${id}"]`), null, `${id} left Providers`);
  assert(byTest("key-tavily_api_key").closest('[data-testid="group-search"]'));
  assert(byTest("key-brave_api_key").closest('[data-testid="group-search"]'));
  assert(byTest("unknown-FUTURE_VAR").closest('[data-testid="group-provider-keys"]'));
  assert(byTest("group-unknown-keys").parentElement?.lastElementChild === byTest("group-unknown-keys"));
  assert.equal(byTest("unknown-FUTURE_VAR").textContent, "FUTURE_VAR…abcd"); assert(!byTest("unknown-FUTURE_VAR").querySelector("input, button"));
+});
+
+test("Dictation and Read aloud tabs render their own keys and rows", async () => {
+ globalThis.fetch = async (url) => {
+  if (url === "/api/claude-code") return Response.json({ state: "not-found", version: null, minimumVersion: "2.1.259" });
+  return Response.json({ providers: [], keys: [] });
+ };
+ fixture(); await mount(<KeysSection view="dictation" />);
+ assert.deepEqual([...document.querySelectorAll('[data-testid^="group-"] > p')].map((el) => el.textContent), ["Dictation"]);
+ for (const id of ["key-deepgram_api_key", "row-dictation-language"]) assert(byTest(id).closest('[data-testid="group-dictation"]'), id);
+ assert.equal(byTest("key-lh_stt_key"), null, "the local server's key shows only when Local is chosen");
+ assert.equal(byTest("key-lh_tts_key"), null); assert.equal(byTest("key-tavily_api_key"), null);
+ await act(async () => root?.unmount()); host?.remove();
+ await mount(<KeysSection view="read-aloud" />);
+ assert.deepEqual([...document.querySelectorAll('[data-testid^="group-"] > p')].map((el) => el.textContent), ["Read aloud"]);
+ assert(byTest("key-lh_tts_key").closest('[data-testid="group-read-aloud"]'));
+ assert.equal(byTest("key-deepgram_api_key"), null); assert.equal(byTest("group-provider-keys"), null);
+});
+
+test("a deep link into a speech tab unfolds the named row", async () => {
+ globalThis.fetch = async () => Response.json({ providers: [], keys: [] });
+ fixture(); await mount(<KeysSection view="dictation" initialRow="DEEPGRAM_API_KEY" />);
+ assert(byTest("key-deepgram_api_key-editor"));
+});
+
+test("sectionOfKey and toolGroupOf send every tool key to its tab", () => {
+ assert.equal(sectionOfKey("DEEPGRAM_API_KEY"), "dictation"); assert.equal(sectionOfKey("LH_STT_KEY"), "dictation");
+ assert.equal(sectionOfKey("LH_TTS_KEY"), "readAloud"); assert.equal(sectionOfKey("TAVILY_API_KEY"), "keys");
 });
 
 test("disconnected row uses shared Connect action; initial default is ON; cancel discards draft without OAuth/global mutation", async () => {

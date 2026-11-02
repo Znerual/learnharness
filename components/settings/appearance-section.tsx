@@ -39,6 +39,7 @@ import {
 } from "@/src/core";
 import { MenuShell } from "@/components/menu-shell";
 import { Hint } from "@/components/ui/hint";
+import { useAndroidShell } from "@/components/android-shell";
 import { useAppearance } from "./appearance.tsx";
 import { MODE_BACKGROUNDS } from "./theme-mode";
 import { FontMenuList } from "./model-menu";
@@ -100,6 +101,7 @@ export function AppearanceSection({
 }) {
 	const { appearance: resolved, resolvedMode } = useAppearance();
 	const defaultBackground = MODE_BACKGROUNDS[resolvedMode];
+	const android = useAndroidShell();
 	const md = appearance?.mdRendering;
 
 	// The font dropdown's open state + its enumeration cache. undefined =
@@ -188,6 +190,7 @@ export function AppearanceSection({
 
 	return (
 		<>
+			{/* The mode works everywhere now, so the phone shows it too (light mode, 2026-11-02). */}
 			<SettingsRow label="Mode" hint="System follows your OS" testid="row-mode">
 				<ThinSelect
 					value={resolved.mode}
@@ -261,6 +264,8 @@ export function AppearanceSection({
 										: localFonts === null
 											? enumEmpty
 												? "Common families — installed fonts could not be read"
+												: android
+												? "Common families"
 												: "Common families — your installed list needs the desktop app"
 											: "Your installed fonts"
 								}
@@ -364,6 +369,7 @@ export function GraphSection({
 	// the hint and placeholder report exactly the number the trigger waits
 	// for — never a second hand-rolled default.
 	const resolved = resolveSettings(graph === undefined ? null : { version: 1, graph }).graph;
+	const android = useAndroidShell();
 	return (
 		<>
 			{/* EXTRACTION (renamed, owner 2026-10-06): this switch is the DATA
@@ -429,6 +435,7 @@ export function GraphSection({
 			    with — the export writes <vault>/LearnHarness/ automatically,
 			    the graph view's Sync vault button imports its notes. Empty =
 			    off; the server refuses a path that is not a directory. */}
+			{!android && (
 			<SettingsRow
 				label="Obsidian vault"
 				hint="Exports to LearnHarness/ in it; empty = off"
@@ -442,6 +449,7 @@ export function GraphSection({
 					onCommit={(v) => onSectionChange({ ...graph, obsidianVault: v.trim() ? v.trim() : null })}
 				/>
 			</SettingsRow>
+			)}
 		</>
 	);
 }

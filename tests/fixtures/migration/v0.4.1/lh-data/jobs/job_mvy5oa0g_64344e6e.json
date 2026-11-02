@@ -1,0 +1,13 @@
+{
+	"id": "job_mvy5oa0g_64344e6e",
+	"kind": "research",
+	"chatId": "chat_mvy5oa0e_8626bb5f",
+	"toolCallId": "call_fixture_done",
+	"status": "done",
+	"activity": "delivered",
+	"createdAt": "2026-11-01T18:20:43.312Z",
+	"updatedAt": "2026-11-01T18:20:43.312Z",
+	"result": {
+		"brief": "fixture"
+	}
+}
