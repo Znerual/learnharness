@@ -5,7 +5,9 @@
 // `KeystoreServer` on 127.0.0.1 (random port) and passes its URL as LH_KEYSTORE_URL; the bearer
 // token is the per-launch LH_DESKTOP_API_SECRET, as for the speech server. The Keystore only wraps:
 // this adapter keeps the wrapped blob `0x01 || iv(12) || ciphertext || tag(16)` in
-// `files/local/vault/secrets.enc`.
+// `files/local/vault-secrets.enc`. Not inside `local/vault/`: the first sync start on a device
+// empties that folder (outbox and sync state of another account must not leak), which deleted the
+// sign-in and made the learner sign in again after every restart.
 //
 // Contract with KeystoreServer.kt (all bodies are text/plain base64, no JSON on the happy path):
 //   POST /keystore/status  -> 200 {"available":bool,"level":"strongbox"|"tee"|"software","reason"?:string}
@@ -30,7 +32,7 @@ export interface AndroidKeyStorageOptions {
 	url: string | undefined;
 	/** LH_DESKTOP_API_SECRET */
 	secret: string | undefined;
-	/** `<files>/local/vault/secrets.enc` */
+	/** `<files>/local/vault-secrets.enc`, beside (not inside) `local/vault/` */
 	file: string;
 	timeoutMs?: number;
 	fetch?: typeof fetch;
@@ -43,7 +45,7 @@ export class AndroidKeyStorage implements KeyStorage {
 	}
 
 	static fromEnv(env: Readonly<Record<string, string | undefined>>, localDir: string = env["LH_LOCAL_DIR"] ?? ""): AndroidKeyStorage {
-		return new AndroidKeyStorage({ url: env["LH_KEYSTORE_URL"], secret: env["LH_DESKTOP_API_SECRET"], file: `${localDir}/vault/secrets.enc` });
+		return new AndroidKeyStorage({ url: env["LH_KEYSTORE_URL"], secret: env["LH_DESKTOP_API_SECRET"], file: `${localDir}/vault-secrets.enc` });
 	}
 
 	private get configured(): boolean {

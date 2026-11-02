@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, describe, it } from "node:test";
@@ -30,7 +30,7 @@ async function setup(init: Parameters<typeof startFakeKeystore>[0] = {}, secret?
 	servers.push(fake);
 	const dir = await mkdtemp(join(tmpdir(), "lhv-aks-"));
 	dirs.push(dir);
-	const file = join(dir, "local", "vault", "secrets.enc");
+	const file = join(dir, "local", "vault-secrets.enc");
 	const ks = new AndroidKeyStorage({ url: fake.url, secret: secret ?? fake.secret, file, timeoutMs: 2000 });
 	return { fake, file, ks };
 }
@@ -49,7 +49,7 @@ describe("AndroidKeyStorage against the KeystoreServer contract", () => {
 		assert.deepEqual(await ks.load(), bundle);
 		await ks.save({ ...bundle, generation: 9 });
 		assert.equal((await ks.load())?.generation, 9);
-		assert.deepEqual(await readdir(join(file, "..")), ["secrets.enc"]);
+		assert.deepEqual(await readdir(join(file, "..")), ["vault-secrets.enc"]);
 		await ks.clear();
 		await ks.clear();
 		assert.equal(await ks.load(), null);
@@ -145,7 +145,11 @@ describe("AndroidKeyStorage against the KeystoreServer contract", () => {
 		dirs.push(dir);
 		const ks = AndroidKeyStorage.fromEnv({ LH_KEYSTORE_URL: fake.url, LH_DESKTOP_API_SECRET: fake.secret, LH_LOCAL_DIR: dir });
 		await ks.save(bundle);
-		assert.ok((await stat(join(dir, "vault", "secrets.enc"))).isFile());
+		assert.ok((await stat(join(dir, "vault-secrets.enc"))).isFile());
+		// The first sync start empties <local>/vault/ (runtime.ts bootstrap); the sign-in must survive it.
+		await mkdir(join(dir, "vault"), { recursive: true });
+		await rm(join(dir, "vault"), { recursive: true, force: true });
+		assert.deepEqual(await ks.load(), bundle);
 		assert.deepEqual(decodeBundle(encodeBundle(bundle)), bundle);
 	});
 });
