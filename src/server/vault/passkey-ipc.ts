@@ -1,6 +1,6 @@
 // Server-process side of the `lh:passkey` bridge (ADR 0004): the passkey ceremony over the
 // inherited Node child IPC channel to the Electron main process (electron/passkey-window.cjs),
-// which runs it in its own window on https://vault.<domain>. The request, the credential and the
+// which runs it in its own window on https://<vault host>. The request, the credential and the
 // PRF output travel server child <-> main only; the UI renderer never sees them. No imports from
 // the vault client, so routes.ts and its tests stay free of it.
 
@@ -38,20 +38,24 @@ export class PasskeyError extends Error {
 }
 
 /**
- * The relying party domain of a vault server URL, `vault.<domain>`, or null when the desktop
- * ceremony window cannot serve it. The same rule as `passkeyDomain` in electron/passkey-window.cjs
- * (tests/vault-passkey-window.test.ts keeps them equal).
+ * The passkey relying party id of a vault server URL: its host name, or null when it cannot be
+ * one (http, a port, an IP address, localhost, a bare name). The same rule as `passkeyHost` in
+ * electron/passkey-window.cjs (tests/vault-passkey-window.test.ts keeps them equal).
  */
-export function passkeyDomain(vaultUrl: string): string | null {
+export function passkeyHost(vaultUrl: string | null): string | null {
+	if (!vaultUrl) return null;
 	let u: URL;
 	try {
 		u = new URL(vaultUrl);
 	} catch {
 		return null;
 	}
-	if (u.protocol !== "https:" || u.port !== "") return null;
-	const m = /^vault\.((?:[a-z0-9-]+\.)+[a-z0-9-]+)$/.exec(u.hostname);
-	return m ? (m[1] as string) : null;
+	if (u.protocol !== "https:" || u.port !== "" || u.username || u.password) return null;
+	const h = u.hostname;
+	// at least two labels, and the last starts with a letter (so no IPv4 address)
+	if (!/^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z](?:[a-z0-9-]*[a-z0-9])?$/.test(h)) return null;
+	if (h === "localhost" || h.endsWith(".localhost")) return null;
+	return h;
 }
 
 export interface IpcPasskeysOptions {
@@ -91,7 +95,7 @@ export class IpcPasskeys implements PasskeyPort {
 
 	availability(): PasskeyAvailability {
 		if (!this.hasBridge) return { available: false, reason: "bridge_missing" };
-		if (this.serverUrl === null || passkeyDomain(this.serverUrl) === null) return { available: false, reason: "unsupported_server" };
+		if (passkeyHost(this.serverUrl) === null) return { available: false, reason: "unsupported_server" };
 		return { available: true };
 	}
 

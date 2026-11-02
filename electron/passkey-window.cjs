@@ -3,9 +3,9 @@
 //
 // Why a window: WebAuthn only works on a real https origin under the RP id (not file://, not a
 // custom scheme). A dedicated child BrowserWindow with its own in-memory session partition
-// intercepts `https://vault.<domain>` with protocol.handle, serves the bundled passkey/passkey.html
+// intercepts `https://<vault host>` with protocol.handle, serves the bundled passkey/passkey.html
 // and passkey.js, and (optionally) forwards /api/* to the real server. Chromium then sees a normal
-// https origin with RP id `vault.<domain>`; no certificate and no system browser are needed.
+// https origin with the vault host as RP id; no certificate and no system browser are needed.
 //
 // Data flow (never touches the main UI renderer):
 //   server process --{channel:"lh:passkey", id, op, options, prfSalt}--> main (this file)
@@ -34,23 +34,22 @@ const STATIC = {
 };
 const B64URL = /^[A-Za-z0-9_-]+$/;
 
-function vaultHost(domain) {
-	return `vault.${domain}`;
-}
-
 /**
- * The domain of the passkey relying party for a vault server URL: the relying party id is the
- * server's host name and must read `vault.<domain>` (ADR 0004). Null for anything else (a bare
- * host, localhost, an IP address): the ceremony window cannot serve such an origin, so the
- * desktop app offers no passkey for that server. src/server/vault/passkey-ipc.ts holds the same
- * rule for the server process; tests/vault-passkey-window.test.ts keeps them equal.
+ * The passkey relying party id for a vault server URL: the server's host name (ADR 0004), which
+ * the ceremony window serves as its own origin. Null for anything the window cannot serve or
+ * WebAuthn does not accept as an RP id (http, a port, an IP address, localhost, a bare name):
+ * the desktop app then offers no passkey for that server. src/server/vault/passkey-ipc.ts holds
+ * the same rule for the server process; tests/vault-passkey-window.test.ts keeps them equal.
  */
-function passkeyDomain(vaultUrl) {
+function passkeyHost(vaultUrl) {
 	let u;
 	try { u = new URL(String(vaultUrl)); } catch { return null; }
-	if (u.protocol !== "https:" || u.port !== "") return null;
-	const m = /^vault\.((?:[a-z0-9-]+\.)+[a-z0-9-]+)$/.exec(u.hostname);
-	return m ? m[1] : null;
+	if (u.protocol !== "https:" || u.port !== "" || u.username || u.password) return null;
+	const h = u.hostname;
+	// at least two labels, and the last starts with a letter (so no IPv4 address)
+	if (!/^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z](?:[a-z0-9-]*[a-z0-9])?$/.test(h)) return null;
+	if (h === "localhost" || h.endsWith(".localhost")) return null;
+	return h;
 }
 
 /**
@@ -58,10 +57,10 @@ function passkeyDomain(vaultUrl) {
  * here; everything else is denied so the window can never load remote script.
  * @returns {{kind: "static", file: string, type: string} | {kind: "api", url: string} | {kind: "deny", status: number}}
  */
-function routeRequest(urlString, method, { domain, apiBase }) {
+function routeRequest(urlString, method, { host, apiBase }) {
 	let u;
 	try { u = new URL(urlString); } catch { return { kind: "deny", status: 400 }; }
-	if (u.protocol !== "https:" || u.hostname !== vaultHost(domain) || u.port !== "" || u.username || u.password) return { kind: "deny", status: 403 };
+	if (u.protocol !== "https:" || u.hostname !== host || u.port !== "" || u.username || u.password) return { kind: "deny", status: 403 };
 	const p = u.pathname;
 	if (p.includes("\\") || p.includes("%") || p.split("/").some((s) => s === ".." || s === ".")) return { kind: "deny", status: 400 };
 	if (Object.hasOwn(STATIC, p)) {
@@ -130,16 +129,16 @@ function sanitizePageResult(r) {
 }
 
 /** Main-process ceremony runner. One ceremony at a time. */
-function createPasskeyCeremony({ domain, apiBase, parent, timeoutMs = TIMEOUT_MS }) {
+function createPasskeyCeremony({ host, apiBase, parent, timeoutMs = TIMEOUT_MS }) {
 	// `parent` may be a function: the main window does not exist yet when the service is created.
 	const { BrowserWindow, ipcMain, net, session } = require("electron");
-	const origin = `https://${vaultHost(domain)}`;
+	const origin = `https://${host}`;
 	let active = null; // {win, request, settle}
 
 	const ses = session.fromPartition(PARTITION);
 	ses.setPermissionRequestHandler((_wc, _perm, cb) => cb(false));
 	ses.protocol.handle("https", async (request) => {
-		const route = routeRequest(request.url, request.method, { domain, apiBase });
+		const route = routeRequest(request.url, request.method, { host, apiBase });
 		if (route.kind === "deny") return new Response("", { status: route.status });
 		if (route.kind === "static") {
 			const body = fs.readFileSync(path.join(__dirname, "passkey", route.file));
@@ -224,4 +223,4 @@ function attachPasskeyChild(child, ceremony) {
 	return { dispose() { disposed = true; child.removeListener("message", listener); } };
 }
 
-module.exports = { CHANNEL, PARTITION, passkeyDomain, routeRequest, validateCeremonyRequest, sanitizePageResult, stripPrfResults, createPasskeyCeremony, attachPasskeyChild };
+module.exports = { CHANNEL, PARTITION, passkeyHost, routeRequest, validateCeremonyRequest, sanitizePageResult, stripPrfResults, createPasskeyCeremony, attachPasskeyChild };

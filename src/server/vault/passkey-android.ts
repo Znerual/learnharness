@@ -10,7 +10,7 @@
 // The RP id is the host of the vault server URL. Credential Manager allows it only when that host
 // serves /.well-known/assetlinks.json for this app (the vault server does, from LHV_ANDROID_CERT_SHA256).
 
-import { PASSKEY_PRF_SALT, PasskeyError, type CeremonyOutcome, type PasskeyAvailability, type PasskeyPort } from "./passkey-ipc.ts";
+import { PASSKEY_PRF_SALT, PasskeyError, passkeyHost, type CeremonyOutcome, type PasskeyAvailability, type PasskeyPort } from "./passkey-ipc.ts";
 
 export interface AndroidPasskeysOptions {
 	/** LH_PASSKEY_URL; undefined when the shell has no passkey bridge. */
@@ -40,7 +40,7 @@ export class AndroidPasskeys implements PasskeyPort {
 
 	availability(): PasskeyAvailability {
 		if (!this.o.url || !this.o.secret) return { available: false, reason: "bridge_missing" };
-		if (!rpHost(this.o.serverUrl)) return { available: false, reason: "unsupported_server" };
+		if (!passkeyHost(this.o.serverUrl)) return { available: false, reason: "unsupported_server" };
 		return { available: true };
 	}
 
@@ -105,15 +105,4 @@ export function outcome(r: BridgeReply | null): CeremonyOutcome {
 		credential.clientExtensionResults = _prf !== undefined ? { ...rest, prf: { enabled: prfEnabled } } : rest;
 	}
 	return { credential, prfOutput: prf, prfEnabled };
-}
-
-/** The RP id host of a vault server URL (https only), or null. */
-function rpHost(serverUrl: string | null): string | null {
-	if (!serverUrl) return null;
-	try {
-		const u = new URL(serverUrl);
-		return u.protocol === "https:" && u.hostname ? u.hostname : null;
-	} catch {
-		return null;
-	}
 }

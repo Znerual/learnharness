@@ -1,4 +1,4 @@
-// Passkey ceremony page. Runs on https://vault.<domain> (intercepted by passkey-window.cjs).
+// Passkey ceremony page. Runs on https://<vault host> (intercepted by passkey-window.cjs).
 // Gets {op, options, prfSalt} from the main process, runs create/get with the PRF extension and
 // hands {credential, prfOutput} back. Registration needs a PRF output for the unlock method; when
 // create() does not return one (most authenticators only report prf.enabled), it asks for one

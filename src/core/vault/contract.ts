@@ -34,7 +34,7 @@ export type SessionDto =
 	| { state: "joining"; email: string; localFiles: number }
 	| { state: "signed_in"; accountId: string; deviceId: string; ephemeral: boolean; offline: boolean };
 
-/** Why the passkey ceremony cannot run here: no desktop bridge (web, dev, Android), or a server whose host is not vault.<domain>. */
+/** Why the passkey ceremony cannot run here: no bridge (web, dev, Android before 9), or a server whose host cannot be an RP id (http, port, IP address). */
 export type PasskeyAvailabilityDto = { available: true } | { available: false; reason: "bridge_missing" | "unsupported_server" };
 
 /** The account plus whether a passkey can be used for re-authentication on this device (it has one and the ceremony can run here). */

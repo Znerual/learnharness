@@ -31,12 +31,13 @@ function make(o: { connected?: boolean; desktop?: boolean; serverUrl?: string | 
 }
 
 describe("IpcPasskeys availability", () => {
-	it("is available only in the desktop server child, with a connected channel and a vault.<domain> server", () => {
+	it("is available only in the desktop server child, with a connected channel and an https server name", () => {
 		assert.deepEqual(make().ipc.availability(), { available: true });
 		assert.deepEqual(make({ desktop: false }).ipc.availability(), { available: false, reason: "bridge_missing" });
 		assert.deepEqual(make({ connected: false }).ipc.availability(), { available: false, reason: "bridge_missing" });
 		assert.deepEqual(make({ serverUrl: "http://localhost:8080" }).ipc.availability(), { available: false, reason: "unsupported_server" });
 		assert.deepEqual(make({ serverUrl: null }).ipc.availability(), { available: false, reason: "unsupported_server" });
+		assert.deepEqual(make({ serverUrl: "https://learn-vault.ddns.net" }).ipc.availability(), { available: true });
 	});
 	it("refuses a ceremony without sending anything when unavailable", async () => {
 		const m = make({ desktop: false });

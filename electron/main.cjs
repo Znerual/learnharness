@@ -30,7 +30,7 @@ const { attachChatGPTChild, trustedSender, chatGPTControl } = require("./chatgpt
 const { createSubscriptions, loadSubscriptionSDK } = require("./subscriptions.cjs");
 const { attachSubscriptionChild, subscriptionControl } = require("./subscription-ipc.cjs");
 const { createKeyStorageService, attachKeyStorageChild } = require("./keystorage-main.cjs");
-const { passkeyDomain, createPasskeyCeremony, attachPasskeyChild } = require("./passkey-window.cjs");
+const { passkeyHost, createPasskeyCeremony, attachPasskeyChild } = require("./passkey-window.cjs");
 const { desktopAPIHeaders } = require("./desktop-api.cjs");
 const { openWebSubscriptionBrowser } = require("./web-subscription-browser.cjs");
 const { randomBytes } = require("node:crypto");
@@ -741,10 +741,10 @@ async function main() {
 		});
 		await subscriptions.ready;
 		keyStorage = createKeyStorageService({ safeStorage, filePath: path.join(app.getPath("userData"), "vault-secrets.bin") });
-		// Passkeys need a relying party id of the form vault.<domain> (ADR 0004); other servers get none.
-		const domain = passkeyDomain(process.env.LH_VAULT_URL ?? "");
-		passkeys = domain
-			? createPasskeyCeremony({ domain, parent: () => BrowserWindow.getFocusedWindow() ?? [...trustedAppWindows][0] })
+		// The passkey relying party id is the vault host (ADR 0004); an IP, a port or http gets none.
+		const passkeyRp = passkeyHost(process.env.LH_VAULT_URL ?? "");
+		passkeys = passkeyRp
+			? createPasskeyCeremony({ host: passkeyRp, parent: () => BrowserWindow.getFocusedWindow() ?? [...trustedAppWindows][0] })
 			: null;
 		log(`starting server: ${serverEntry()}`);
 		log(`data dir: ${DATA_DIR()}${fs.existsSync(AUTH_FILE()) ? " · auth.json: present" : " · auth.json: ABSENT (no BYOK keys yet)"}`);

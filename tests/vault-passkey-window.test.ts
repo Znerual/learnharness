@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { describe, it } from "node:test";
 
-import { passkeyDomain as serverPasskeyDomain } from "../src/server/vault/passkey-ipc.ts";
-import { attachPasskeyChild, passkeyDomain, routeRequest, sanitizePageResult, stripPrfResults, validateCeremonyRequest } from "../electron/passkey-window.cjs";
+import { passkeyHost as serverPasskeyHost } from "../src/server/vault/passkey-ipc.ts";
+import { attachPasskeyChild, passkeyHost, routeRequest, sanitizePageResult, stripPrfResults, validateCeremonyRequest } from "../electron/passkey-window.cjs";
 
-const o = { domain: "example.test", apiBase: "https://api.internal.test" };
+const o = { host: "vault.example.test", apiBase: "https://api.internal.test" };
 const b64u = (n: number, v = 1) => Buffer.alloc(n, v).toString("base64url");
 
 describe("routeRequest", () => {
@@ -17,7 +17,7 @@ describe("routeRequest", () => {
 	it("forwards /api/* with method, path and query to the configured base", () => {
 		assert.deepEqual(routeRequest("https://vault.example.test/api/v1/x?y=2", "POST", o), { kind: "api", url: "https://api.internal.test/api/v1/x?y=2" });
 		assert.equal(routeRequest("https://vault.example.test/api/v1/x", "TRACE", o).kind, "deny");
-		assert.equal(routeRequest("https://vault.example.test/api/v1/x", "GET", { domain: "example.test" }).kind, "deny");
+		assert.equal(routeRequest("https://vault.example.test/api/v1/x", "GET", { host: "vault.example.test" }).kind, "deny");
 	});
 	it("denies other hosts, schemes, ports, credentials and traversal", () => {
 		for (const u of [
@@ -116,25 +116,30 @@ describe("attachPasskeyChild", () => {
 	});
 });
 
-describe("passkeyDomain", () => {
+describe("passkeyHost", () => {
 	const cases: [string, string | null][] = [
-		["https://vault.example.org", "example.org"],
-		["https://vault.learn.example.org/", "learn.example.org"],
-		["https://vault.example.org/api", "example.org"],
-		["https://example.org", null],
+		["https://vault.example.org", "vault.example.org"],
+		["https://learn-vault.ddns.net", "learn-vault.ddns.net"],
+		["https://learn-vault.ddns.net/", "learn-vault.ddns.net"],
+		["https://Vault.Example.org/api", "vault.example.org"],
+		["https://example.org", "example.org"],
 		["https://vault.localhost", null],
+		["https://localhost", null],
 		["http://vault.example.org", null],
 		["https://vault.example.org:8443", null],
-		["https://evilvault.example.org", null],
+		["https://user@vault.example.org", null],
+		["https://1.2.3.4", null],
 		["https://vault.1.2.3.4", null],
+		["https://[::1]", null],
+		["https://pi", null],
 		["http://localhost:8080", null],
 		["not a url", null],
 		["", null],
 	];
-	it("takes the domain from vault.<domain>, in the main process and the server process alike", () => {
+	it("takes the RP id from the vault host, in the main process and the server process alike", () => {
 		for (const [url, want] of cases) {
-			assert.equal(passkeyDomain(url), want, url);
-			assert.equal(serverPasskeyDomain(url), want, `server: ${url}`);
+			assert.equal(passkeyHost(url), want, url);
+			assert.equal(serverPasskeyHost(url), want, `server: ${url}`);
 		}
 	});
 });
