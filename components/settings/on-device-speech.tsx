@@ -63,7 +63,7 @@ export function benchmarkLine(result: SpeechBenchmarkResult | null): string {
 }
 
 /** Settings row: run the phone's speed check, which decides whether voice mode is offered. */
-function BenchmarkRow() {
+export function BenchmarkRow() {
 	const [result, setResult] = useState<SpeechBenchmarkResult | null | undefined>(undefined);
 	const [running, setRunning] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -229,10 +229,73 @@ function modelName(model: OnDeviceModel): string {
 	return `Read-aloud voice · ${language}`;
 }
 
+/** The voices with a bundled sample (public/voice-samples, from the Piper and Kokoro model pages),
+ *  so a voice can be heard before its download. Pure — exported for tests. */
+export function voiceSampleUrl(model: Pick<OnDeviceModel, "id" | "kind">): string | null {
+	if (model.kind !== "voice") return null;
+	if (model.id === "voice-en" || model.id === "voice-en-gpu") return "/voice-samples/kokoro.mp3";
+	return VOICE_SAMPLES.has(model.id) ? `/voice-samples/${model.id}.mp3` : null;
+}
+
+const VOICE_SAMPLES = new Set([
+	"voice-de", "voice-de-medium", "voice-en-lessac", "voice-en-lessac-medium", "voice-en-ryan", "voice-en-ryan-medium",
+	"voice-en-ljspeech", "voice-en-ljspeech-medium", "voice-en-cori", "voice-en-cori-medium",
+]);
+
+/** Play / Stop for one voice sample; one sample plays at a time. */
+let playing: { audio: HTMLAudioElement; stop: () => void } | null = null;
+function SampleButton({ url, id }: { url: string; id: string }) {
+	const [on, setOn] = useState(false);
+	useEffect(() => () => {
+		if (playing && playing.audio.dataset.id === id) playing.stop();
+	}, [id]);
+	function toggle() {
+		if (on) return playing?.stop();
+		playing?.stop();
+		const audio = new Audio(url);
+		audio.dataset.id = id;
+		const stop = () => {
+			audio.pause();
+			setOn(false);
+			if (playing?.audio === audio) playing = null;
+		};
+		audio.onended = stop;
+		audio.onerror = stop;
+		playing = { audio, stop };
+		setOn(true);
+		void audio.play().catch(stop);
+	}
+	return (
+		<button
+			type="button"
+			onClick={toggle}
+			aria-label={on ? "Stop the sample" : "Play a sample of this voice"}
+			data-testid={`speech-model-sample-${id}`}
+			className="shrink-0 text-xs text-foreground underline-offset-2 hover:underline"
+		>
+			{on ? "Stop" : "Listen"}
+		</button>
+	);
+}
+
+/** Settings group: the voice-mode speed check (Android app), outside the Dictation and Read aloud tabs
+ *  because it measures both and decides whether voice mode is offered. Nothing while the phone's
+ *  speech server does not answer. */
+export function VoiceModeGroup() {
+	return (
+		<SettingsGroup label="Voice mode" testid="group-voice-mode">
+			<p className="px-1 text-[11px] leading-relaxed text-muted-foreground/70">
+				Voice mode lets you talk and listen without typing. It appears once this check finds the phone fast enough for on-device dictation and read-aloud.
+			</p>
+			<BenchmarkRow />
+		</SettingsGroup>
+	);
+}
+
 /** The group, or nothing while the speech server is not an on-device one.
- *  `part` picks the tab it sits in: the dictation model and the voice-mode
- *  speed check under Dictation, the voices and NPU speech under Read aloud. */
-export function OnDeviceSpeechGroup({ part }: { part: "dictation" | "read-aloud" }) {
+ *  `part` picks the tab it sits in: the dictation model under Dictation (inside the
+ *  "On this phone" choice, `bare`: no group of its own), the voices and NPU speech under Read aloud. */
+export function OnDeviceSpeechGroup({ part, bare = false }: { part: "dictation" | "read-aloud"; bare?: boolean }) {
 	const [models, setModels] = useState<OnDeviceModel[] | null>(null);
 	const [error, setError] = useState<string | null>(null);
 
@@ -269,8 +332,8 @@ export function OnDeviceSpeechGroup({ part }: { part: "dictation" | "read-aloud"
 		notifySettingsSaved("speech");
 	}
 
-	return (
-		<SettingsGroup label="On-device speech" testid={`group-on-device-speech-${part}`}>
+	const body = (
+		<>
 			{models.filter((model) => (model.kind === "dictation") === (part === "dictation")).map((model) => (
 				<div key={model.id} className="flex items-center justify-between gap-3 px-1 py-1.5" data-testid={`speech-model-${model.id}`}>
 					<span className="min-w-0 flex-1">
@@ -279,6 +342,7 @@ export function OnDeviceSpeechGroup({ part }: { part: "dictation" | "read-aloud"
 							{model.label} · {modelStateLine(model)}
 						</span>
 					</span>
+					{voiceSampleUrl(model) ? <SampleButton url={voiceSampleUrl(model)!} id={model.id} /> : null}
 					{model.state === "ready" ? (
 						<button
 							type="button"
@@ -300,17 +364,27 @@ export function OnDeviceSpeechGroup({ part }: { part: "dictation" | "read-aloud"
 					) : null}
 				</div>
 			))}
-			{part === "dictation" ? <BenchmarkRow /> : <NpuSpeechRow models={models} onChange={change} />}
+			{part === "read-aloud" ? <NpuSpeechRow models={models} onChange={change} /> : null}
 			<p className="px-1 text-[11px] leading-relaxed text-muted-foreground/70">
 				{part === "dictation"
-					? "Models download over Wi-Fi only and run on this phone. Dictation recognizes German and English by itself."
-					: "Models download over Wi-Fi only and run on this phone. Read-aloud uses the voice of the language chosen below."}
+					? "Downloads over Wi-Fi only and runs on this phone, without the internet. It recognizes German, English and more languages by itself, so there is no language to choose."
+					: "Models download over Wi-Fi only and run on this phone. \"Listen\" plays a short sample, also before the download. Read-aloud uses the voice of the language chosen below."}
 			</p>
 			{error && (
 				<p role="alert" className="px-1 text-xs text-red-500">
 					{error}
 				</p>
 			)}
+		</>
+	);
+	// Plain JSX, not a wrapper component made here: that would remount the rows (and stop a sample) on every poll.
+	return bare ? (
+		<div data-testid={`group-on-device-speech-${part}`} className="flex flex-col gap-2">
+			{body}
+		</div>
+	) : (
+		<SettingsGroup label={part === "dictation" ? "On-device speech" : "Voices on this phone"} testid={`group-on-device-speech-${part}`}>
+			{body}
 		</SettingsGroup>
 	);
 }

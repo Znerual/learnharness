@@ -102,7 +102,8 @@ test("Dictation and Read aloud tabs render their own keys and rows", async () =>
  };
  fixture(); await mount(<KeysSection view="dictation" />);
  assert.deepEqual([...document.querySelectorAll('[data-testid^="group-"] > p')].map((el) => el.textContent), ["Dictation"]);
- for (const id of ["key-deepgram_api_key", "key-lh_stt_key", "row-dictation-language"]) assert(byTest(id).closest('[data-testid="group-dictation"]'), id);
+ for (const id of ["key-deepgram_api_key", "row-dictation-language"]) assert(byTest(id).closest('[data-testid="group-dictation"]'), id);
+ assert.equal(byTest("key-lh_stt_key"), null, "the local server's key shows only when Local is chosen");
  assert.equal(byTest("key-lh_tts_key"), null); assert.equal(byTest("key-tavily_api_key"), null);
  await act(async () => root?.unmount()); host?.remove();
  await mount(<KeysSection view="read-aloud" />);

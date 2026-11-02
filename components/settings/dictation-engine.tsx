@@ -1,14 +1,16 @@
 "use client";
 /**
- * The dictation-engine rows of the Keys section's Dictation group
- * (local-STT wave, owner 2026-10-24): an explicit Deepgram | Local switch
- * and the local endpoint's base URL + model (click-unfold editor, the key
- * rows' look). The local endpoint's optional key is the curated
- * LH_STT_KEY row in the same group. Writes the `dictation` settings
- * section (PUT /api/settings/dictation, replace-whole).
+ * The Dictation tab (local-STT wave, owner 2026-10-24; reordered 2026-11-02):
+ * the engine choice comes first, and only the chosen engine's rows follow.
+ * Deepgram: its key, language and setup hint (`deepgram`). Local: on the
+ * phone, the on-device model (`local`; the app points the URL at its own
+ * speech server, so URL and key stay hidden); on desktop, the local
+ * endpoint's base URL + model editor, then `local` (its LH_STT_KEY row).
+ * Writes the `dictation` settings section (PUT /api/settings/dictation,
+ * replace-whole).
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { normalizeBaseUrl, resolveDictation, type DictationEngine, type DictationSettings, type UserSettings } from "@/src/core";
 import { notifySettingsSaved } from "@/components/settings-signal";
 
@@ -28,7 +30,7 @@ export function localSttStatusLine(section: DictationSettings | undefined): stri
 	return localModel ? `${host} · ${localModel}` : host;
 }
 
-export function DictationEngineRows() {
+export function DictationEngineRows({ android = false, deepgram, local }: { android?: boolean; deepgram?: ReactNode; local?: ReactNode } = {}) {
 	const [section, setSection] = useState<DictationSettings | null>(null);
 	const [editing, setEditing] = useState(false);
 	const [url, setUrl] = useState("");
@@ -79,8 +81,8 @@ export function DictationEngineRows() {
 	return (
 		<>
 			<div className="flex items-center justify-between gap-3 px-1 py-1.5 android:flex-col android:items-stretch android:gap-1.5" data-testid="dictation-engine-row">
-				<span className="font-ui text-xs text-foreground">Dictation engine</span>
-				<span className="flex items-center gap-1" role="radiogroup" aria-label="Dictation engine">
+				<span className="font-ui text-xs text-foreground">Speech recognition</span>
+				<span className="flex items-center gap-1" role="radiogroup" aria-label="Speech recognition">
 					{(["deepgram", "local"] as const).map((engine) => (
 						<button
 							key={engine}
@@ -93,12 +95,13 @@ export function DictationEngineRows() {
 								effective.engine === engine ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"
 							}`}
 						>
-							{engine === "deepgram" ? "Deepgram" : "Local"}
+							{engine === "deepgram" ? "Deepgram (online)" : android ? "On this phone" : "Local server"}
 						</button>
 					))}
 				</span>
 			</div>
-			{editing ? (
+			{effective.engine === "deepgram" ? deepgram : null}
+			{effective.engine === "local" && !android && (editing ? (
 				<div className="flex items-center gap-2 rounded-sm px-1 py-1.5" data-testid="local-stt-editor">
 					<span className="shrink-0 font-ui text-xs text-foreground">Local speech-to-text</span>
 					<input
@@ -157,7 +160,8 @@ export function DictationEngineRows() {
 					<span className="font-ui text-xs text-foreground">Local speech-to-text</span>
 					<span className="font-mono text-[11px] text-muted-foreground">{localSttStatusLine(section)}</span>
 				</button>
-			)}
+			))}
+			{effective.engine === "local" ? local : null}
 			{error && (
 				<p role="alert" data-testid="dictation-engine-error" className="px-1 text-xs text-red-500">
 					{error}

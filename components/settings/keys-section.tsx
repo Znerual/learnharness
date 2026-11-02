@@ -571,25 +571,35 @@ export function KeysSection({
 	);
 
 	if (view === "dictation") {
+		// The engine choice first; only the chosen engine's rows follow (owner, 2026-11-02).
 		return (
-			<>
-				{/* The phone's own dictation model and speed check (Android app). */}
-				{android && <OnDeviceSpeechGroup part="dictation" />}
-				<SettingsGroup label="Dictation" testid={TOOL_GROUP_TESTIDS.Dictation}>
-					{toolRows.filter((status) => toolGroupOf(status.id) === "Dictation" && status.id !== "LH_STT_KEY").map(toolRow)}
-					<DictationLanguageSetting />
-					<p data-testid="dictation-setup-hint" className="px-1 text-[11px] leading-relaxed text-muted-foreground/70">
-						Create a <a
-							href="https://console.deepgram.com/"
-							target="_blank"
-							rel="noreferrer"
-							className="underline underline-offset-2 hover:text-foreground"
-						>Deepgram API key</a> with the Member role or higher, then add it above.
-					</p>
-					<DictationEngineRows />
-					{toolRows.filter((status) => status.id === "LH_STT_KEY").map(toolRow)}
-				</SettingsGroup>
-			</>
+			<SettingsGroup label="Dictation" testid={TOOL_GROUP_TESTIDS.Dictation}>
+				<DictationEngineRows
+					android={android}
+					deepgram={
+						<>
+							{toolRows.filter((status) => toolGroupOf(status.id) === "Dictation" && status.id !== "LH_STT_KEY").map(toolRow)}
+							<DictationLanguageSetting />
+							<p data-testid="dictation-setup-hint" className="px-1 text-[11px] leading-relaxed text-muted-foreground/70">
+								Create a <a
+									href="https://console.deepgram.com/"
+									target="_blank"
+									rel="noreferrer"
+									className="underline underline-offset-2 hover:text-foreground"
+								>Deepgram API key</a> with the Member role or higher, then add it above.
+							</p>
+						</>
+					}
+					local={
+						android ? (
+							// The phone's own model; the app points the URL at its speech server, so no URL or key here.
+							<OnDeviceSpeechGroup part="dictation" bare />
+						) : (
+							toolRows.filter((status) => status.id === "LH_STT_KEY").map(toolRow)
+						)
+					}
+				/>
+			</SettingsGroup>
 		);
 	}
 
@@ -599,8 +609,9 @@ export function KeysSection({
 				{/* The phone's own read-aloud voices (Android app). */}
 				{android && <OnDeviceSpeechGroup part="read-aloud" />}
 				<SettingsGroup label="Read aloud" testid={TOOL_GROUP_TESTIDS["Read aloud"]}>
-					<SpeechRows />
-					{toolRows.filter((status) => toolGroupOf(status.id) === "Read aloud").map(toolRow)}
+					{/* On the phone the app points read-aloud at its own speech server: no URL or key to show. */}
+					<SpeechRows hideEndpoint={android} />
+					{android ? null : toolRows.filter((status) => toolGroupOf(status.id) === "Read aloud").map(toolRow)}
 				</SettingsGroup>
 			</>
 		);

@@ -44,6 +44,7 @@ import { SettingsSection } from "./controls.tsx";
 import { UpdateSettings } from "./update-settings.tsx";
 import { DataFolderSetting, DeviceSettings } from "./device-settings.tsx";
 import { useAndroidShell, useAndroidBack } from "@/components/android-shell";
+import { VoiceModeGroup } from "./on-device-speech.tsx";
 import { SessionStatsSection } from "@/components/stats-bar";
 import { sessionStatsNow, useSessionStats } from "@/components/session-stats";
 import { AgentSection } from "./agent-section.tsx";
@@ -419,6 +420,7 @@ export function SettingsDialogBody({
 								>
 									<DeviceSettings />
 									<DataFolderSetting />
+									{android && <VoiceModeGroup />}
 									<UpdateSettings
 										autoUpdate={record.general?.autoUpdate ?? true}
 										onAutoUpdateChange={(on) =>

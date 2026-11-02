@@ -146,3 +146,25 @@ describe("data folder switch", () => {
 		assert.equal(q(host, "data-folder-row"), null);
 	});
 });
+
+describe("voices and voice mode", () => {
+	it("a voice has a bundled sample before its download; Kokoro shares one; other models have none", async () => {
+		const { voiceSampleUrl } = await import("../components/settings/on-device-speech.tsx");
+		assert.equal(voiceSampleUrl({ id: "voice-de", kind: "voice" }), "/voice-samples/voice-de.mp3");
+		assert.equal(voiceSampleUrl({ id: "voice-en-gpu", kind: "voice" }), "/voice-samples/kokoro.mp3");
+		assert.equal(voiceSampleUrl({ id: "dictation", kind: "dictation" }), null);
+		assert.equal(voiceSampleUrl({ id: "voice-xx-new", kind: "voice" }), null, "no sample file: no button");
+		const fs = await import("node:fs");
+		for (const id of ["voice-de", "voice-de-medium", "voice-en-lessac", "voice-en-cori-medium", "voice-en-ryan", "voice-en-ljspeech"]) {
+			assert.ok(fs.existsSync(`public${voiceSampleUrl({ id, kind: "voice" })}`), id);
+		}
+		assert.ok(fs.existsSync("public/voice-samples/kokoro.mp3"));
+	});
+	it("the read-aloud editor hides the server URL on the phone", async () => {
+		const { speechStatusLine } = await import("../components/settings/speech-rows.tsx");
+		const section = { url: "http://127.0.0.1:8110/v1", language: "de" as const, voice: "thorsten" };
+		assert.match(speechStatusLine(section), /127\.0\.0\.1:8110/);
+		assert.doesNotMatch(speechStatusLine(section, true), /127\.0\.0\.1|8110/);
+		assert.match(speechStatusLine(section, true), /Deutsch · thorsten/);
+	});
+});
