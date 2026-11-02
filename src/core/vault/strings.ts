@@ -75,8 +75,8 @@ export const strings = {
 		passkeyWorking: "Waiting for your passkey...",
 		passkeyCancelled: "The passkey prompt was cancelled.",
 		passkeyUnavailable: {
-			bridge_missing: "Passkeys work in the LearnHarness desktop app. Use your password here.",
-			unsupported_server: "This vault server does not support passkeys in the desktop app. Use your password.",
+			bridge_missing: "Passkeys work in the LearnHarness desktop app and on Android 9 or newer. Use your password here.",
+			unsupported_server: "This vault server does not support passkeys in this app. Use your password.",
 		} as Record<string, string>,
 		passkeyChecking: "Checking for passkey support...",
 		orRecover: "I lost my password",
@@ -348,8 +348,8 @@ export const strings = {
 		removed: (name: string) => `${name} is removed.`,
 		removePending: (name: string, when: string) => `The removal of ${name} is waiting and runs ${when}.`,
 		unavailable: {
-			bridge_missing: "Adding a passkey works in the LearnHarness desktop app. You can still see and remove the passkeys of this account here.",
-			unsupported_server: "This vault server does not support passkeys in the desktop app.",
+			bridge_missing: "Adding a passkey works in the LearnHarness desktop app and on Android 9 or newer. You can still see and remove the passkeys of this account here.",
+			unsupported_server: "This vault server does not support passkeys in this app.",
 		} as Record<string, string>,
 	},
 
@@ -476,7 +476,7 @@ export const strings = {
 		passkey_cancelled: "The passkey prompt was cancelled.",
 		join_choice_required: "This device has local data and the vault already has data. Choose \"Use the vault\" or cancel.",
 		passkey_busy: "Another passkey prompt is already open. Finish or close it first.",
-		passkey_unavailable: "Passkeys are not available here. They work in the LearnHarness desktop app.",
+		passkey_unavailable: "Passkeys are not available here. They work in the LearnHarness desktop app and on Android 9 or newer.",
 		passkey_failed: "The passkey did not work. Try again, or use another way.",
 		confirm_wrong: "That does not match. Check what you saved and try again.",
 		stronger_reauth_required: "Confirming needs your passkey or recovery material. A password is not enough.",

@@ -27,6 +27,7 @@ import { LearnHarnessHost } from "./host.ts";
 import { joinWithExistingData, seedFirstDevice, vaultIsEmpty, VaultNotEmptyError } from "./join.ts";
 import { AndroidKeyStorage } from "./keystorage-android.ts";
 import { IpcKeyStorage } from "./keystorage-ipc.ts";
+import { AndroidPasskeys } from "./passkey-android.ts";
 import { IpcPasskeys } from "./passkey-ipc.ts";
 import { listHistoryDocuments } from "./documents.ts";
 import { createVaultRoutes, type VaultRoutes } from "./routes.ts";
@@ -203,7 +204,8 @@ export async function createVaultRuntime(serverUrl: string): Promise<VaultRoutes
 			return { serverUrl, storage, device: { lhDeviceId: device.id, name: device.name }, keysProtected: true, password: PASSWORD_CHECK, ...(ephemeral ? { ephemeral: true } : {}) };
 		},
 		checkPassword: (password) => checkPassword(password, PASSWORD_CHECK),
-		passkeys: new IpcPasskeys({ serverUrl }),
+		// Android: Credential Manager in the Kotlin shell (LH_PASSKEY_URL); desktop: the Electron ceremony window.
+		passkeys: process.env.LH_PASSKEY_URL ? AndroidPasskeys.fromEnv(process.env, serverUrl) : new IpcPasskeys({ serverUrl }),
 		sync: {
 			plan: (vault) => planStart(vault as unknown as Vault),
 			start: (vault, o) =>

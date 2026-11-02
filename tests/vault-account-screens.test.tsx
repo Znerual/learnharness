@@ -140,7 +140,7 @@ test("sign-in: the passkey button is off with the reason where the bridge is mis
 	const off = view({ available: false, reason: "bridge_missing" });
 	assert.match(off, /<button[^>]*disabled=""[^>]*>Sign in with a passkey<\/button>/);
 	assert.match(off, /Passkeys work in the LearnHarness desktop app/);
-	assert.match(view({ available: false, reason: "unsupported_server" }), /does not support passkeys in the desktop app/);
+	assert.match(view({ available: false, reason: "unsupported_server" }), /does not support passkeys in this app/);
 	assert.match(view(null), /Checking for passkey support/);
 	const on = view({ available: true });
 	assert.doesNotMatch(on, /<button[^>]*disabled=""[^>]*>Sign in with a passkey<\/button>/);
