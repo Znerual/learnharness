@@ -125,3 +125,14 @@ Packaged apps check at startup and every 24 hours by default, download available
 Sources: [`electron/main.cjs`](../electron/main.cjs), [`electron/preload.cjs`](../electron/preload.cjs), and [`update-settings.tsx`](../components/settings/update-settings.tsx).
 
 After a stable release is published, [`.github/workflows/notify-website.yml`](../.github/workflows/notify-website.yml) dispatches `desktop-release-published` with the tag to `amosblomqvist/learnharness-web`, using the separately scoped `WEBSITE_DISPATCH_TOKEN` secret. Drafts and prereleases do not trigger that job. A successful HTTP 204 means the website update was **queued**, not that deployment or public links have been verified.
+
+## Vault macOS build (on a Mac, without GitHub)
+
+The vault releases (learnharness-vault `deploy/lan/release-vault-build.sh`) carry a macOS app with the vault server built in. Any Apple Silicon Mac on macOS 26+ with Xcode 26+, Node 26 and git builds it by itself; the repo is public, so it needs no login:
+
+```sh
+curl -fsSLO https://raw.githubusercontent.com/Znerual/learnharness/main/scripts/vault-mac-build.sh
+bash vault-mac-build.sh --version 0.4.2111 --copy-to <user>@<build machine>:lhv-mac/
+```
+
+`scripts/vault-mac-build.sh` clones the repo into `~/learnharness-vault-mac` (later runs reset it to `origin/main`, or `--ref`), builds with the version and vault host (`--host`, default `learn-vault.ddns.net`), runs the same smoke checks as the release workflow, checks the packaged `learnharnessBuild`, and leaves `learnharness-macos.dmg` and `version.txt` in `dist-vault/`. `--copy-to` sends both to the machine that runs the release script, which publishes them with `--mac-dmg <folder>` together with the Linux and Android builds of the same version. The app is ad-hoc signed and not notarized, and in-app updates are off in it (Squirrel.Mac cannot update an ad-hoc signed app). The hand-started workflow `.github/workflows/vault-mac.yml` runs the same script with `--here` on GitHub's `macos-26` runner.

@@ -1,7 +1,8 @@
 name: Vault macOS build
 
 # The macOS app with a vault server built in, for the vault host's download page (owner,
-# 2026-11-07). Started by hand with the release's version; it only builds. The release script in
+# 2026-11-07). Started by hand with the release's version; it only builds. The steps are
+# scripts/vault-mac-build.sh, which a Mac can also run by itself without GitHub. The release script in
 # learnharness-vault (deploy/lan/release-vault-build.sh --mac-run <run id>) downloads the DMG and
 # publishes it together with the Linux and Android builds of the same version, because the vault
 # host replaces its whole download folder on every publish.
@@ -56,66 +57,13 @@ jobs:
         uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: latest-stable
-      - run: npm ci
-      # The packaged app reads learnharnessBuild from its package.json (electron/main.cjs). Written
-      # into this throwaway checkout instead of -c.extraMetadata, where "false" would arrive as a string.
-      - name: Vault build metadata
+      # The same recipe a Mac runs by itself (scripts/vault-mac-build.sh): npm ci, build metadata,
+      # build, smoke checks, ad-hoc signed package, packaged-settings check.
+      - name: Build the vault macOS app
         env:
           VERSION: ${{ inputs.version }}
           VAULT_HOST: ${{ inputs.vault_host }}
-        run: |
-          node -e '
-            const fs = require("node:fs");
-            const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
-            pkg.version = process.env.VERSION;
-            pkg.learnharnessBuild = { vaultUrl: `https://${process.env.VAULT_HOST}`, autoUpdate: false };
-            fs.writeFileSync("package.json", JSON.stringify(pkg, null, "\t") + "\n");
-          '
-      - name: Build
-        env:
-          # Settings → General shows this number and links "Release notes" to the vault host's page.
-          LH_BUILD_VERSION: ${{ inputs.version }}
-          LH_RELEASE_NOTES_URL: https://${{ inputs.vault_host }}/releases/
-        run: npm run build
-      - run: node scripts/smoke-provider-runtime.mjs
-      - run: node scripts/build-server.mjs
-      - run: node scripts/smoke-server.mjs --electron
-      - name: Package (ad-hoc signed, not notarized)
-        env:
-          CSC_IDENTITY_AUTO_DISCOVERY: "false"
-        run: npx electron-builder --mac --arm64 --publish never -c.mac.identity=- -c.mac.notarize=false
-      - name: Initialize packaged providers offline (host and packaged Electron Node)
-        run: |
-          app="dist/mac-arm64/LearnHarness.app/Contents"
-          node scripts/smoke-provider-runtime.mjs --standalone "$app/Resources/server/standalone"
-          node scripts/smoke-provider-runtime.mjs --standalone "$app/Resources/server/standalone" --runtime "$app/MacOS/LearnHarness"
-      - name: Check the built-in vault settings
-        env:
-          VERSION: ${{ inputs.version }}
-          VAULT_HOST: ${{ inputs.vault_host }}
-        run: |
-          asar="$PWD/dist/mac-arm64/LearnHarness.app/Contents/Resources/app.asar"
-          check="$(mktemp -d)"
-          # extract-file writes the file into the current folder.
-          (cd "$check" && npx --yes @electron/asar@3.4.1 extract-file "$asar" package.json)
-          PACKAGED="$check/package.json" node -e '
-            const pkg = JSON.parse(require("node:fs").readFileSync(process.env.PACKAGED, "utf8"));
-            const b = pkg.learnharnessBuild ?? {};
-            if (pkg.version !== process.env.VERSION) throw new Error(`packaged version ${pkg.version}`);
-            if (b.vaultUrl !== `https://${process.env.VAULT_HOST}` || b.autoUpdate !== false) throw new Error(`packaged learnharnessBuild ${JSON.stringify(b)}`);
-            console.log("packaged:", pkg.version, JSON.stringify(b));
-          '
-      - name: Name the installer for the download page
-        env:
-          VERSION: ${{ inputs.version }}
-        run: |
-          shopt -s nullglob
-          dmgs=(dist/*.dmg)
-          [ "${#dmgs[@]}" -eq 1 ] || { echo "expected one DMG, found: ${dmgs[*]}" >&2; exit 1; }
-          mkdir -p out
-          cp "${dmgs[0]}" out/learnharness-macos.dmg
-          echo "$VERSION" > out/version.txt
-          shasum -a 256 out/learnharness-macos.dmg
+        run: scripts/vault-mac-build.sh --here --version "$VERSION" --host "$VAULT_HOST" --out out
       - uses: actions/upload-artifact@v7
         with:
           name: learnharness-macos-${{ inputs.version }}
