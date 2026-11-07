@@ -1,0 +1,189 @@
+{
+	"description": "Rotation acceptance and no rollback (ADR 0002 rules 2 and 3). The device holds `held`; each case offers a generation, root key, epoch and wraps.",
+	"accountId": "4f9d2c1e-8b7a-4c3d-9e2f-1a2b3c4d5e6f",
+	"held": {
+		"generation": 1,
+		"rootKey": "7b1cfa4ad6a81cbcf356011a0261ad99a868876b3e6f2748a2dbce275423d3b4",
+		"ik": "ebeca30f95f6766a5bc0c559fbec634ca6250f8feef4af0229058137e804feeb",
+		"vaultKeys": [
+			"cc7a49760568856ac3757bffa41d8421338a74098419c05ac363f696fdf4415c"
+		]
+	},
+	"valid": [
+		{
+			"why": "honest rotation",
+			"generation": 2,
+			"rootKey": "58703c4f7014ef000e400164e2001681574c4960eb304493cc07cd12a95e4ed5",
+			"epoch": 2,
+			"wraps": [
+				{
+					"name": "ik",
+					"wrap": "71c53f809f2fa364922cfd6a64c80f3a72cf86704abfa877ef435d500f1f83fc9069a5c4315f2d3b93a757a56def374282d16e55458a6c1ec52dece38e9ddf0cc0e40379e9b4209b"
+				},
+				{
+					"name": "vk/1",
+					"wrap": "1545901d59af6bb1aec0e310c6282f2db0f956c2e310020081c1a7a33f3e74a341e024fa4670088377150f990d7acef7d1f5aa196c38bfd7e66c195c1e89058f8823e2a6a463b2df"
+				},
+				{
+					"name": "vk/2",
+					"wrap": "84384f6029c8696f030ffc315190dc31a35b9b2d2304ce8e9157035b8cc56b5c4263679ab667d6cb71878a46f50e8ef7aa116cab7b6f99b37d0b69e957f39f901a90e2f4807f73d6"
+				}
+			]
+		},
+		{
+			"why": "two rotations seen at once",
+			"generation": 3,
+			"rootKey": "b62afb2b41ba134cfb41e0e78861bf5a3141d632ec58d3005c2f200e28775086",
+			"epoch": 3,
+			"wraps": [
+				{
+					"name": "ik",
+					"wrap": "f79a6a0191e69f9a9e40bdb96a907ee33fb068d991a2fae46dfd59e17b7fc3e817f5cad6e6829bc3f9b66b27510957a926ec1c7121796bbc964d388bdb264bf480fa37253dc8aa6f"
+				},
+				{
+					"name": "vk/1",
+					"wrap": "6934cf8d1e6620cab7ec76752da70a5d2b540895f864aea9e52ae6edc8872cb785d1193ec407df4552e10182ed25c2423de1362a0d3ccbf52d4f0ebf6c0e68d720fe219e5ed41883"
+				},
+				{
+					"name": "vk/2",
+					"wrap": "0a30f22b1547e17d38a305b95778549a51d68d4124cecde757ca728679ee69f5dff201e7e97c754c1ef4925f7f42ac53f676c64fb633a799e4ced0f0515b904c4d15d357e4c17b5f"
+				},
+				{
+					"name": "vk/3",
+					"wrap": "696434158028f04b5c0c72192bb633734b7c453d27f92bea7128acf92227d22162e7b7b0763b2ced76e666a7b89436e5b62bd0c60414b17db8e196d512509e43040b31826544d26c"
+				}
+			]
+		}
+	],
+	"invalid": [
+		{
+			"why": "vk/1 changed",
+			"error": "rotation_rejected",
+			"generation": 2,
+			"rootKey": "58703c4f7014ef000e400164e2001681574c4960eb304493cc07cd12a95e4ed5",
+			"epoch": 2,
+			"wraps": [
+				{
+					"name": "ik",
+					"wrap": "71c53f809f2fa364922cfd6a64c80f3a72cf86704abfa877ef435d500f1f83fc9069a5c4315f2d3b93a757a56def374282d16e55458a6c1ec52dece38e9ddf0cc0e40379e9b4209b"
+				},
+				{
+					"name": "vk/1",
+					"wrap": "4b58a7e2ef0d2f0c6da8dadfcb4dad4890e99e55d0a669fada730c8940380570a42f8f7a57ff2531ce98511ac1994796ee2b28d1715bf7700783229c8b4eed42bdd1f7a2f4e62bc7"
+				},
+				{
+					"name": "vk/2",
+					"wrap": "84384f6029c8696f030ffc315190dc31a35b9b2d2304ce8e9157035b8cc56b5c4263679ab667d6cb71878a46f50e8ef7aa116cab7b6f99b37d0b69e957f39f901a90e2f4807f73d6"
+				}
+			]
+		},
+		{
+			"why": "index key changed",
+			"error": "rotation_rejected",
+			"generation": 2,
+			"rootKey": "58703c4f7014ef000e400164e2001681574c4960eb304493cc07cd12a95e4ed5",
+			"epoch": 2,
+			"wraps": [
+				{
+					"name": "ik",
+					"wrap": "1b02521c6b8ce81586d22ca7a26b54309011854661628a1ec49b542a218594605a58cd7d0e95e2a6f71325fc97825e447fd6a863d48ae07fae72582eef29438e9deaaadee59fff0d"
+				},
+				{
+					"name": "vk/1",
+					"wrap": "1545901d59af6bb1aec0e310c6282f2db0f956c2e310020081c1a7a33f3e74a341e024fa4670088377150f990d7acef7d1f5aa196c38bfd7e66c195c1e89058f8823e2a6a463b2df"
+				},
+				{
+					"name": "vk/2",
+					"wrap": "84384f6029c8696f030ffc315190dc31a35b9b2d2304ce8e9157035b8cc56b5c4263679ab667d6cb71878a46f50e8ef7aa116cab7b6f99b37d0b69e957f39f901a90e2f4807f73d6"
+				}
+			]
+		},
+		{
+			"why": "no new vault key",
+			"error": "rotation_rejected",
+			"generation": 2,
+			"rootKey": "58703c4f7014ef000e400164e2001681574c4960eb304493cc07cd12a95e4ed5",
+			"epoch": 1,
+			"wraps": [
+				{
+					"name": "ik",
+					"wrap": "71c53f809f2fa364922cfd6a64c80f3a72cf86704abfa877ef435d500f1f83fc9069a5c4315f2d3b93a757a56def374282d16e55458a6c1ec52dece38e9ddf0cc0e40379e9b4209b"
+				},
+				{
+					"name": "vk/1",
+					"wrap": "1545901d59af6bb1aec0e310c6282f2db0f956c2e310020081c1a7a33f3e74a341e024fa4670088377150f990d7acef7d1f5aa196c38bfd7e66c195c1e89058f8823e2a6a463b2df"
+				}
+			]
+		},
+		{
+			"why": "different root key with the same generation",
+			"error": "rotation_rejected",
+			"generation": 1,
+			"rootKey": "58703c4f7014ef000e400164e2001681574c4960eb304493cc07cd12a95e4ed5",
+			"epoch": 2,
+			"wraps": [
+				{
+					"name": "ik",
+					"wrap": "da74a6f4f3007940c545d26045bcad7b7e296bd72e808862c3cd6eed598e1a679d2bdbe0032d5e26cce64121d159669c278f71d4143811ea791b3ff7f3c17578f46f616929a305ba"
+				},
+				{
+					"name": "vk/1",
+					"wrap": "211d27e5557182293ad72f90e7542759a1ba3369da930eb9cb6ada20577b5cee782ed64952c704ec8d8dc596167c8ac2fef72db352e6db30df0afd9c6c02019fe6530611f6a72042"
+				},
+				{
+					"name": "vk/2",
+					"wrap": "9bf98af659599b265980415036344e4fa34a3be2f15fe32bd515cc289f456690f25f463825d4cb93da2d015932c8f5d55b4d3c8e9e42d6ec3af637bb1eb0dbea4af7e7890407b57e"
+				}
+			]
+		},
+		{
+			"why": "wraps under another generation",
+			"error": "rotation_rejected",
+			"generation": 2,
+			"rootKey": "58703c4f7014ef000e400164e2001681574c4960eb304493cc07cd12a95e4ed5",
+			"epoch": 2,
+			"wraps": [
+				{
+					"name": "ik",
+					"wrap": "f79a6a0191e69f9a9e40bdb96a907ee33fb068d991a2fae426303ddb5608f70286a56b271b9f7f7d173233fa18eacbed819e5b960fc37d025012e2a6b29fd25f97e929537b5bebf9"
+				},
+				{
+					"name": "vk/1",
+					"wrap": "6934cf8d1e6620cab7ec76752da70a5d2b540895f864aea92aff1ca855fb0f0a39e9222bfaf47fb79b242537c96a7f6c75adc343b6d117063450584694e3c3d5403f177756b50d4f"
+				},
+				{
+					"name": "vk/2",
+					"wrap": "0a30f22b1547e17d38a305b95778549a51d68d4124cecde72974b1acc255220e643c3972c4a31232f37232403bcf40d5105477e3ece7d94d4fd5da18ef4e182d18e07e5de7fb852a"
+				}
+			]
+		},
+		{
+			"why": "missing vk/2 wrap",
+			"error": "rotation_rejected",
+			"generation": 2,
+			"rootKey": "58703c4f7014ef000e400164e2001681574c4960eb304493cc07cd12a95e4ed5",
+			"epoch": 2,
+			"wraps": [
+				{
+					"name": "ik",
+					"wrap": "71c53f809f2fa364922cfd6a64c80f3a72cf86704abfa877ef435d500f1f83fc9069a5c4315f2d3b93a757a56def374282d16e55458a6c1ec52dece38e9ddf0cc0e40379e9b4209b"
+				},
+				{
+					"name": "vk/1",
+					"wrap": "1545901d59af6bb1aec0e310c6282f2db0f956c2e310020081c1a7a33f3e74a341e024fa4670088377150f990d7acef7d1f5aa196c38bfd7e66c195c1e89058f8823e2a6a463b2df"
+				}
+			]
+		}
+	],
+	"rollback": {
+		"highWater": {
+			"generation": 2,
+			"epoch": 2
+		},
+		"offered": {
+			"generation": 1,
+			"epoch": 1
+		},
+		"error": "rollback"
+	}
+}

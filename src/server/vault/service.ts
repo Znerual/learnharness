@@ -1,11 +1,10 @@
 /**
  * The vault, as the rest of the server sees it: a request handler and an availability answer.
- * Nothing here imports the vault client. The client is a private optional dependency
- * (@znerual/learnharness-vault-client, ADR 0001 of the vault repo), so ./runtime.ts, the one
- * module that imports it, is loaded with a dynamic import that may fail: a build without the
- * package runs normally and reports the vault as unavailable.
+ * Nothing here imports the vault client (@znerual/learnharness-vault-client, packages/vault-client):
+ * ./runtime.ts, the one module that imports it, is loaded with a dynamic import, so the client and
+ * its WASM crypto load only when the vault is on. A load failure reports the vault as unavailable.
  *
- * The vault is also off unless LH_VAULT_URL names a vault server. Both must hold ("vault switch").
+ * The vault is off unless LH_VAULT_URL names a vault server ("vault switch").
  */
 
 import type { RouteRequest, RouteResponse, VaultRoutes } from "./routes.ts";

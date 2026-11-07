@@ -1,7 +1,6 @@
 // Compile-time proof that the real vault client still satisfies the structural types the routes use
 // (routes.ts keeps no runtime import of the client so it can be tested against a fake Vault).
-// Nothing runs. If the client's API drifts, `npm run typecheck` fails here. Without the package
-// the types come from client-shim.d.ts, where `any` passes every check below.
+// Nothing runs. If the client's API drifts, `npm run typecheck` fails here.
 
 import type { JoinerPairing, SyncEngine, Vault } from "@znerual/learnharness-vault-client";
 import type { SyncStatus } from "../../core/vault/deps.ts";

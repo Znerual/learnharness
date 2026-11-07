@@ -1,0 +1,85 @@
+{
+	"description": "wrap = nonce(24) || XChaCha20-Poly1305(key = ARK_g, nonce, message = key, ad = \"lhv1/wrap/\" || accountId || \"/\" || name || \"/\" || g).",
+	"valid": [
+		{
+			"accountId": "4f9d2c1e-8b7a-4c3d-9e2f-1a2b3c4d5e6f",
+			"name": "ik",
+			"generation": 1,
+			"rootKey": "7b1cfa4ad6a81cbcf356011a0261ad99a868876b3e6f2748a2dbce275423d3b4",
+			"key": "ebeca30f95f6766a5bc0c559fbec634ca6250f8feef4af0229058137e804feeb",
+			"nonce": "4ae1a517bc2a45015be5596ff9025df55eb41fe61a4823bd",
+			"ad": "6c6876312f777261702f34663964326331652d386237612d346333642d396532662d3161326233633464356536662f696b2f31",
+			"wrap": "4ae1a517bc2a45015be5596ff9025df55eb41fe61a4823bdc51eba79b3a28639e5a50e7760de834542901dec601ad305849a259f23087bddb19987870ec05efacdab03f4ef2458c1"
+		},
+		{
+			"accountId": "4f9d2c1e-8b7a-4c3d-9e2f-1a2b3c4d5e6f",
+			"name": "vk/1",
+			"generation": 1,
+			"rootKey": "7b1cfa4ad6a81cbcf356011a0261ad99a868876b3e6f2748a2dbce275423d3b4",
+			"key": "cc7a49760568856ac3757bffa41d8421338a74098419c05ac363f696fdf4415c",
+			"nonce": "86468b6545f5adad2ecfad212a0480f8acab4e4dc9717ba8",
+			"ad": "6c6876312f777261702f34663964326331652d386237612d346333642d396532662d3161326233633464356536662f766b2f312f31",
+			"wrap": "86468b6545f5adad2ecfad212a0480f8acab4e4dc9717ba82b8cda1e2cff869e9c0e584d8ce366c9a205e4eabd1922f15c4e3501ee011a02366490dd33f2412e1973fa7ca08b2421"
+		},
+		{
+			"accountId": "4f9d2c1e-8b7a-4c3d-9e2f-1a2b3c4d5e6f",
+			"name": "vk/2",
+			"generation": 2,
+			"rootKey": "58703c4f7014ef000e400164e2001681574c4960eb304493cc07cd12a95e4ed5",
+			"key": "b20a58c9ef0fda851ee0843e86e3b0984823e293975990e69ad6fceeea343daf",
+			"nonce": "5028c3e05a5f1bcd6ffab9b040785658ee557c760e07d964",
+			"ad": "6c6876312f777261702f34663964326331652d386237612d346333642d396532662d3161326233633464356536662f766b2f322f32",
+			"wrap": "5028c3e05a5f1bcd6ffab9b040785658ee557c760e07d964c85d34aaa7e3656621b555bb5ad6bc0785fc10d2e4f0f31862560bd19ef26668ab9b7e621d91f3d4567f51db7214ad5b"
+		}
+	],
+	"invalid": [
+		{
+			"why": "wrong name in associated data",
+			"accountId": "4f9d2c1e-8b7a-4c3d-9e2f-1a2b3c4d5e6f",
+			"name": "vk/1",
+			"generation": 1,
+			"rootKey": "7b1cfa4ad6a81cbcf356011a0261ad99a868876b3e6f2748a2dbce275423d3b4",
+			"wrap": "4ae1a517bc2a45015be5596ff9025df55eb41fe61a4823bdc51eba79b3a28639e5a50e7760de834542901dec601ad305849a259f23087bddb19987870ec05efacdab03f4ef2458c1"
+		},
+		{
+			"why": "wrong generation in associated data",
+			"accountId": "4f9d2c1e-8b7a-4c3d-9e2f-1a2b3c4d5e6f",
+			"name": "ik",
+			"generation": 2,
+			"rootKey": "7b1cfa4ad6a81cbcf356011a0261ad99a868876b3e6f2748a2dbce275423d3b4",
+			"wrap": "4ae1a517bc2a45015be5596ff9025df55eb41fe61a4823bdc51eba79b3a28639e5a50e7760de834542901dec601ad305849a259f23087bddb19987870ec05efacdab03f4ef2458c1"
+		},
+		{
+			"why": "wrong account in associated data",
+			"accountId": "0b1c2d3e-4f50-4617-8899-aabbccddeeff",
+			"name": "ik",
+			"generation": 1,
+			"rootKey": "7b1cfa4ad6a81cbcf356011a0261ad99a868876b3e6f2748a2dbce275423d3b4",
+			"wrap": "4ae1a517bc2a45015be5596ff9025df55eb41fe61a4823bdc51eba79b3a28639e5a50e7760de834542901dec601ad305849a259f23087bddb19987870ec05efacdab03f4ef2458c1"
+		},
+		{
+			"why": "wrong root key",
+			"accountId": "4f9d2c1e-8b7a-4c3d-9e2f-1a2b3c4d5e6f",
+			"name": "ik",
+			"generation": 1,
+			"rootKey": "58703c4f7014ef000e400164e2001681574c4960eb304493cc07cd12a95e4ed5",
+			"wrap": "4ae1a517bc2a45015be5596ff9025df55eb41fe61a4823bdc51eba79b3a28639e5a50e7760de834542901dec601ad305849a259f23087bddb19987870ec05efacdab03f4ef2458c1"
+		},
+		{
+			"why": "truncated",
+			"accountId": "4f9d2c1e-8b7a-4c3d-9e2f-1a2b3c4d5e6f",
+			"name": "ik",
+			"generation": 1,
+			"rootKey": "7b1cfa4ad6a81cbcf356011a0261ad99a868876b3e6f2748a2dbce275423d3b4",
+			"wrap": "4ae1a517bc2a45015be5596ff9025df55eb41fe61a4823bdc51eba79b3a28639e5a50e7760de834542901dec601ad305849a259f23087bddb19987870ec05efacdab03f4ef2458"
+		},
+		{
+			"why": "flipped ciphertext bit",
+			"accountId": "4f9d2c1e-8b7a-4c3d-9e2f-1a2b3c4d5e6f",
+			"name": "ik",
+			"generation": 1,
+			"rootKey": "7b1cfa4ad6a81cbcf356011a0261ad99a868876b3e6f2748a2dbce275423d3b4",
+			"wrap": "4ae1a517bc2a45015be5596ff9025df55eb41fe61a4823bdc51eba79b3a28739e5a50e7760de834542901dec601ad305849a259f23087bddb19987870ec05efacdab03f4ef2458c1"
+		}
+	]
+}
