@@ -2,8 +2,8 @@
 /**
  * Settings → Providers → On-device speech (Android app, owner 2026-11-01):
  * the phone's own dictation and read-aloud models. Nothing downloads by
- * itself; each model is downloaded here on demand (Wi-Fi only) and can be
- * removed again. Reads and changes go through /api/speech-models to the
+ * itself; each model is downloaded here on demand (Wi-Fi only, unless the
+ * Read aloud tab's mobile-data switch allows more) and can be removed again. Reads and changes go through /api/speech-models to the
  * phone's speech server. Shown only inside the Android app, and only while
  * that server answers.
  */
@@ -12,22 +12,22 @@ import { useCallback, useEffect, useState } from "react";
 import { Loader2Icon } from "lucide-react";
 import { SPEECH_LANGUAGE_LABEL, isSpeechLanguage, type NpuSpeechStatus, type OnDeviceModel, type SpeechBenchmarkModel, type SpeechBenchmarkResult } from "@/src/core";
 import { notifySettingsSaved } from "@/components/settings-signal";
-import { SettingsGroup } from "./controls.tsx";
+import { SettingsGroup, Toggle } from "./controls.tsx";
 
 /** "670 MB". Pure — exported for tests. */
 export function modelSize(bytes: number): string {
 	return `${Math.round(bytes / 1_000_000)} MB`;
 }
 
-/** The model's state in words. Pure — exported for tests. */
-export function modelStateLine(model: OnDeviceModel): string {
+/** The model's state in words; `mobileData`: downloads may use mobile data. Pure — exported for tests. */
+export function modelStateLine(model: OnDeviceModel, mobileData = false): string {
 	switch (model.state) {
 		case "ready":
 			return "Downloaded";
 		case "downloading":
 			return `Downloading ${Math.round(model.progress * 100)} %`;
 		case "waiting":
-			return `Waits for Wi-Fi (${Math.round(model.progress * 100)} %)`;
+			return `${mobileData ? "Waits for a connection" : "Waits for Wi-Fi"} (${Math.round(model.progress * 100)} %)`;
 		case "failed":
 			return `Download failed — ${model.error ?? "try again"}`;
 		default:
@@ -124,7 +124,7 @@ export function npuVoiceLine(v: NpuSpeechStatus["voices"][number]): string {
 		case "waiting":
 			return "Waiting";
 		case "downloading":
-			return "Downloading its NPU files (Wi-Fi only)";
+			return "Downloading its NPU files";
 		case "compiling":
 			return "Compiling for this phone's chip — up to a few minutes, once";
 		case "testing":
@@ -297,11 +297,12 @@ export function VoiceModeGroup() {
  *  "On this phone" choice, `bare`: no group of its own), the voices and NPU speech under Read aloud. */
 export function OnDeviceSpeechGroup({ part, bare = false }: { part: "dictation" | "read-aloud"; bare?: boolean }) {
 	const [models, setModels] = useState<OnDeviceModel[] | null>(null);
+	const [mobileData, setMobileData] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 
 	const apply = useCallback(async (res: Response | null) => {
 		if (!res) return setError("The phone's speech server did not answer.");
-		const body = (await res.json().catch(() => ({}))) as { models?: OnDeviceModel[]; error?: string };
+		const body = (await res.json().catch(() => ({}))) as { models?: OnDeviceModel[]; mobileData?: boolean; error?: string };
 		if (!res.ok) {
 			if (res.status === 404) setModels(null);
 			else setError(body.error ?? `HTTP ${res.status}`);
@@ -309,6 +310,7 @@ export function OnDeviceSpeechGroup({ part, bare = false }: { part: "dictation" 
 		}
 		setError(null);
 		setModels(body.models ?? []);
+		setMobileData(body.mobileData === true);
 	}, []);
 
 	const load = useCallback(() => fetch("/api/speech-models").catch(() => null).then(apply), [apply]);
@@ -332,6 +334,18 @@ export function OnDeviceSpeechGroup({ part, bare = false }: { part: "dictation" 
 		notifySettingsSaved("speech");
 	}
 
+	async function changeMobileData(on: boolean) {
+		setMobileData(on);
+		await apply(
+			await fetch("/api/speech-models", {
+				method: "PUT",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ mobileData: on }),
+			}).catch(() => null),
+		);
+	}
+
+	const wifiOnly = mobileData ? "Downloads over Wi-Fi or mobile data" : "Downloads over Wi-Fi only";
 	const body = (
 		<>
 			{models.filter((model) => (model.kind === "dictation") === (part === "dictation")).map((model) => (
@@ -339,7 +353,7 @@ export function OnDeviceSpeechGroup({ part, bare = false }: { part: "dictation" 
 					<span className="min-w-0 flex-1">
 						<span className="block font-ui text-xs text-foreground">{modelName(model)}</span>
 						<span className="block truncate font-mono text-[11px] text-muted-foreground">
-							{model.label} · {modelStateLine(model)}
+							{model.label} · {modelStateLine(model, mobileData)}
 						</span>
 					</span>
 					{voiceSampleUrl(model) ? <SampleButton url={voiceSampleUrl(model)!} id={model.id} /> : null}
@@ -365,10 +379,21 @@ export function OnDeviceSpeechGroup({ part, bare = false }: { part: "dictation" 
 				</div>
 			))}
 			{part === "read-aloud" ? <NpuSpeechRow models={models} onChange={change} /> : null}
+			{part === "read-aloud" ? (
+				<div className="flex items-center justify-between gap-3 px-1 py-1.5" data-testid="speech-models-mobile-data">
+					<span className="min-w-0 flex-1">
+						<span className="block font-ui text-xs text-foreground">Download over mobile data</span>
+						<span className="block font-mono text-[11px] text-muted-foreground">
+							{mobileData ? "On — downloads start without waiting for Wi-Fi" : "Off — downloads wait for Wi-Fi"}
+						</span>
+					</span>
+					<Toggle checked={mobileData} onChange={(on) => void changeMobileData(on)} label="Download speech models over mobile data" />
+				</div>
+			) : null}
 			<p className="px-1 text-[11px] leading-relaxed text-muted-foreground/70">
 				{part === "dictation"
-					? "Downloads over Wi-Fi only and runs on this phone, without the internet. It recognizes German, English and more languages by itself, so there is no language to choose."
-					: "Models download over Wi-Fi only and run on this phone. \"Listen\" plays a short sample, also before the download. Read-aloud uses the voice of the language chosen below."}
+					? `${wifiOnly} and runs on this phone, without the internet. It recognizes German, English and more languages by itself, so there is no language to choose.`
+					: `${wifiOnly} (also for dictation) and run on this phone. "Listen" plays a short sample, also before the download. Read-aloud uses the voice of the language chosen below.`}
 			</p>
 			{error && (
 				<p role="alert" className="px-1 text-xs text-red-600 dark:text-red-500">

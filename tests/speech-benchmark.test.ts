@@ -19,7 +19,7 @@ delete process.env.LH_TTS_KEY;
 
 const { writeSettings } = await import("../src/store/settings.ts");
 const { saveKey } = await import("../src/server/keys.ts");
-const { speechBenchmark } = await import("../src/server/speech-models.ts");
+const { speechBenchmark, listSpeechModels, setSpeechModelMobileData } = await import("../src/server/speech-models.ts");
 
 const result = {
 	at: "2026-11-01T10:00:00Z",
@@ -60,6 +60,24 @@ describe("speechBenchmark", () => {
 		writeSettings({ version: 1 });
 		const fake = (async () => assert.fail("no call")) as unknown as typeof fetch;
 		assert.equal((await speechBenchmark("GET", fake)).ok, false);
+	});
+});
+
+describe("downloads over mobile data (owner, 2026-11-07)", () => {
+	it("PUTs the choice to the phone and answers the list with it", async () => {
+		writeSettings({ version: 1, speech: { url: "http://127.0.0.1:8110/v1" } });
+		assert.ok(saveKey("LH_TTS_KEY", "sk-phone").ok);
+		const calls: { url: string; method?: string; body?: unknown }[] = [];
+		const fake = (async (url: string, init: RequestInit) => {
+			calls.push({ url, method: init.method, body: typeof init.body === "string" ? JSON.parse(init.body) : undefined });
+			return Response.json({ models: [], mobileData: true });
+		}) as typeof fetch;
+		assert.deepEqual(await setSpeechModelMobileData(true, fake), { ok: true, models: [], mobileData: true });
+		assert.deepEqual(calls, [{ url: "http://127.0.0.1:8110/v1/models", method: "PUT", body: { mobileData: true } }]);
+	});
+	it("an app build that does not say means Wi-Fi only", async () => {
+		const fake = (async () => Response.json({ models: [] })) as unknown as typeof fetch;
+		assert.deepEqual(await listSpeechModels(fake), { ok: true, models: [], mobileData: false });
 	});
 });
 

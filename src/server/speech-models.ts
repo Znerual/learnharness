@@ -5,8 +5,9 @@
  * learner asks, in Settings → Providers → On-device speech. These calls
  * forward that section's reads and choices to the server's
  *
- *   GET    <url>/models        → {models: OnDeviceModel[]}
- *   POST   <url>/models/<id>   → start the download (Wi-Fi only)
+ *   GET    <url>/models        → {models: OnDeviceModel[], mobileData}
+ *   PUT    <url>/models        {mobileData} → download over mobile data too, or Wi-Fi only
+ *   POST   <url>/models/<id>   → start the download (Wi-Fi only unless mobileData)
  *   DELETE <url>/models/<id>   → remove the model's files
  *
  * with the server's key as the bearer. A server without these routes is
@@ -20,7 +21,8 @@ import { keyValue } from "./keys.ts";
 
 const TIMEOUT_MS = 5_000;
 
-export type SpeechModelsResult = { ok: true; models: OnDeviceModel[] } | { ok: false; status: number; error: string };
+/** `mobileData`: downloads may use mobile data, not only Wi-Fi (an older app build does not say: false). */
+export type SpeechModelsResult = { ok: true; models: OnDeviceModel[]; mobileData: boolean } | { ok: false; status: number; error: string };
 
 /** The on-device server's base URL and key, if one is configured. */
 function server(): { url: string; key: string | undefined } | null {
@@ -32,22 +34,23 @@ function server(): { url: string; key: string | undefined } | null {
 	return null;
 }
 
-async function call(method: "GET" | "POST" | "DELETE", path: string, fetchFn: typeof fetch): Promise<SpeechModelsResult> {
+async function call(method: "GET" | "POST" | "PUT" | "DELETE", path: string, fetchFn: typeof fetch, body?: unknown): Promise<SpeechModelsResult> {
 	const target = server();
 	if (!target) return { ok: false, status: 404, error: "No speech server is set" };
 	let res: Response;
 	try {
 		res = await fetchFn(`${target.url}${path}`, {
 			method,
-			headers: target.key ? { Authorization: `Bearer ${target.key}` } : {},
+			headers: { ...(target.key ? { Authorization: `Bearer ${target.key}` } : {}), ...(body === undefined ? {} : { "content-type": "application/json" }) },
+			body: body === undefined ? undefined : JSON.stringify(body),
 			signal: AbortSignal.timeout(TIMEOUT_MS),
 		});
 	} catch {
 		return { ok: false, status: 502, error: `The speech server is unreachable (${target.url})` };
 	}
-	const body = (await res.json().catch(() => null)) as { models?: unknown; error?: { message?: string } } | null;
-	if (!res.ok) return { ok: false, status: res.status === 404 ? 404 : 502, error: body?.error?.message ?? `HTTP ${res.status}` };
-	return { ok: true, models: Array.isArray(body?.models) ? (body.models as OnDeviceModel[]) : [] };
+	const reply = (await res.json().catch(() => null)) as { models?: unknown; mobileData?: unknown; error?: { message?: string } } | null;
+	if (!res.ok) return { ok: false, status: res.status === 404 ? 404 : 502, error: reply?.error?.message ?? `HTTP ${res.status}` };
+	return { ok: true, models: Array.isArray(reply?.models) ? (reply.models as OnDeviceModel[]) : [], mobileData: reply?.mobileData === true };
 }
 
 /** The phone's speech models and their states. */
@@ -101,6 +104,11 @@ export async function npuSpeech(method: "GET" | "PUT", enabled?: boolean, fetchF
 	const body = (await res.json().catch(() => null)) as (NpuSpeechStatus & { error?: { message?: string } }) | null;
 	if (!res.ok || !body) return { ok: false, status: res.status === 404 ? 404 : 502, error: body?.error?.message ?? `HTTP ${res.status}` };
 	return { ok: true, status: body };
+}
+
+/** Downloads over mobile data too (true) or over Wi-Fi only (false); answers the new list. */
+export function setSpeechModelMobileData(mobileData: boolean, fetchFn: typeof fetch = fetch): Promise<SpeechModelsResult> {
+	return call("PUT", "/models", fetchFn, { mobileData });
 }
 
 /** Download (POST) or remove (DELETE) one model; answers the new list. */

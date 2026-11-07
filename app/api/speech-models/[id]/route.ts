@@ -11,7 +11,7 @@ type Context = { params: Promise<{ id: string }> };
 async function change(method: "POST" | "DELETE", { params }: Context) {
 	const result = await changeSpeechModel((await params).id, method);
 	if (!result.ok) return Response.json({ error: result.error }, { status: result.status });
-	return Response.json({ models: result.models });
+	return Response.json({ models: result.models, mobileData: result.mobileData });
 }
 
 export const POST = (_request: Request, context: Context) => change("POST", context);

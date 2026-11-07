@@ -38,7 +38,7 @@
  */
 
 import { useEffect, useRef, useSyncExternalStore } from "react";
-import { Loader2Icon, SquareIcon, Volume2Icon, VolumeXIcon } from "lucide-react";
+import { Loader2Icon, SquareIcon, Volume2Icon, VolumeXIcon, XIcon } from "lucide-react";
 import {
 	closedMarkdown,
 	isSpeechLanguage,
@@ -69,6 +69,9 @@ export interface ReadAloudState {
 	owner: string | null;
 	/** The last failure, shown on the composer toggle until the next click. */
 	error: string | null;
+	/** The speech server's reason for `error`, when it names one: "voice_not_downloaded" or
+	 *  "voice_downloading" (Android app) show a notice that leads to the voice downloads. */
+	errorCode: string | null;
 	/** A text-to-speech URL is configured. */
 	ready: boolean;
 	autoRead: boolean;
@@ -87,6 +90,7 @@ export interface ReadAloudState {
 let state: ReadAloudState = {
 	owner: null,
 	error: null,
+	errorCode: null,
 	ready: false,
 	autoRead: false,
 	speed: 1,
@@ -97,6 +101,8 @@ let state: ReadAloudState = {
 const listeners = new Set<() => void>();
 
 function set(patch: Partial<ReadAloudState>): void {
+	// A new or cleared error drops the old one's code unless the patch brings its own.
+	if ("error" in patch && !("errorCode" in patch)) patch = { ...patch, errorCode: null };
 	state = { ...state, ...patch };
 	for (const listener of listeners) listener();
 }
@@ -140,8 +146,8 @@ async function fetchAudio(block: SpeechBlock, signal: AbortSignal): Promise<stri
 		signal,
 	});
 	if (!res.ok) {
-		const body = (await res.json().catch(() => ({}))) as { message?: string };
-		throw new Error(body.message ?? `Read-aloud failed (${res.status})`);
+		const body = (await res.json().catch(() => ({}))) as { message?: string; code?: string };
+		throw Object.assign(new Error(body.message ?? `Read-aloud failed (${res.status})`), { code: body.code });
 	}
 	return URL.createObjectURL(await res.blob());
 }
@@ -247,7 +253,8 @@ async function pump(): Promise<void> {
 	} catch (error) {
 		if (gen === generation) {
 			stopReadAloud();
-			set({ error: error instanceof Error ? error.message : "Read-aloud failed" });
+			const code = (error as { code?: unknown } | null)?.code;
+			set({ error: readAloudErrorText(error), errorCode: typeof code === "string" ? code : null });
 		}
 	} finally {
 		if (pumpingGeneration === gen) pumpingGeneration = -1;
@@ -530,7 +537,55 @@ export function useAutoRead(messages: LhViewMessage[], status: string): void {
 	}, [messages, status, autoRead]);
 }
 
+/** The failure in words; a voice that is not on the phone gets a plain sentence. Pure — exported for tests. */
+export function readAloudErrorText(error: unknown): string {
+	const code = (error as { code?: unknown } | null)?.code;
+	if (code === "voice_not_downloaded") return "No read-aloud voice is installed on this phone.";
+	if (!(error instanceof Error)) return "Read-aloud failed";
+	// "Text-to-speech failed: <the phone's sentence>" (still downloading, waits for Wi-Fi): the sentence is the news.
+	return code === "voice_downloading" ? error.message.replace(/^Text-to-speech failed: /, "") : error.message;
+}
+
+/** The error codes that the voice downloads in Settings → Read aloud fix. */
+export function isVoiceMissing(code: string | null): boolean {
+	return code === "voice_not_downloaded" || code === "voice_downloading";
+}
+
 // ─── controls ────────────────────────────────────────────────────────────────
+
+/** Above the composer's read-aloud toggle while read-aloud failed because the phone has no voice
+ *  yet: the reason, and a button to the voice downloads (owner, 2026-11-07). Visible on touch
+ *  screens too, where the toggle's hint never shows. */
+function VoiceMissingNotice({ error, code, onOpen }: { error: string; code: string; onOpen: () => void }) {
+	return (
+		<div
+			role="alert"
+			data-testid="read-aloud-voice-missing"
+			className="pointer-events-auto absolute bottom-full left-0 z-20 mb-2 w-72 max-w-[calc(100vw-2rem)] rounded-md border border-destructive/40 bg-card p-3 text-xs text-foreground shadow-lg"
+		>
+			<div className="flex items-start gap-2">
+				<p className="min-w-0 flex-1 leading-relaxed">{error}</p>
+				<button
+					type="button"
+					onClick={() => set({ error: null })}
+					aria-label="Dismiss"
+					data-testid="read-aloud-voice-missing-dismiss"
+					className="-m-1 shrink-0 rounded-sm p-1 text-muted-foreground hover:text-foreground"
+				>
+					<XIcon className="size-3.5" />
+				</button>
+			</div>
+			<button
+				type="button"
+				onClick={onOpen}
+				data-testid="read-aloud-voice-missing-open"
+				className="mt-2 rounded-sm border border-border bg-background px-2 py-1 font-ui text-xs text-foreground hover:border-muted-foreground/50"
+			>
+				{code === "voice_not_downloaded" ? "Download a voice" : "Open voice settings"}
+			</button>
+		</div>
+	);
+}
 
 const TOGGLE_CLASS =
 	"flex h-7 shrink-0 items-center justify-center rounded-md border px-2 text-xs shadow-lg backdrop-blur transition-colors";
@@ -538,7 +593,7 @@ const TOGGLE_CLASS =
 /** The composer's auto-read toggle, beside the mic. While speech plays it
  *  is a stop button; ⌘⇧S toggles auto-read from anywhere in the session. */
 export function ReadAloudToggle() {
-	const { owner, error, ready, autoRead, waiting } = useReadAloud();
+	const { owner, error, errorCode, ready, autoRead, waiting } = useReadAloud();
 	const { open: openSettings } = useSettingsDialog();
 
 	useEffect(() => {
@@ -567,12 +622,20 @@ export function ReadAloudToggle() {
 	}
 
 	const label = error ?? (!ready ? "Read aloud: set a text-to-speech URL in Settings" : autoRead ? "Auto-read is on" : "Auto-read replies");
+	const voiceMissing = error !== null && isVoiceMissing(errorCode);
+	const openVoices = () => {
+		set({ error: null });
+		openSettings("readAloud");
+	};
 	return (
+		<span className="relative flex shrink-0">
+		{voiceMissing ? <VoiceMissingNotice error={error} code={errorCode!} onOpen={openVoices} /> : null}
 		<Hint label={label} action={error || !ready ? undefined : "toggle-read-aloud"} side="top">
 			<button
 				type="button"
 				onClick={() => {
 					if (!ready) openSettings("readAloud");
+					else if (voiceMissing) openVoices();
 					else if (error) set({ error: null });
 					else void setAutoRead(!autoRead);
 				}}
@@ -590,6 +653,7 @@ export function ReadAloudToggle() {
 				{autoRead ? <Volume2Icon className="size-3.5" /> : <VolumeXIcon className="size-3.5" />}
 			</button>
 		</Hint>
+		</span>
 	);
 }
 

@@ -71,18 +71,25 @@ export function parseSpeechSegments(raw: unknown): SpeechSegment[] | null {
 
 // ─── the endpoint ────────────────────────────────────────────────────────────
 
+/** `code` is the endpoint's machine-readable reason when it gives one: the Android app's speech
+ *  server says "voice_not_downloaded" (or "voice_downloading") when the voice is not on the phone yet. */
 export type SpeechAudio =
 	| { ok: true; body: ReadableStream<Uint8Array>; contentType: string }
-	| { ok: false; status: number; error: string };
+	| { ok: false; status: number; error: string; code?: string };
 
 function authHeaders(): Record<string, string> {
 	const key = keyValue(SPEECH_KEY_ID);
 	return key ? { Authorization: `Bearer ${key}` } : {};
 }
 
+async function upstreamFailure(res: Response): Promise<{ message: string; code?: string }> {
+	const body = (await res.json().catch(() => null)) as { error?: { message?: string; code?: unknown } } | null;
+	const code = typeof body?.error?.code === "string" && /^[a-z_]{1,40}$/.test(body.error.code) ? body.error.code : undefined;
+	return { message: body?.error?.message ?? `HTTP ${res.status}`, ...(code ? { code } : {}) };
+}
+
 async function upstreamError(res: Response): Promise<string> {
-	const body = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
-	return body?.error?.message ?? `HTTP ${res.status}`;
+	return (await upstreamFailure(res)).message;
 }
 
 /** Speak one block: math to words, then the endpoint's audio stream. */
@@ -115,7 +122,10 @@ export async function synthesizeSpeech(segments: SpeechSegment[], fetchFn: typeo
 		const reason = error instanceof Error && error.name === "TimeoutError" ? "timed out" : "is unreachable";
 		return { ok: false, status: 502, error: `Text-to-speech ${reason} (${config.url})` };
 	}
-	if (!res.ok) return { ok: false, status: 502, error: `Text-to-speech failed: ${await upstreamError(res)}` };
+	if (!res.ok) {
+		const failure = await upstreamFailure(res);
+		return { ok: false, status: 502, error: `Text-to-speech failed: ${failure.message}`, ...(failure.code ? { code: failure.code } : {}) };
+	}
 	if (!res.body) return { ok: false, status: 502, error: "Text-to-speech returned no audio" };
 	return { ok: true, body: res.body, contentType: res.headers.get("content-type") ?? "audio/mpeg" };
 }

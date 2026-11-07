@@ -67,11 +67,13 @@ describe("desktop-only rows", () => {
 const voice = (id: string, label: string, state: string, language = "en") => ({ id, kind: "voice", language, label, bytes: 60_000_000, state, progress: 0 });
 const missing = { voice: "thorsten", label: "Piper Thorsten (high)", language: "de", state: "voice-missing" };
 
-function fakeServer(opts: { models: unknown[]; npu: unknown }) {
+function fakeServer(opts: { models: unknown[]; npu: unknown; mobileData?: boolean }) {
 	const calls: string[] = [];
+	let mobileData = opts.mobileData ?? false;
 	globalThis.fetch = (async (url: string, init?: RequestInit) => {
-		calls.push(`${init?.method ?? "GET"} ${url}`);
-		if (url === "/api/speech-models") return Response.json({ models: opts.models });
+		calls.push(`${init?.method ?? "GET"} ${url}${typeof init?.body === "string" ? ` ${init.body}` : ""}`);
+		if (url === "/api/speech-models" && init?.method === "PUT") mobileData = (JSON.parse(init.body as string) as { mobileData: boolean }).mobileData;
+		if (url === "/api/speech-models") return Response.json({ models: opts.models, mobileData });
 		if (url === "/api/npu-speech") return Response.json(opts.npu);
 		return Response.json({ models: opts.models });
 	}) as typeof fetch;
@@ -109,6 +111,30 @@ describe("on-device speech", () => {
 		await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
 		assert.equal(q(host, "npu-no-voice"), null);
 		assert.equal(q(host, "npu-voice-thorsten"), null);
+	});
+	it("a waiting download says what it waits for", () => {
+		const m = { ...voice("a", "Piper", "waiting") } as never;
+		assert.equal(modelStateLine(m), "Waits for Wi-Fi (0 %)");
+		assert.equal(modelStateLine(m, true), "Waits for a connection (0 %)");
+	});
+	it("Read aloud offers downloads over mobile data, and the switch reaches the phone", async () => {
+		const calls = fakeServer({ models: [voice("v", "Piper X", "waiting")], npu: { offered: false, enabled: false, soc: "", voices: [] } });
+		const host = await mount(android(<OnDeviceSpeechGroup part="read-aloud" />));
+		await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+		const row = q(host, "speech-models-mobile-data")!;
+		assert.match(row.textContent ?? "", /Off — downloads wait for Wi-Fi/);
+		await act(async () => { row.querySelector<HTMLElement>("[role='switch']")!.click(); });
+		await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+		assert.ok(calls.includes(`PUT /api/speech-models {"mobileData":true}`));
+		assert.match(q(host, "speech-models-mobile-data")?.textContent ?? "", /On — downloads start without waiting for Wi-Fi/);
+		assert.match(q(host, "speech-model-v")?.textContent ?? "", /Waits for a connection/);
+	});
+	it("the dictation tab has no switch of its own", async () => {
+		fakeServer({ models: [{ ...voice("d", "Parakeet", "missing"), kind: "dictation" }], npu: { offered: false, enabled: false, soc: "", voices: [] }, mobileData: true });
+		const host = await mount(android(<OnDeviceSpeechGroup part="dictation" bare />));
+		await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+		assert.equal(q(host, "speech-models-mobile-data"), null);
+		assert.match(host.textContent ?? "", /Downloads over Wi-Fi or mobile data/);
 	});
 	it("a failed download offers Retry", async () => {
 		fakeServer({ models: [voice("v", "Piper X", "failed")], npu: { offered: false, enabled: false, soc: "", voices: [] } });
