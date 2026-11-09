@@ -1,27 +1,14 @@
 import { readFileSync } from "node:fs";
-import { createRequire } from "node:module";
 import type { NextConfig } from "next";
 import { MAX_IMPORT_BODY_BYTES } from "./lib/notes-import-limits.ts";
 
 const pkg = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")) as { version: string; homepage: string };
 
-// The vault client is a private optional dependency (src/server/vault/service.ts). Without it the
-// vault glue is type-checked against stand-in types (tsconfig.novault.json) and the vault reports
-// itself unavailable at runtime.
-const hasVaultClient = (() => {
-	try {
-		createRequire(import.meta.url).resolve("@znerual/learnharness-vault-client");
-		return true;
-	} catch {
-		return false;
-	}
-})();
-
 const nextConfig: NextConfig = {
-	typescript: { tsconfigPath: hasVaultClient ? "tsconfig.json" : "tsconfig.novault.json" },
-	// Turbopack fails on an import it cannot resolve; without the package the vault runtime's import
-	// resolves to a stub that throws "not installed" when (and only when) the vault is switched on.
-	...(hasVaultClient ? {} : { turbopack: { resolveAlias: { "@znerual/learnharness-vault-client": "./src/server/vault/client-stub.ts" } } }),
+	// The vault client lives in packages/vault-client and is bundled from source: the "paths" entry in
+	// tsconfig.json maps @znerual/learnharness-vault-client to its src/index.ts. The alias repeats it
+	// for Turbopack so the server bundle never looks for the package in node_modules.
+	turbopack: { resolveAlias: { "@znerual/learnharness-vault-client": "./packages/vault-client/src/index.ts" } },
 	// Public build metadata only; no new runtime Electron version API. A Vault release
 	// (learnharness-vault deploy/lan/release-vault-build.sh) builds with LH_BUILD_VERSION, its own
 	// release number; it has no GitHub release, so no homepage (and no release-notes link) either.
@@ -152,9 +139,10 @@ const nextConfig: NextConfig = {
 		"@silvia-odwyer/photon-node", // CJS loads its adjacent WASM from disk
 		"@resvg/resvg-js", // native binding — same
 		"speech-rule-engine", // read-aloud math: resolves its locale dir from its own install path
-		"@znerual/learnharness-vault-client", // the private vault client: optional, loads WASM crypto
+		// The vault client (packages/vault-client) is bundled; its dependencies stay external.
 		"@serenity-kit/opaque", // its OPAQUE WASM
 		"libsodium-wrappers", // its WASM libsodium
+		"ws", // optional native addons (bufferutil, utf-8-validate) that bundling cannot resolve
 	],
 };
 

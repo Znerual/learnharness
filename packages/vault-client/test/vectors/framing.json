@@ -1,0 +1,85 @@
+{
+	"description": "Field formats (ADR 0002, Framing). Receivers reject every invalid value.",
+	"accountId": {
+		"valid": [
+			"4f9d2c1e-8b7a-4c3d-9e2f-1a2b3c4d5e6f",
+			"0b1c2d3e-4f50-4617-8899-aabbccddeeff"
+		],
+		"invalid": [
+			"4F9D2C1E-8B7A-4C3D-9E2F-1A2B3C4D5E6F",
+			"4f9d2c1e8b7a4c3d9e2f1a2b3c4d5e6f",
+			"{4f9d2c1e-8b7a-4c3d-9e2f-1a2b3c4d5e6f}",
+			"4f9d2c1e-8b7a-4c3d-9e2f-1a2b3c4d5e6f ",
+			""
+		]
+	},
+	"counter": {
+		"valid": [
+			"1",
+			"2",
+			"10",
+			"4294967295"
+		],
+		"invalid": [
+			"0",
+			"01",
+			"+1",
+			"-1",
+			"1.0",
+			"4294967296",
+			" 1",
+			""
+		]
+	},
+	"wrapName": {
+		"valid": [
+			"ik",
+			"vk/1",
+			"vk/12"
+		],
+		"invalid": [
+			"vk/0",
+			"vk/01",
+			"vk/",
+			"IK",
+			"vk1",
+			"vk/1/2"
+		]
+	},
+	"methodKind": {
+		"valid": [
+			"password",
+			"passkey",
+			"recovery_key",
+			"backup_code",
+			"device"
+		],
+		"invalid": [
+			"Password",
+			"recovery-key",
+			"",
+			"device/1"
+		]
+	},
+	"recordKind": {
+		"valid": [
+			"doc",
+			"seg"
+		],
+		"invalid": [
+			"DOC",
+			"document",
+			""
+		]
+	},
+	"lengthPrefixed": [
+		{
+			"field": "dev",
+			"encoded": "00000003646576"
+		},
+		{
+			"field": "Küche",
+			"encoded": "000000064bc3bc636865"
+		}
+	]
+}

@@ -1,0 +1,131 @@
+{
+	"description": "Pairing QR payload, 52-character text fallback, joinTag, approveTag and the 6-digit confirmation code (ADR 0003).",
+	"serverUrl": "https://vault.learnharness.example",
+	"pairingId": "mA8PjPWVzICeI0AhCJx5Kg",
+	"secret": "6e4e1966da774a5f03e923b92ef25e044cb198b49b5ca96e4a274f30a838f8db",
+	"qr": "lhv1-pair:https://vault.learnharness.example:mA8PjPWVzICeI0AhCJx5Kg:bk4ZZtp3Sl8D6SO5LvJeBEyxmLSbXKluSidPMKg4-Ns",
+	"text": "0VJE35KDMXTABW1YJ8XS5VS5W12CP6CB96TWN5Q4M9TF62M3HY6V",
+	"devicePublicKey": "b30ea6d13ec0ecdc6d84ce671e59412f924785bb82123301da7a9360b0ed5e20",
+	"deviceName": "Küchen-Laptop",
+	"lhDeviceId": "dev_k1tch3n0",
+	"ephemeral": false,
+	"joinTagInput": "6c6876312f706169722f6a6f696e000000166d4138506a5057567a49436549304168434a78354b67b30ea6d13ec0ecdc6d84ce671e59412f924785bb82123301da7a9360b0ed5e200000000e4bc3bc6368656e2d4c6170746f700000000c6465765f6b31746368336e3000",
+	"joinTag": "1b0db37055de87c3264cc244ed143531462b1eb2044db25c6295e79d1c073af5",
+	"sealed": "7e6e2c4abcb9543b79fca6d1de401a0b97834f77d2e502216290495e50826c2f3a28c6f6e8c392868d267782227e18856f0a67c99bc0d5af3248f0e70e6008da6e35cdd2ad16e78d52964a752e8f09d396958370",
+	"approveTag": "bb433bca2d24c7c1e2e5316442ae52e085bdf8a71ee0869cb37ff11a7d594bdc",
+	"confirmationCode": "251181",
+	"extraCodes": [
+		{
+			"publicKey": "6731b6bd29f6527555a8b5001c41baa166b939d52f405cd690b85fb2f88d2907",
+			"code": "465209"
+		},
+		{
+			"publicKey": "a3761edddb7563decc74c225ed7bfe516b77a79dfa14e3def1bd92dac3f4061c",
+			"code": "831646"
+		},
+		{
+			"publicKey": "51635b4946bd43ff2cfd176a43ee2f5717ceb57e3452280f15267e829bd98d3c",
+			"code": "606691"
+		},
+		{
+			"publicKey": "82f475b8913924751e2f7f3202b97b97400e50d62d033a7b865172700944e354",
+			"code": "903886"
+		}
+	],
+	"invalid": {
+		"text": [
+			{
+				"input": "GVJE35KDMXTABW1YJ8XS5VS5W12CP6CB96TWN5Q4M9TF62M3HY6V",
+				"why": "first character above F sets a padding bit"
+			},
+			{
+				"input": "VJE35KDMXTABW1YJ8XS5VS5W12CP6CB96TWN5Q4M9TF62M3HY6V",
+				"why": "51 characters"
+			}
+		],
+		"joinTag": [
+			{
+				"why": "other device name",
+				"pairingId": "mA8PjPWVzICeI0AhCJx5Kg",
+				"publicKey": "b30ea6d13ec0ecdc6d84ce671e59412f924785bb82123301da7a9360b0ed5e20",
+				"name": "Kuechen-Laptop",
+				"lhDeviceId": "dev_k1tch3n0",
+				"ephemeral": false,
+				"tag": "1b0db37055de87c3264cc244ed143531462b1eb2044db25c6295e79d1c073af5"
+			},
+			{
+				"why": "other public key",
+				"pairingId": "mA8PjPWVzICeI0AhCJx5Kg",
+				"publicKey": "79d0271679cb21a861a6e6daa91c73eaca86947afd33dbd529be8771fce6633e",
+				"name": "Küchen-Laptop",
+				"lhDeviceId": "dev_k1tch3n0",
+				"ephemeral": false,
+				"tag": "1b0db37055de87c3264cc244ed143531462b1eb2044db25c6295e79d1c073af5"
+			},
+			{
+				"why": "other pairing id",
+				"pairingId": "mA8PjPWVzICeI0AhCJx5KA",
+				"publicKey": "b30ea6d13ec0ecdc6d84ce671e59412f924785bb82123301da7a9360b0ed5e20",
+				"name": "Küchen-Laptop",
+				"lhDeviceId": "dev_k1tch3n0",
+				"ephemeral": false,
+				"tag": "1b0db37055de87c3264cc244ed143531462b1eb2044db25c6295e79d1c073af5"
+			},
+			{
+				"why": "other LearnHarness device id",
+				"pairingId": "mA8PjPWVzICeI0AhCJx5Kg",
+				"publicKey": "b30ea6d13ec0ecdc6d84ce671e59412f924785bb82123301da7a9360b0ed5e20",
+				"name": "Küchen-Laptop",
+				"lhDeviceId": "dev_0th3r000",
+				"ephemeral": false,
+				"tag": "1b0db37055de87c3264cc244ed143531462b1eb2044db25c6295e79d1c073af5"
+			},
+			{
+				"why": "other ephemeral flag",
+				"pairingId": "mA8PjPWVzICeI0AhCJx5Kg",
+				"publicKey": "b30ea6d13ec0ecdc6d84ce671e59412f924785bb82123301da7a9360b0ed5e20",
+				"name": "Küchen-Laptop",
+				"lhDeviceId": "dev_k1tch3n0",
+				"ephemeral": true,
+				"tag": "1b0db37055de87c3264cc244ed143531462b1eb2044db25c6295e79d1c073af5"
+			},
+			{
+				"why": "tag made without the secret",
+				"pairingId": "mA8PjPWVzICeI0AhCJx5Kg",
+				"publicKey": "b30ea6d13ec0ecdc6d84ce671e59412f924785bb82123301da7a9360b0ed5e20",
+				"name": "Küchen-Laptop",
+				"lhDeviceId": "dev_k1tch3n0",
+				"ephemeral": false,
+				"tag": "42319ac55204bfaf5c3b25cb8d48154f0d3b8e84b15359cc2d45345ea28708ca"
+			}
+		],
+		"approveTag": [
+			{
+				"why": "other sealed root key",
+				"pairingId": "mA8PjPWVzICeI0AhCJx5Kg",
+				"publicKey": "b30ea6d13ec0ecdc6d84ce671e59412f924785bb82123301da7a9360b0ed5e20",
+				"sealed": "7e6e2c4abcb9543b79fca6d1de401a0b97834f77d2e502216290495e50826c2f63650a594d51ea188131bcd1728cc7636f0a67c9b8ac13aa94f4035bf37608a48e5476ca5232298687c929ae40530ae66be81e11",
+				"tag": "bb433bca2d24c7c1e2e5316442ae52e085bdf8a71ee0869cb37ff11a7d594bdc"
+			},
+			{
+				"why": "other pairing id",
+				"pairingId": "mA8PjPWVzICeI0AhCJx5KA",
+				"publicKey": "b30ea6d13ec0ecdc6d84ce671e59412f924785bb82123301da7a9360b0ed5e20",
+				"sealed": "7e6e2c4abcb9543b79fca6d1de401a0b97834f77d2e502216290495e50826c2f3a28c6f6e8c392868d267782227e18856f0a67c99bc0d5af3248f0e70e6008da6e35cdd2ad16e78d52964a752e8f09d396958370",
+				"tag": "bb433bca2d24c7c1e2e5316442ae52e085bdf8a71ee0869cb37ff11a7d594bdc"
+			},
+			{
+				"why": "tag made without the secret",
+				"pairingId": "mA8PjPWVzICeI0AhCJx5Kg",
+				"publicKey": "b30ea6d13ec0ecdc6d84ce671e59412f924785bb82123301da7a9360b0ed5e20",
+				"sealed": "7e6e2c4abcb9543b79fca6d1de401a0b97834f77d2e502216290495e50826c2f3a28c6f6e8c392868d267782227e18856f0a67c99bc0d5af3248f0e70e6008da6e35cdd2ad16e78d52964a752e8f09d396958370",
+				"tag": "f79512d42b4d6f451046e35c596c0a7788b6872d1a1238af059286a0c4b467ae"
+			}
+		],
+		"qr": [
+			"lhv1-pair:https://vault.learnharness.example:short:bk4ZZtp3Sl8D6SO5LvJeBEyxmLSbXKluSidPMKg4-Ns",
+			"lhv2-pair:x",
+			"lhv1-pair:https://vault.learnharness.example:mA8PjPWVzICeI0AhCJx5Kg:AAAA"
+		]
+	}
+}

@@ -1,0 +1,74 @@
+name: Vault macOS build
+
+# The macOS app with a vault server built in, for the vault host's download page (owner,
+# 2026-11-07). Started by hand with the release's version; it only builds. The steps are
+# scripts/vault-mac-build.sh, which a Mac can also run by itself without GitHub. The release script in
+# learnharness-vault (deploy/lan/release-vault-build.sh --mac-run <run id>) downloads the DMG and
+# publishes it together with the Linux and Android builds of the same version, because the vault
+# host replaces its whole download folder on every publish.
+#
+# Like the fork's GitHub releases, the app is ad-hoc signed and not notarized (no Apple Developer
+# ID): macOS asks the user to allow it on first launch. Squirrel.Mac cannot update an ad-hoc signed
+# app, so in-app updates are off in this build; the download page offers new versions.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version, plain X.Y.Z (the same number as the Linux and Android vault builds)"
+        required: true
+      vault_host:
+        description: "Vault host (its https URL is built in)"
+        required: true
+        default: learn-vault.ddns.net
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vault-mac-${{ inputs.version }}
+  cancel-in-progress: false
+
+env:
+  NEXT_TELEMETRY_DISABLED: "1"
+
+jobs:
+  mac:
+    name: Package (mac-arm64, vault ${{ inputs.vault_host }})
+    runs-on: macos-26
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check the inputs
+        env:
+          VERSION: ${{ inputs.version }}
+          VAULT_HOST: ${{ inputs.vault_host }}
+        run: |
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "version must be plain X.Y.Z: $VERSION" >&2; exit 1; }
+          [[ "$VAULT_HOST" =~ ^[A-Za-z0-9.-]+$ ]] || { echo "vault_host must be a bare host name: $VAULT_HOST" >&2; exit 1; }
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "26"
+          cache: npm
+      # The mac icon (build/icon.icon) needs actool from Xcode 26+ on macOS 26+.
+      - name: Select Xcode 26+ for actool (mac icon compile)
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+      # The same recipe a Mac runs by itself (scripts/vault-mac-build.sh): npm ci, build metadata,
+      # build, smoke checks, ad-hoc signed package, packaged-settings check.
+      - name: Build the vault macOS app
+        env:
+          VERSION: ${{ inputs.version }}
+          VAULT_HOST: ${{ inputs.vault_host }}
+        run: scripts/vault-mac-build.sh --here --version "$VERSION" --host "$VAULT_HOST" --out out
+      - uses: actions/upload-artifact@v7
+        with:
+          name: learnharness-macos-${{ inputs.version }}
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            out/learnharness-macos.dmg
+            out/version.txt

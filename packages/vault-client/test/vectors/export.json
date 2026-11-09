@@ -1,0 +1,88 @@
+{
+	"description": "Export archive contents (ADR 0010). The tar holds manifest.json and blobs/<sha256>. Decrypting with recoveryKey or backupCode must produce `files`.",
+	"recoveryKey": "EFB7-AY8D-XW1T-TCZG-X3H2-MP2Z-Y3PE-RCQY",
+	"backupCode": "YGS10-B9SJK-DN8B2-RDPFG",
+	"manifest": {
+		"format": "lhv-export",
+		"version": 1,
+		"accountId": "4f9d2c1e-8b7a-4c3d-9e2f-1a2b3c4d5e6f",
+		"createdAt": "2026-11-01T12:00:00Z",
+		"serverUrl": "https://vault.learnharness.example",
+		"accountSalt": "HRsQ7E2AtyqxowbZ5nY40w",
+		"recoveryDerivation": 1,
+		"generation": 2,
+		"epoch": 2,
+		"methods": [
+			{
+				"kind": "recovery_key",
+				"publicKey": "DOP2mHzIi-dGpRFvSjRgceI0tou-jIJ4vT28PZMh20o",
+				"sealed": "951UIKVmoqruhsfajW9zB3AwZ3jK2rgX1rpo-KY3p1HLibqFp5FmBAKbP2wp6qGOkVW91i1eE1zYK07kscTBDY7sxtIaX80HlXGYUCoOOYgoW1Au",
+				"commit": "pZXcH1ME9VvA2k3Z7lxLbIe5NLmUuGRyZoqyqrawN-0"
+			},
+			{
+				"kind": "backup_code",
+				"publicKey": "ErbrPoGX0eT3soiCearyVTPrxRvEzorVLKcJ6e6GbXM",
+				"sealed": "v-JRrWBcBPewzYTLBJYQxuf_RFZGZ6RStzJGZcLtYTqgmHdKL7cR-U6NsABCvf6DOsWQPIfQ8b49zWz9aMgWvcVMSuALjywCqHRgm0-6luA2bTYA",
+				"commit": "ZJ7PYOc3gSLU4HDRhrwzi9pGxq51zNAv8axjl073xug"
+			}
+		],
+		"wraps": [
+			{
+				"name": "ik",
+				"wrap": "ccU_gJ8vo2SSLP1qZMgPOnLPhnBKv6h370NdUA8fg_yQaaXEMV8tO5OnV6Vt7zdCgtFuVUWKbB7FLezjjp3fDMDkA3nptCCb"
+			},
+			{
+				"name": "vk/1",
+				"wrap": "FUWQHVmva7GuwOMQxigvLbD5VsLjEAIAgcGnoz8-dKNB4CT6RnAIg3cVD5kNes730fWqGWw4v9fmbBlcHokFj4gj4qakY7Lf"
+			},
+			{
+				"name": "vk/2",
+				"wrap": "hDhPYCnIaW8DD_wxUZDcMaNbmy0jBM6OkVcDW4zFa1xCY2eatmfWy3GHikb1Do73qhFsq3tvmbN9C2npV_OfkBqQ4vSAf3PW"
+			}
+		],
+		"records": [
+			{
+				"recordId": "d153b6ad07ff338ffdc7c17e3ad57fdbe928dc78bf8c1b402bc817443c99c650",
+				"kind": "doc",
+				"seq": 100,
+				"epoch": 1,
+				"blob": "blobs/8a7b0064ac13a2c75e7cbd583725fb2680a0524ce97a1067c195dda5fc63f1a0"
+			},
+			{
+				"recordId": "9611318f37ec044ea49be4b07b0f6241c0fead8ca637bf5249129f77891d004d",
+				"kind": "doc",
+				"seq": 101,
+				"epoch": 1,
+				"blob": "blobs/77c72b03001b73f90988fc92872da2b16655cd3196d3879fd9f3b11394766d5c"
+			},
+			{
+				"recordId": "dc00ba45bdaaa9678c53711bcb9a2d475d594cf9b3a23938307fcda6be270d72",
+				"kind": "seg",
+				"seq": 102,
+				"epoch": 2,
+				"blob": "blobs/5da0eeae40a8b157274bb8753bc68c34a00b61a879f536c77eda2c778ac28648"
+			},
+			{
+				"recordId": "a87f1eef2acae52b08193f2673efdc1aaa6f200359072e17870902a7eb20f76a",
+				"kind": "seg",
+				"seq": 103,
+				"epoch": 2,
+				"blob": "blobs/4f2453c9251c75b787426b0c2ad95c15aba6e70a10a51e8bac3bd4a1c95c72fd"
+			}
+		]
+	},
+	"blobs": {
+		"blobs/8a7b0064ac13a2c75e7cbd583725fb2680a0524ce97a1067c195dda5fc63f1a0": "01000000014a0dcdce9fe010074acc54a8a2817db41bc186769131a5864fa12ba189618e52253ba6026a0630bc315b2a3ea4feff6e33c50a0fc2cb384fbcf58259cc047b300218d4e455b3116631313dfcf58dfe514799f643b669e706bb1028d79b821df5ad65ef72c71187392367212506434d8265c55564b1efca3913ee3f7be34a5de14c5182809502632704ae5ab49dee7ee3752021491ce3391e4536175db3742b2b845de601a20d5189b11ddd8727c293e79cf4a4532fd145531c11331fdec850970059198e43918aa26b75db857f463942109bd49f8f9fc532cf3941eb9f3a61fc021a0fe1acb1d64b44c9d78ad11b0b55a5072f7023",
+		"blobs/77c72b03001b73f90988fc92872da2b16655cd3196d3879fd9f3b11394766d5c": "0100000001ce266d1d154cfc1c593ba5d0dbbb61bca50515f8d4a8bd80fa49333a8fea165230ade546b71c0ea7b1eddfbaaae8c7b6a7267bd436ba493f3a68c45a2a84c85026a847f38e8deedcd3656159c89b91f2e6ae03637a9fc08d0ac15a1b03d70a3dcaf58cbf01857227444544207d09ffe5928d6ad8ef75a4abf08ebcf3a913104a7b91ea633bbabdf5529e8904810afa10233aef9a136a2a95cfb60fb8066c9c2f1079eff378eba6aa0dc5f49a",
+		"blobs/5da0eeae40a8b157274bb8753bc68c34a00b61a879f536c77eda2c778ac28648": "01000000025cf3b121ae5db853aa24051459b84d4bb485ee5807d72045a17b95db8a3c26536e91921f9c0fa097a319711c22924505221789fd51158b37a5be15611f899d1a1e2d1a12b0944f64cc59804a3c4eaa44467c4290d2d7912eb95dd78f74016aa7dc4c19ae88e4254010dabb57dcb42c29baf3cdf8c9e06a467ca118323ab0894577d7b2af0743e81dba8f5b4cdfa311758eb6d1172ac13f964bced65d56a9eb917e6de59affef2a69867eccacbfe6f88b7e658f93024d4eafb751bf6f008202cb8c113e59dcec888c605571ed5cfd509cff35148d203906c6f180",
+		"blobs/4f2453c9251c75b787426b0c2ad95c15aba6e70a10a51e8bac3bd4a1c95c72fd": "0100000002a7dde7a4575b771d10de9fdfd5db184cb34aec717b15ed33b2854bff1d64352a03814038d446133f13e1283774454df5bb0e2ae12c3a8093ba0e39006792728528873b78040fbe3b98ba5f4781433585be1d56916cbc7f4e54c9afe1fe2e948ba49b9ee9c2d21ec7f12c6025286763cb2bb06063c7ee433ab9f5a3734f40501f9e290932a56812b330c74ecf648f13d524b0fab5ae971a7e4fc0277ff987ff6cdd5a1df9c10078ac77d196302079c1286c692c62c4d21d32b77e9a35146913c92108d21e3c3eeee2b8ef16d5774c33bd04515bbd75ad98c44b599671487f7be7e1e2c23fd569be20e5e541d4417e400002f6"
+	},
+	"files": {
+		"chats/chat_mvniw6ja_263d49a8.json": "7b226964223a22636861745f6d766e6977366a615f3236336434396138222c227469746c65223a224772c3bcc39f65227d0a",
+		"graph/nodes.dev_ab12cd34.jsonl": "7b226f70223a22616464222c226964223a226e30227d0a7b226f70223a22616464222c226964223a226e31227d0a7b226f70223a22616464222c226964223a226e32227d0a"
+	},
+	"deleted": [
+		"jobs/job_x1.json"
+	],
+	"notes": "Segments ledger/<ledger>/<deviceId>/<offset> rebuild graph/<ledger>.<deviceId>.jsonl and ledger/<ledger>/base/<offset> rebuild graph/<ledger>.jsonl, concatenated in offset order. A gap or overlap stops that ledger at the gap and is reported. Tombstoned documents are not written."
+}

@@ -1,7 +1,7 @@
 /**
- * The vault runtime: the one module that statically imports the private vault client
- * (@znerual/learnharness-vault-client). Only service.ts loads it, with a dynamic import that
- * is allowed to fail, so a build without the package never evaluates this file.
+ * The vault runtime: the one module that statically imports the vault client
+ * (@znerual/learnharness-vault-client, packages/vault-client). Only service.ts loads it, with a
+ * dynamic import, so the client and its WASM crypto load only while the vault is switched on.
  *
  * It owns what lives for the whole process while the learner is signed in:
  *   Vault (keys, token) → SyncEngine + LearnHarnessHost → wrapped stores (src/server/stores.ts

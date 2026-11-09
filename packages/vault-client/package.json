@@ -1,0 +1,16 @@
+{
+	"name": "@znerual/learnharness-vault-client",
+	"version": "0.3.0",
+	"description": "LearnHarness Vault client: crypto, protocol, sync engine and outbox. Part of the learnharness repo; the app imports it from source.",
+	"license": "AGPL-3.0-only",
+	"private": true,
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts"
+	},
+	"scripts": {
+		"typecheck": "tsc -p tsconfig.json --noEmit",
+		"test": "tsx --test test/*.test.ts",
+		"vectors": "tsx scripts/gen-vectors.ts"
+	}
+}

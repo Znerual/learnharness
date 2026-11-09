@@ -8,7 +8,7 @@ import { dirname, join } from "node:path";
 
 import type { LearnHarnessStores } from "../src/server/vault/wire.ts";
 
-/** The vault client is a private optional dependency: tests of the code that needs it skip without it. */
+/** Whether the vault client (packages/vault-client) loads; always true in a complete checkout. */
 export const hasVaultClient = await import("@znerual/learnharness-vault-client").then(
 	() => true,
 	() => false,

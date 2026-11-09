@@ -372,8 +372,36 @@ describe("the forward to the speech endpoint", () => {
 		const empty = await synthesizeSpeech([text("  ")], fake(200, "ID3") as typeof fetch);
 		assert.deepEqual(empty, { ok: false, status: 400, error: "Nothing to read aloud" });
 	});
+	it("carries the phone's error code, so the page can offer the voice downloads", async () => {
+		const missing = await synthesizeSpeech(
+			[text("hi")],
+			fake(503, JSON.stringify({ error: { message: "The English read-aloud voice is not downloaded", code: "voice_not_downloaded" } })) as typeof fetch,
+		);
+		assert.deepEqual(missing, { ok: false, status: 502, error: "Text-to-speech failed: The English read-aloud voice is not downloaded", code: "voice_not_downloaded" });
+		const odd = await synthesizeSpeech([text("hi")], fake(503, JSON.stringify({ error: { message: "x", code: "<script>" } })) as typeof fetch);
+		assert.equal((odd as { code?: string }).code, undefined);
+	});
 	it("lists voice names, objects or strings", async () => {
 		const r = await listSpeechVoices(fake(200, JSON.stringify({ voices: ["af_heart", { id: "am_adam" }] })) as typeof fetch);
 		assert.deepEqual(r, { ok: true, voices: [{ id: "af_heart", language: "en" }, { id: "am_adam", language: "en" }] });
+	});
+});
+
+describe("a voice missing on the phone (owner, 2026-11-07)", async () => {
+	const { readAloudErrorText, isVoiceMissing } = await import("../components/read-aloud.tsx");
+	const failure = (message: string, code?: string) => Object.assign(new Error(message), { code });
+	it("says plainly that no voice is installed", () => {
+		assert.equal(readAloudErrorText(failure("Text-to-speech failed: The English read-aloud voice is not downloaded", "voice_not_downloaded")), "No read-aloud voice is installed on this phone.");
+	});
+	it("a download in progress keeps the phone's sentence, without the prefix", () => {
+		assert.equal(readAloudErrorText(failure("Text-to-speech failed: The English read-aloud voice waits for Wi-Fi to download (40 %)", "voice_downloading")), "The English read-aloud voice waits for Wi-Fi to download (40 %)");
+	});
+	it("other failures stay as they were", () => {
+		assert.equal(readAloudErrorText(failure("Text-to-speech failed: HTTP 500")), "Text-to-speech failed: HTTP 500");
+		assert.equal(readAloudErrorText("boom"), "Read-aloud failed");
+	});
+	it("only the voice codes lead to the voice downloads", () => {
+		assert.ok(isVoiceMissing("voice_not_downloaded") && isVoiceMissing("voice_downloading"));
+		assert.ok(!isVoiceMissing(null) && !isVoiceMissing("other"));
 	});
 });

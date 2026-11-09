@@ -1,0 +1,165 @@
+{
+	"description": "Unlock-method seeds, key pairs, sealed root keys, key commitments and public key tags (ADR 0002, ADR 0003). The account has generation 1, epoch 1.",
+	"accountId": "4f9d2c1e-8b7a-4c3d-9e2f-1a2b3c4d5e6f",
+	"ik": "ebeca30f95f6766a5bc0c559fbec634ca6250f8feef4af0229058137e804feeb",
+	"ikTag": "91b5e3b5fe2692a364e6f2e67031073f3b5b7b1dd510246f6d8052963a1f0a01",
+	"pkTagKey": "ecdecfc322c525cac74c7d34d13d7c3f1ebcaa54266626ae9c96e59c2f9c20ce",
+	"rootKey": "7b1cfa4ad6a81cbcf356011a0261ad99a868876b3e6f2748a2dbce275423d3b4",
+	"generation": 1,
+	"vk1": "cc7a49760568856ac3757bffa41d8421338a74098419c05ac363f696fdf4415c",
+	"wraps": [
+		{
+			"name": "ik",
+			"wrap": "4ae1a517bc2a45015be5596ff9025df55eb41fe61a4823bdc51eba79b3a28639e5a50e7760de834542901dec601ad305849a259f23087bddb19987870ec05efacdab03f4ef2458c1"
+		},
+		{
+			"name": "vk/1",
+			"wrap": "86468b6545f5adad2ecfad212a0480f8acab4e4dc9717ba82b8cda1e2cff869e9c0e584d8ce366c9a205e4eabd1922f15c4e3501ee011a02366490dd33f2412e1973fa7ca08b2421"
+		}
+	],
+	"seedInputs": {
+		"opaqueExportKey": "54d5b4eb9ed0ad9bd31ebfc64ace25dc2de86be00cea0b11e752348a23dd0756df1c64988164eedb11c7ddf2b2de668db518e9e909a376c3a50bc1a6a4acc04f",
+		"prfOutput": "691b539c19d5171b79e2bb73d2856dd1c60524eb40645e68dc9497a3646a12f3",
+		"passwordSeed": "bf33bdaca91310b7178ea7b040569ee5ed887c5e34960e43153bbb7e43e40a37",
+		"passkeySeed": "8498cf5b2ffb7e8a1391e3296156a9a5440454859daa62028d5aca75bfe455cb"
+	},
+	"methods": [
+		{
+			"kind": "password",
+			"seed": "bf33bdaca91310b7178ea7b040569ee5ed887c5e34960e43153bbb7e43e40a37",
+			"publicKey": "5665233ea48b7b02cab285987c0808d6a8fe36bbb6a8436265d933db8624785d",
+			"secretKey": "c9ae9c9e7a7c8a5e229876fd6997ec1573ca22da63892fa20919d450a3e7365c",
+			"commitKey": "a64a6f5822b15f29609d9498d8ed3ef32b3b8084aa8a8467631500bf724b1db0",
+			"commit": "1e6f70925d7d1a6b5a0c12bafb280902f577869c94a72c9bf1545695c194277a",
+			"pkTag": "e79b2be789b68a3d0ea018dc9af53d4c26e1c92f37454b347e4ae5bf6207d167",
+			"ephemeralSeed": "b530e6cbb9e5b9a0d108ab28b243f278f3099d197861abc932804ca4fb69192e",
+			"sealed": "06e51aed48e6c4550c453972e1fb24f3a683459e2101a15fdd1cee4ae0795534be3c3307f26ec869d4e389e7211f3373ae5611710b94b5645e1bebb5884de0bc2e4db186c144caea643b8eaf1b16ac0bed514381"
+		},
+		{
+			"kind": "passkey",
+			"seed": "8498cf5b2ffb7e8a1391e3296156a9a5440454859daa62028d5aca75bfe455cb",
+			"publicKey": "f40a5603b6dcdde07c601c46817f39e7c4d403c91e6e57550a8c63cceabff123",
+			"secretKey": "6e346a5a29acb25e4001fc8d51355edcb21aecf09c532195478d6dfbd1b05322",
+			"commitKey": "af0e4bee38d2637d50b1c238dcb5a7713d2b9aee13300ebf4bb5ab80377b3a84",
+			"commit": "7cf798b1af7804f2efe3df7029f340222121ab09a0a066806b3481e8b686e466",
+			"pkTag": "9a91733e97a2dc3ffde2953e0d905cc3252125ec9530a94b482afca01587cd7d",
+			"ephemeralSeed": "18fcf969b5f29f35908cf35a06063ce62cdaec9f8627f40c550c946fad4e5b86",
+			"sealed": "4292c8889c4a473fae3ca9c286821fd669d44d755f37fef5ed4616628972b50b9456750bb17c83cb625612d6380b3ba99d3f45c04fc49dbafec6665c7b1595da2918a6b465d771050190ed731b850294a72d548c"
+		},
+		{
+			"kind": "recovery_key",
+			"seed": "d30e3b464974e06428e87fb86563936dc930ee0c872d275430c1fd3d52c51987",
+			"publicKey": "0ce3f6987cc88be746a5116f4a346071e234b68bbe8c8278bd3dbc3d9321db4a",
+			"secretKey": "419129a38e2cb15f8367a52cdb777cc2766148f9fc06d1d090cec3988e52c3bd",
+			"commitKey": "bcaf2e268b77a9e26a467fed0d72cbe57469cd8afdd8ef865ee5edc6e0340db4",
+			"commit": "a595dc1f5304f55bc0da4dd9ee5c4b6c87b934b994b86472668ab2aab6b037ed",
+			"pkTag": "08d4ab7ca80c4d855ff5963943c23e2b38ed68c6da957ea79b1ab094e4bf66fb",
+			"ephemeralSeed": "3410702473a17ccaf176a52e091a4ef03934597de78e1a8045c81b6d5ee2896c",
+			"sealed": "bb63c031d26e6da52061ed489b19c1f4b73f1a98554b77c006b148d4f8ddb17b6fe2ea4d461bf89c5f8dab9a8dabff6518a867469115db0092cd30ba50772de4c6951e07e219aa65e0af73bdd272954fad5bcade"
+		},
+		{
+			"kind": "backup_code",
+			"seed": "9eb4d70597e3a48c48cda60f5a5a05f10cc712f81f2c17d046d494393fd5c1a8",
+			"publicKey": "12b6eb3e8197d1e4f7b2888279aaf25533ebc51bc4ce8ad52ca709e9ee866d73",
+			"secretKey": "daa0d37ec0da5a8aa5d9798e11b90c4a8d55bd60710ce224c7fe821691b2805e",
+			"commitKey": "f52d56926087af7871dc478c58aa24ef6ac3dc13355a2de8b5e2c3026da171ef",
+			"commit": "649ecf60e7378122d4e070d186bc338bda46c6ae75ccd02ff1ac63974ef7c6e8",
+			"pkTag": "5a26da8d758c4cf1e15acf41873943a5e2cd3b9c0a534cc4eabfd491008ad6cb",
+			"ephemeralSeed": "076b0f9bfc3658541db22d4beadc8e0121c5cad7e1cd7255dcd47ef8566994e1",
+			"sealed": "3d62581ceafa8d6ee211d0212e33c93e7d1eda6762e713aa25a117dc92c89415d7dd7b15796fbbdc7f9d748e2959b717f95ec72207ba84378e8ec3960c80c1e9134a67d4d7d03865b22c1d15019b16ca95e6c600"
+		},
+		{
+			"kind": "device",
+			"seed": "ad414dc9e0c208d30dab3cce1407dafb09b3867c2a2fc30edec47d983d753bad",
+			"publicKey": "a9f3017b7793517de881254a57d0de8713dab55f84fb168cc645eded3b32412c",
+			"secretKey": "66e812890b636806df2ce7522f619f32e10441d6b6e209a6a033f967082744a5",
+			"commitKey": "175d024d54079e509b06759c74ffd5be428b0c0ad89005579d6256f5ddb37ca3",
+			"commit": "43c59fc45fdb14f6a0e8e6b51845007154eeacd22bb9fbd5b53459710c877551",
+			"pkTag": "13dec8d89b8641f96b1e9e3ecff20378420c7b74811342d74bb1522de0678d4c",
+			"ephemeralSeed": "02c0cf2e6bb93fc2860be45a58f10adceb87b3d7b128da0469312b9b8e9749ee",
+			"sealed": "fa4ccabeb30c87730e3b156d85d0ad54692adcaaa3b895bf0eccaab8aa8d3025dd02e56432a94cc0fa06c9014c94f0f2feadad34cc5cdb8b71daf2ffa82dba0edb3030b55ff248cf16ac7bde1a94018ac81a82ea"
+		}
+	],
+	"invalid": {
+		"commit": [
+			{
+				"why": "commit of another kind",
+				"kind": "password",
+				"publicKey": "5665233ea48b7b02cab285987c0808d6a8fe36bbb6a8436265d933db8624785d",
+				"seed": "bf33bdaca91310b7178ea7b040569ee5ed887c5e34960e43153bbb7e43e40a37",
+				"commit": "1fc40e258482ab74de0c6e681fdcbee060f252ba297d9c1ebe1822d70b4ca137"
+			},
+			{
+				"why": "commit of another account",
+				"kind": "password",
+				"publicKey": "5665233ea48b7b02cab285987c0808d6a8fe36bbb6a8436265d933db8624785d",
+				"seed": "bf33bdaca91310b7178ea7b040569ee5ed887c5e34960e43153bbb7e43e40a37",
+				"commit": "280609d5d21a973dab0f6227bc08907f0d6d94d80a90118a6f74549f7299f5ec"
+			},
+			{
+				"why": "commit over another index key",
+				"kind": "password",
+				"publicKey": "5665233ea48b7b02cab285987c0808d6a8fe36bbb6a8436265d933db8624785d",
+				"seed": "bf33bdaca91310b7178ea7b040569ee5ed887c5e34960e43153bbb7e43e40a37",
+				"commit": "cfd8ece57eade965213711c44c2371f3d1d22332ac2d42c0cce68d34e23d4a54"
+			},
+			{
+				"why": "commit of another method in the account",
+				"kind": "password",
+				"publicKey": "5665233ea48b7b02cab285987c0808d6a8fe36bbb6a8436265d933db8624785d",
+				"seed": "bf33bdaca91310b7178ea7b040569ee5ed887c5e34960e43153bbb7e43e40a37",
+				"commit": "43c59fc45fdb14f6a0e8e6b51845007154eeacd22bb9fbd5b53459710c877551"
+			}
+		],
+		"pkTag": [
+			{
+				"why": "pkTag of another public key",
+				"kind": "password",
+				"publicKey": "5665233ea48b7b02cab285987c0808d6a8fe36bbb6a8436265d933db8624785d",
+				"pkTag": "13dec8d89b8641f96b1e9e3ecff20378420c7b74811342d74bb1522de0678d4c"
+			},
+			{
+				"why": "pkTag of another kind",
+				"kind": "password",
+				"publicKey": "5665233ea48b7b02cab285987c0808d6a8fe36bbb6a8436265d933db8624785d",
+				"pkTag": "64616a57ab7ea7681743d451eb500959acff1862fe2af1ea7b8facf2c10364b9"
+			},
+			{
+				"why": "pkTag of another account",
+				"kind": "password",
+				"publicKey": "5665233ea48b7b02cab285987c0808d6a8fe36bbb6a8436265d933db8624785d",
+				"pkTag": "02f1a0ffb9b2de4ce66803a674c9610e76e6f843711a490cd4b8f7e3e14ca9e4"
+			}
+		],
+		"sealed": [
+			{
+				"why": "sealed to another method",
+				"kind": "password",
+				"secretKey": "c9ae9c9e7a7c8a5e229876fd6997ec1573ca22da63892fa20919d450a3e7365c",
+				"publicKey": "5665233ea48b7b02cab285987c0808d6a8fe36bbb6a8436265d933db8624785d",
+				"sealed": "fa4ccabeb30c87730e3b156d85d0ad54692adcaaa3b895bf0eccaab8aa8d3025dd02e56432a94cc0fa06c9014c94f0f2feadad34cc5cdb8b71daf2ffa82dba0edb3030b55ff248cf16ac7bde1a94018ac81a82ea"
+			},
+			{
+				"why": "truncated",
+				"kind": "password",
+				"secretKey": "c9ae9c9e7a7c8a5e229876fd6997ec1573ca22da63892fa20919d450a3e7365c",
+				"publicKey": "5665233ea48b7b02cab285987c0808d6a8fe36bbb6a8436265d933db8624785d",
+				"sealed": "06e51aed48e6c4550c453972e1fb24f3a683459e2101a15fdd1cee4ae0795534be3c3307f26ec869d4e389e7211f3373ae5611710b94b5645e1bebb5884de0bc2e4db186c144caea643b8eaf1b16ac0bed5143"
+			},
+			{
+				"why": "flipped bit",
+				"kind": "password",
+				"secretKey": "c9ae9c9e7a7c8a5e229876fd6997ec1573ca22da63892fa20919d450a3e7365c",
+				"publicKey": "5665233ea48b7b02cab285987c0808d6a8fe36bbb6a8436265d933db8624785d",
+				"sealed": "06e51aed48e6c4550c453972e1fb24f3a683459e2101a15fdd1cee4ae0795534be3c3307f26ec869d5e389e7211f3373ae5611710b94b5645e1bebb5884de0bc2e4db186c144caea643b8eaf1b16ac0bed514381"
+			},
+			{
+				"why": "generation 0 inside",
+				"kind": "password",
+				"secretKey": "c9ae9c9e7a7c8a5e229876fd6997ec1573ca22da63892fa20919d450a3e7365c",
+				"publicKey": "5665233ea48b7b02cab285987c0808d6a8fe36bbb6a8436265d933db8624785d",
+				"sealed": "2aa275ce856e0363f4d1336a530f3144ddacd7a19ae009176e63a43d2693f633dcb85d61c7878db55b55aae020f18c9f1904743338ed8c721e2fd93ef4497fb16e77bffbdd7f6d5764159b41cb8cb7f89a04f3b6"
+			}
+		]
+	}
+}

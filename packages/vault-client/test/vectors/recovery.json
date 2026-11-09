@@ -1,0 +1,92 @@
+{
+	"description": "Recovery key and backup code encoding and the fast BLAKE2b derivation (ADR 0005). Ed25519 signatures are deterministic.",
+	"accountId": "4f9d2c1e-8b7a-4c3d-9e2f-1a2b3c4d5e6f",
+	"accountSalt": "1d1b10ec4d80b72ab1a306d9e67638d3",
+	"challenge": "d848ab84b00e58819bbde03a9758e76ba613fecbb2e214ab21571d4a648092e9",
+	"secrets": [
+		{
+			"kind": "recovery_key",
+			"text": "EFB7-AY8D-XW1T-TCZG-X3H2-MP2Z-Y3PE-RCQY",
+			"secretBytes": "73d675790def03ad33f0e8e22a585ff0ecec32fe",
+			"material": "d30e3b464974e06428e87fb86563936dc930ee0c872d275430c1fd3d52c5198743155f306b3f3dae242b8344a0a284e9ae123ab13d0a3575fee290a9a72a89e9",
+			"unlockPublicKey": "0ce3f6987cc88be746a5116f4a346071e234b68bbe8c8278bd3dbc3d9321db4a",
+			"authPublicKey": "66e448bbb7f37ee8b0bf204a63167dbf663e09ccb2d4de27226ca1e5a2297aed",
+			"challengeMessage": "6c6876312f7265636f7665722f34663964326331652d386237612d346333642d396532662d316132623363346435653666d848ab84b00e58819bbde03a9758e76ba613fecbb2e214ab21571d4a648092e9",
+			"signature": "902e523f799e8283addc53af7a0af5e29fe10c0d4559a482f54c7f941599b2db74373672cd39ec1213d690a275eee9d219ea09666a6736bd5b46952d810d130c"
+		},
+		{
+			"kind": "backup_code",
+			"text": "YGS10-B9SJK-DN8B2-RDPFG",
+			"secretBytes": "0f432102d3994db542c586d9f0",
+			"material": "9eb4d70597e3a48c48cda60f5a5a05f10cc712f81f2c17d046d494393fd5c1a841956483b698abcc87c5ee53addbe086f1313d79dc416725e233a98e7963639a",
+			"unlockPublicKey": "12b6eb3e8197d1e4f7b2888279aaf25533ebc51bc4ce8ad52ca709e9ee866d73",
+			"authPublicKey": "d48601348e50bf8917340c0a5a3fb17ec335c817e9779da799a33b94546b7e5a",
+			"challengeMessage": "6c6876312f7265636f7665722f34663964326331652d386237612d346333642d396532662d316132623363346435653666d848ab84b00e58819bbde03a9758e76ba613fecbb2e214ab21571d4a648092e9",
+			"signature": "faadf427362d8d5bf166721be0fe2da000167e07ae945c3d5e291ef92ae8b1e61505370a51f572da0d07772657fed4106396e8a882276b23aa678cd1e2047c09"
+		}
+	],
+	"textVariants": [
+		{
+			"kind": "recovery_key",
+			"input": "efb7-ay8d-xw1t-tczg-x3h2-mp2z-y3pe-rcqy",
+			"secretBytes": "73d675790def03ad33f0e8e22a585ff0ecec32fe"
+		},
+		{
+			"kind": "recovery_key",
+			"input": "EFB7AY8DXW1TTCZGX3H2MP2ZY3PERCQY",
+			"secretBytes": "73d675790def03ad33f0e8e22a585ff0ecec32fe"
+		},
+		{
+			"kind": "backup_code",
+			"input": "0OIL1-00000-00000-0000Z",
+			"secretBytes": "0000210800000000000000001f"
+		}
+	],
+	"invalidText": [
+		{
+			"kind": "recovery_key",
+			"input": "EFB7-AY8D-XW1T-TCZG-X3H2-MP2Z-Y3PE-RCQ",
+			"why": "one character short"
+		},
+		{
+			"kind": "recovery_key",
+			"input": "EFB7-AY8D-XW1T-TCZG-X3H2-MP2Z-Y3PE-RCQY0",
+			"why": "one character long"
+		},
+		{
+			"kind": "backup_code",
+			"input": "UUUUU-00000-00000-00000",
+			"why": "U is not in the alphabet"
+		},
+		{
+			"kind": "backup_code",
+			"input": "*0000-00000-00000-00000",
+			"why": "invalid character"
+		},
+		{
+			"kind": "recovery_key",
+			"input": "YGS10-B9SJK-DN8B2-RDPFG",
+			"why": "backup code length"
+		}
+	],
+	"formats": {
+		"recovery_key": {
+			"chars": 32,
+			"bytes": 20,
+			"group": 4,
+			"bits": 160
+		},
+		"backup_code": {
+			"chars": 20,
+			"bytes": 13,
+			"group": 5,
+			"bits": 100
+		},
+		"pairing": {
+			"chars": 52,
+			"bytes": 32,
+			"group": 0,
+			"bits": 256
+		}
+	}
+}

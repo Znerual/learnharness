@@ -25,6 +25,9 @@
     "paths": {
       "@/*": [
         "./*"
+      ],
+      "@znerual/learnharness-vault-client": [
+        "./packages/vault-client/src/index.ts"
       ]
     },
     "plugins": [
