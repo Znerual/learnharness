@@ -136,3 +136,14 @@ bash vault-mac-build.sh --version 0.4.2111 --copy-to <user>@<build machine>:lhv-
 ```
 
 `scripts/vault-mac-build.sh` clones the repo into `~/learnharness-vault-mac` (later runs reset it to `origin/main`, or `--ref`), builds with the version and vault host (`--host`, default `learn-vault.ddns.net`), runs the same smoke checks as the release workflow, checks the packaged `learnharnessBuild`, and leaves `learnharness-macos.dmg` and `version.txt` in `dist-vault/`. `--copy-to` sends both to the machine that runs the release script, which publishes them with `--mac-dmg <folder>` together with the Linux and Android builds of the same version. The app is ad-hoc signed and not notarized, and in-app updates are off in it (Squirrel.Mac cannot update an ad-hoc signed app). The hand-started workflow `.github/workflows/vault-mac.yml` runs the same script with `--here` on GitHub's `macos-26` runner.
+
+## Vault Windows build (on a Windows PC, without GitHub)
+
+The vault releases also carry a Windows installer with the vault server built in. Any x64 Windows PC with Node 26, npm and git builds it in PowerShell; the repo is public, so it needs no login:
+
+```powershell
+irm https://raw.githubusercontent.com/Znerual/learnharness/main/scripts/vault-windows-build.ps1 -OutFile vault-windows-build.ps1
+powershell -ExecutionPolicy Bypass -File vault-windows-build.ps1 -Version 0.4.2112 -CopyTo <user>@<build machine>:lhv-win/
+```
+
+`scripts/vault-windows-build.ps1` clones the repo into `~\learnharness-vault-win` (later runs reset it to `origin/main`, or `-Ref`), builds with the version and vault host (`-VaultHost`, default `learn-vault.ddns.net`), runs the same smoke checks as the release workflow, packages the NSIS installer with `learnharnessBuild.vaultUrl` and `learnharnessBuild.updateFeed` (`https://<host>/updates/`), checks the packaged `learnharnessBuild`, and leaves `LearnHarness-<version>-x64-setup.exe`, `latest.yml` and `version.txt` in `dist-vault\`. `-CopyTo` sends them with scp to the machine that runs the release script, which publishes them with `--win-dir <folder>`: the installer and `latest.yml` go to the vault host's update feed, so installed Windows apps update themselves (unsigned, as in the fork's own Windows release), and the installer goes to the download page. `-Here` builds the checkout the script is in, as it is. The script runs in Windows PowerShell 5.1 and in PowerShell 7, and stays ASCII only (5.1 reads a script without a byte order mark as ANSI).
