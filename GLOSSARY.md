@@ -54,6 +54,14 @@ _Avoid_: interrupt, injection
 Speaking a reply or question to the learner, block by block.
 _Avoid_: TTS, playback
 
+**Voice engine**:
+What read-aloud speaks with: a speech server at a URL, or the built-in engine (OmniVoice on this computer).
+_Avoid_: TTS backend, provider
+
+**Voice clip**:
+A voice cloned from the learner's own short recording and its transcript; its id starts with `clip-`.
+_Avoid_: custom voice, sample
+
 **Dictation**:
 Turning the learner's speech into text in the field that currently holds the dictation claim.
 _Avoid_: transcription, speech input

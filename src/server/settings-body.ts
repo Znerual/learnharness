@@ -29,7 +29,7 @@ import { APPEARANCE_MODES, BACKGROUND_MODEL_ROLES, CACHE_RETENTIONS, COMPACTION_
 import type { AppearanceMode } from "../core/settings.ts";
 import { WRITABLE_TOOL_KEYS } from "../core/pending.ts";
 import { DICTATION_ENGINES, isDictationLanguage, type DictationSettings } from "../core/dictation.ts";
-import { SPEECH_LANGUAGES, SPEECH_SPEED_MAX, SPEECH_SPEED_MIN, isSpeechLanguage, isSpeechSpeed, type SpeechSettings } from "../core/speech.ts";
+import { SPEECH_ENGINES, SPEECH_LANGUAGES, SPEECH_SPEED_MAX, SPEECH_SPEED_MIN, isSpeechEngineChoice, isSpeechLanguage, isSpeechSpeed, type SpeechSettings } from "../core/speech.ts";
 
 /** Parsed-or-rejected — `ok: false` carries the 400's error message. */
 export type SettingsBodyResult<T> =
@@ -440,11 +440,15 @@ export function parseDictationSettingsBody(body: unknown): SettingsBodyResult<Di
 
 // ─── speech (read-aloud wave, 2026-10-24) ───────────────────────────────────
 
-/** speech: { url?, voice?, speed?, autoRead?, language? } — strict. */
+/** speech: { engine?, url?, voice?, speed?, autoRead?, language? } — strict. */
 export function parseSpeechSettingsBody(body: unknown): SettingsBodyResult<SpeechSettings> {
 	const raw = asRecord(body);
 	if (!raw) return { ok: false, error: "Invalid JSON body" };
 	const settings: SpeechSettings = {};
+	if (raw.engine !== undefined) {
+		if (!isSpeechEngineChoice(raw.engine)) return { ok: false, error: `engine must be one of ${SPEECH_ENGINES.join(", ")}` };
+		settings.engine = raw.engine;
+	}
 	if (raw.url !== undefined && raw.url !== "") {
 		const url = typeof raw.url === "string" ? normalizeBaseUrl(raw.url) : null;
 		if (!url) return { ok: false, error: "url must be an http(s) URL without query or fragment" };

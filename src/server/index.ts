@@ -50,6 +50,7 @@ export * from "./obsidian.ts";
 export * from "./stt.ts";
 export * from "./tts.ts";
 export * from "./speech-models.ts";
+export { OMNIVOICE_LICENSES, OMNIVOICE_PRESETS, omniVoiceRunning, omniVoiceStatus, removeOmniVoice, startOmniVoiceInstall, stopOmniVoice, type OmniVoiceStatus } from "./omnivoice/index.ts";
 export { subscriptionControlsResponse, subscriptionBrowserResponse } from "./web-subscription-http.ts";
 export { sessionCost } from "./pricing.ts";
 export { claudeCodeInstallationResponse } from "./claude-code.ts";

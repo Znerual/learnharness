@@ -25,14 +25,15 @@ import {
 	type SpeechVoice,
 	type UserSettings,
 } from "@/src/core";
-import { notifySettingsSaved } from "@/components/settings-signal";
+import { notifySettingsSaved, useSettingsSaved } from "@/components/settings-signal";
 
 const INPUT_CLASS =
 	"h-7 min-w-0 flex-1 rounded-sm border border-border bg-background px-1.5 font-mono text-xs text-foreground outline-none placeholder:text-muted-foreground/60 focus:border-muted-foreground/50";
 
 /** The row's status line; `hideEndpoint` leaves out the server (the phone's own). Pure — exported for tests. */
 export function speechStatusLine(section: SpeechSettings | undefined, hideEndpoint = false): string {
-	const { url, voice, speed, language } = resolveSpeech(section);
+	const { engine, url, voice, speed, language } = resolveSpeech(section);
+	if (engine === "builtin") return [SPEECH_LANGUAGE_LABEL[language], voice ?? "default voice", speed !== 1 ? `${speed}×` : null].filter(Boolean).join(" · ");
 	if (!url) return hideEndpoint ? "starting…" : "not set";
 	if (hideEndpoint) return [SPEECH_LANGUAGE_LABEL[language], voice ?? "default voice", speed !== 1 ? `${speed}×` : null].filter(Boolean).join(" · ");
 	let host = url;
@@ -55,16 +56,23 @@ export function SpeechRows({ hideEndpoint = false }: { hideEndpoint?: boolean } 
 	const [voices, setVoices] = useState<SpeechVoice[] | null>(null);
 	const [error, setError] = useState<string | null>(null);
 
-	useEffect(() => {
+	const load = () =>
 		fetch("/api/settings")
 			.then((r) => r.json())
 			.then((body: { settings: UserSettings | null }) => setSection(body.settings?.speech ?? {}))
 			.catch(() => setSection({}));
-	}, []);
-
-	// The voice list, from the SAVED endpoint, each time the editor opens.
 	useEffect(() => {
-		if (!editing || !section?.url) {
+		void load();
+	}, []);
+	// The engine choice (speech-engine.tsx) writes the same section: re-read, so a save here keeps it.
+	useSettingsSaved((saved) => {
+		if (saved === "speech" && !editing) void load();
+	});
+
+	const builtin = section?.engine === "builtin";
+	// The voice list, from the SAVED endpoint (or the built-in engine), each time the editor opens.
+	useEffect(() => {
+		if (!editing || (!section?.url && !builtin)) {
 			setVoices(null);
 			return;
 		}
@@ -80,7 +88,7 @@ export function SpeechRows({ hideEndpoint = false }: { hideEndpoint?: boolean } 
 		return () => {
 			cancelled = true;
 		};
-	}, [editing, section?.url]);
+	}, [editing, section?.url, builtin]);
 
 	if (section === null) return null;
 	const effective = resolveSpeech(section);
@@ -129,7 +137,7 @@ export function SpeechRows({ hideEndpoint = false }: { hideEndpoint?: boolean } 
 		<>
 			{editing ? (
 				<div className="flex flex-col gap-1.5 rounded-sm px-1 py-1.5" data-testid="speech-editor">
-					<div className={hideEndpoint ? "hidden" : "flex items-center gap-2"}>
+					<div className={hideEndpoint || builtin ? "hidden" : "flex items-center gap-2"}>
 						<span className="shrink-0 font-ui text-xs text-foreground">Read aloud</span>
 						<input
 							value={url}
@@ -138,7 +146,7 @@ export function SpeechRows({ hideEndpoint = false }: { hideEndpoint?: boolean } 
 							placeholder="http://localhost:8000/v1"
 							aria-label="Text-to-speech base URL"
 							data-testid="speech-url"
-							autoFocus={!hideEndpoint}
+							autoFocus={!hideEndpoint && !builtin}
 							className={INPUT_CLASS}
 						/>
 					</div>
@@ -171,7 +179,7 @@ export function SpeechRows({ hideEndpoint = false }: { hideEndpoint?: boolean } 
 								data-testid="speech-voice"
 								className={INPUT_CLASS}
 							>
-								<option value="">server default voice</option>
+								<option value="">{builtin ? "default voice" : "server default voice"}</option>
 								{voice && !voicesFor(voices, language).some((v) => v.id === voice) && <option value={voice}>{voice}</option>}
 								{voicesFor(voices, language).map((v) => (
 									<option key={v.id} value={v.id}>
@@ -235,7 +243,7 @@ export function SpeechRows({ hideEndpoint = false }: { hideEndpoint?: boolean } 
 					}}
 					className="flex w-full cursor-pointer items-center justify-between gap-3 rounded-sm px-1 py-1.5 text-left transition-colors hover:bg-accent/50"
 				>
-					<span className="font-ui text-xs text-foreground">{hideEndpoint ? "Language, voice and speed" : "Read aloud"}</span>
+					<span className="font-ui text-xs text-foreground">{hideEndpoint || builtin ? "Language, voice and speed" : "Read aloud"}</span>
 					<span className="font-mono text-[11px] text-muted-foreground">{speechStatusLine(section, hideEndpoint)}</span>
 				</button>
 			)}

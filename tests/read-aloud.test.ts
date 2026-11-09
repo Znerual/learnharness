@@ -278,7 +278,7 @@ describe("the read-aloud language (owner, 2026-11-01)", () => {
 
 describe("speech settings", () => {
 	it("resolve to off with no URL", () => {
-		assert.deepEqual(resolveSpeech(undefined), { url: null, voice: null, speed: 1, autoRead: false, language: "en" });
+		assert.deepEqual(resolveSpeech(undefined), { engine: "url", url: null, voice: null, speed: 1, autoRead: false, language: "en" });
 	});
 	it("sanitize leniently", () => {
 		assert.deepEqual(sanitizeSpeech({ url: "http://h:1/v1/", voice: " af_heart ", speed: 1.5, autoRead: true }), {
@@ -336,7 +336,7 @@ describe("the forward to the speech endpoint", () => {
 	});
 	it("posts the spoken text with voice and speed, the key as bearer when stored", async () => {
 		writeSettings({ version: 1, speech: { url: "http://tts:8110/v1", voice: "af_heart", speed: 1.25 } });
-		assert.deepEqual(speechConfig(), { url: "http://tts:8110/v1", voice: "af_heart", speed: 1.25, autoRead: false, language: "en" });
+		assert.deepEqual(speechConfig(), { engine: "url", url: "http://tts:8110/v1", voice: "af_heart", speed: 1.25, autoRead: false, language: "en" });
 		const r = await synthesizeSpeech([text("So "), math("x^2")], fake(200, "ID3") as typeof fetch);
 		assert.ok(r.ok);
 		assert.equal(r.contentType, "audio/mpeg");
@@ -344,7 +344,7 @@ describe("the forward to the speech endpoint", () => {
 		let call = seen.at(-1)!;
 		assert.equal(call.url, "http://tts:8110/v1/audio/speech");
 		assert.equal(call.auth, undefined);
-		assert.deepEqual(call.body, { model: "tts-1", input: "So x squared", response_format: "mp3", speed: 1.25, voice: "af_heart" });
+		assert.deepEqual(call.body, { model: "tts-1", input: "So x squared", response_format: "mp3", speed: 1.25, language: "en", voice: "af_heart" });
 		assert.ok(saveKey("LH_TTS_KEY", "sk-tts").ok);
 		await synthesizeSpeech([text("hi")], fake(200, "ID3") as typeof fetch);
 		call = seen.at(-1)!;

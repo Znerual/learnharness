@@ -46,6 +46,7 @@ import {
 import { SettingsGroup } from "./controls.tsx";
 import { DictationEngineRows } from "./dictation-engine.tsx";
 import { SpeechRows } from "./speech-rows.tsx";
+import { SpeechEngineRows, VoiceClipRows } from "./speech-engine.tsx";
 import { OnDeviceSpeechGroup } from "./on-device-speech.tsx";
 import { SubscriptionConnections } from "./subscription-connections.tsx";
 import { ClaudeCodeInstallationStatus } from "./claude-code-status.tsx";
@@ -609,9 +610,16 @@ export function KeysSection({
 				{/* The phone's own read-aloud voices (Android app). */}
 				{android && <OnDeviceSpeechGroup part="read-aloud" />}
 				<SettingsGroup label="Read aloud" testid={TOOL_GROUP_TESTIDS["Read aloud"]}>
-					{/* On the phone the app points read-aloud at its own speech server: no URL or key to show. */}
-					<SpeechRows hideEndpoint={android} />
-					{android ? null : toolRows.filter((status) => toolGroupOf(status.id) === "Read aloud").map(toolRow)}
+					{/* On the phone the app points read-aloud at its own speech server: no engine choice, URL or key to show. */}
+					{android ? (
+						<SpeechRows hideEndpoint />
+					) : (
+						// The engine choice first (owner, 2026-11-09): a speech server, or OmniVoice on this computer.
+						<SpeechEngineRows server={toolRows.filter((status) => toolGroupOf(status.id) === "Read aloud").map(toolRow)}>
+							<SpeechRows />
+							<VoiceClipRows />
+						</SpeechEngineRows>
+					)}
 				</SettingsGroup>
 			</>
 		);

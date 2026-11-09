@@ -12,8 +12,21 @@
 
 import { normalizeBaseUrl } from "./settings.ts";
 
+/** Where read-aloud speaks (owner, 2026-11-09): an OpenAI-compatible speech
+ *  server at `url` (AudioAgent, Kokoro, the phone's own server), or the
+ *  built-in OmniVoice engine on this computer (src/server/omnivoice/). An
+ *  explicit choice: one never stands in for the other. */
+export const SPEECH_ENGINES = ["url", "builtin"] as const;
+export type SpeechEngineChoice = (typeof SPEECH_ENGINES)[number];
+
+export function isSpeechEngineChoice(value: unknown): value is SpeechEngineChoice {
+	return (SPEECH_ENGINES as readonly unknown[]).includes(value);
+}
+
 /** The `speech` settings section (delta — absent = default). */
 export interface SpeechSettings {
+	/** Absent = "url". */
+	engine?: SpeechEngineChoice;
 	/** The endpoint's OpenAI-style base URL ("http://host:8110/v1");
 	 *  read-aloud POSTs to <url>/audio/speech. */
 	url?: string;
@@ -30,6 +43,7 @@ export interface SpeechSettings {
 
 /** The resolved view every consumer reads. */
 export interface EffectiveSpeech {
+	engine: SpeechEngineChoice;
 	url: string | null;
 	voice: string | null;
 	speed: number;
@@ -73,6 +87,33 @@ export function voicesFor(voices: readonly SpeechVoice[], language: SpeechLangua
 	return voices.filter((v) => v.language === null || v.language === language);
 }
 
+/** A voice cloned from the user's own recording (owner, 2026-11-09): its id
+ *  starts with this, in AudioAgent and in the built-in engine alike, so the
+ *  voice picker can offer to delete it. */
+export const SPEECH_CLIP_PREFIX = "clip-";
+/** A clip's reference recording: 3–10 s (OmniVoice's recommendation, owner 2026-11-09). */
+export const SPEECH_CLIP_MIN_SECONDS = 3;
+export const SPEECH_CLIP_MAX_SECONDS = 10;
+/** A clip's name, as the user types it. */
+export const SPEECH_CLIP_NAME_MAX = 60;
+
+/** A clip's id from its name: "clip-" + lowercase ASCII letters, digits and hyphens. Null when nothing is left. */
+export function speechClipId(name: string): string | null {
+	const slug = name
+		.normalize("NFKD")
+		.replace(/[\u0300-\u036f]/g, "")
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, "-")
+		.replace(/^-+|-+$/g, "")
+		.slice(0, 48)
+		.replace(/-+$/g, "");
+	return slug ? `${SPEECH_CLIP_PREFIX}${slug}` : null;
+}
+
+export function isSpeechClipId(id: string): boolean {
+	return id.startsWith(SPEECH_CLIP_PREFIX) && speechClipId(id.slice(SPEECH_CLIP_PREFIX.length)) === id;
+}
+
 /** The env/auth.json var of the endpoint's optional key. */
 export const SPEECH_KEY_ID = "LH_TTS_KEY";
 
@@ -92,6 +133,7 @@ export function isSpeechSpeed(value: unknown): value is number {
 
 export function resolveSpeech(section: SpeechSettings | undefined): EffectiveSpeech {
 	return {
+		engine: section?.engine ?? "url",
 		url: section?.url ?? null,
 		voice: section?.voice ?? null,
 		speed: section?.speed ?? 1,
@@ -103,6 +145,7 @@ export function resolveSpeech(section: SpeechSettings | undefined): EffectiveSpe
 /** Read side: lenient — malformed fields drop to their defaults. */
 export function sanitizeSpeech(raw: Record<string, unknown>): SpeechSettings {
 	const out: SpeechSettings = {};
+	if (isSpeechEngineChoice(raw.engine)) out.engine = raw.engine;
 	if (typeof raw.url === "string") {
 		const url = normalizeBaseUrl(raw.url);
 		if (url) out.url = url;
