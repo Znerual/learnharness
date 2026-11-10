@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# Build the vault macOS app on a Mac: the LearnHarness desktop app with a vault server built in, for
-# the vault host's download page. The Mac fetches the code itself (the repo is public, no login):
+# Build the vault macOS app on a Mac: the LearnHarness desktop app with a vault server built in. There
+# is no published Mac app; Mac users build it with this script. The vault host's download page shows
+# the one-liner for its current version, which fetches this script and builds at the release tag
+# vault-<version> (learnharness-vault's deploy/lan/release-vault-build.sh pushes it), e.g.:
 #
-#   curl -fsSLO https://raw.githubusercontent.com/Znerual/learnharness/main/scripts/vault-mac-build.sh
-#   bash vault-mac-build.sh --version 0.4.2111
+#   curl -fsSLO https://raw.githubusercontent.com/Znerual/learnharness/vault-0.4.2112/scripts/vault-mac-build.sh && bash vault-mac-build.sh --version 0.4.2112 --ref vault-0.4.2112
 #
-# or, from a checkout, scripts/vault-mac-build.sh --version 0.4.2111 --here.
+# or, from a checkout, scripts/vault-mac-build.sh --version 0.4.2112 --here.
 #
 # Options:
 #   --version X.Y.Z   required; the same number as the Linux and Android vault builds of the release
@@ -17,9 +18,8 @@
 #   --out DIR         where the result goes (default <checkout>/dist-vault)
 #   --copy-to TARGET  scp the result there afterwards, e.g. laurenz@build-pc.local:lhv-mac/
 #
-# Result in --out: learnharness-macos.dmg and version.txt, the shape learnharness-vault's
-# deploy/lan/release-vault-build.sh takes (--mac-dmg DIR), so the DMG is published together with the
-# Linux and Android builds of the same version.
+# Result in --out: learnharness-macos.dmg and version.txt. Open the DMG and drag LearnHarness into
+# Applications.
 #
 # Needs: Apple Silicon, macOS 26+ and Xcode 26+ (actool compiles the Icon Composer icon,
 # build/icon.icon), Node 26 with npm, git. The app is ad-hoc signed and not notarized (no Apple
@@ -150,3 +150,4 @@ if [ -n "$copy_to" ]; then
 	scp "$out/learnharness-macos.dmg" "$out/version.txt" "$copy_to"
 fi
 echo "built vault macOS $version"
+echo "Open $out/learnharness-macos.dmg and drag LearnHarness into Applications."
