@@ -17,6 +17,8 @@ export interface PluginAgentServiceDeps {
 	onUsage?: (model: PluginModelSpec, usage: Usage) => void;
 	signal?: AbortSignal;
 	onChange?: () => void;
+	/** This device (multi-device): stamps every record it writes; foreign running sessions are left alone at restart. */
+	device?: () => { id: string; name: string };
 }
 
 const clone = <T>(value: T): T => structuredClone(value);
@@ -95,7 +97,8 @@ export function createPluginAgentService(deps: PluginAgentServiceDeps): PluginAg
 	const commit = (s: Session, next: PluginAgentRecord) => {
 		if (disposed) throw new Error("Plugin agent service disposed");
 		if (s.poisoned) throw s.poisoned;
-		const record = clone({ ...next, updatedAt: new Date().toISOString() });
+		const device = deps.device?.();
+		const record = clone({ ...next, ...(device ? { deviceId: device.id, deviceName: device.name } : {}), updatedAt: new Date().toISOString() });
 		try { deps.store.save(record); }
 		catch (error) {
 			s.poisoned = new Error(`Plugin agent persistence failed: ${errorText(error)}`);
@@ -112,6 +115,8 @@ export function createPluginAgentService(deps: PluginAgentServiceDeps): PluginAg
 	for (const loaded of deps.store.list()) {
 		identifier(loaded.id, "session id");
 		identifier(loaded.definitionId, "definition id");
+		// A session running on another device is not ours to interrupt (multi-device).
+		if (loaded.status === "running" && loaded.deviceId !== undefined && loaded.deviceId !== deps.device?.().id) continue;
 		if (sessions.has(loaded.id)) throw new Error(`Duplicate plugin agent session: ${loaded.id}`);
 		const s: Session = { record: clone(loaded), listeners: new Set() };
 		sessions.set(loaded.id, s);

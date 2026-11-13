@@ -13,7 +13,7 @@ import type { LhMessage } from "../src/core/native-messages.ts";
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "lh-problem-flow-"));
 process.env.LH_DATA_DIR = path.join(root, "data"); process.env.LH_AUTH_FILE = path.join(root, "auth.json"); process.env.OPENROUTER_API_KEY = "isolated-presence-only";
 const realFetch = globalThis.fetch; globalThis.fetch = async () => { throw Error("Unexpected external network"); };
-const dist = path.join(root, "data", "plugins", "problem-fixture", "dist"); fs.mkdirSync(dist, { recursive: true });
+const dist = path.join(root, "data-local", "plugins", "problem-fixture", "dist"); fs.mkdirSync(dist, { recursive: true });
 fs.writeFileSync(path.join(dist, "manifest.json"), JSON.stringify({ apiVersion: 1, id: "problem-fixture", name: "Fixture", version: "1.0.0", minAppVersion: "0.4.1", backend: "backend.cjs" }));
 fs.writeFileSync(path.join(dist, "backend.cjs"), "exports.activate = ctx => ctx.handle('context', () => ctx);");
 const { getPluginHost } = await import("../src/server/plugins.ts"), { handleChatRequest } = await import("../src/server/chat-handler.ts");

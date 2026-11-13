@@ -15,7 +15,7 @@ process.env.LH_AUTH_FILE = path.join(root, "auth.json");
 process.env.OPENROUTER_API_KEY = "isolated-key-presence-only";
 const realFetch = globalThis.fetch;
 globalThis.fetch = async () => { throw new Error("Unexpected network in grading flow"); };
-const location = path.join(root, "data", "plugins", "grading-fixture", "dist");
+const location = path.join(root, "data-local", "plugins", "grading-fixture", "dist");
 fs.mkdirSync(location, { recursive: true });
 fs.writeFileSync(path.join(location, "manifest.json"), JSON.stringify({ apiVersion: 1, id: "grading-fixture", name: "Grading fixture", version: "1.0.0", minAppVersion: "0.4.1", backend: "backend.cjs" }));
 fs.writeFileSync(path.join(location, "backend.cjs"), "exports.activate = ctx => ctx.handle('context', () => ctx);");

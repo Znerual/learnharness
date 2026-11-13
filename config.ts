@@ -131,6 +131,8 @@ export const LEGACY_DEVICE_LOCAL = {
 	positions: path.join(/* turbopackIgnore: true */ DATA_ROOT, "graph", "positions.json"),
 	renderSettings: path.join(/* turbopackIgnore: true */ DATA_ROOT, "graph", "render-settings.json"),
 	debug: path.join(/* turbopackIgnore: true */ DATA_ROOT, "debug"),
+	themes: path.join(/* turbopackIgnore: true */ DATA_ROOT, "themes"),
+	plugins: path.join(/* turbopackIgnore: true */ DATA_ROOT, "plugins"),
 } as const;
 
 /** The graph-family FORMAT STAMP sidecar (schema-versioning wave,
@@ -179,7 +181,15 @@ export const PROMPTS_OVERRIDE_DIR = path.join(/* turbopackIgnore: true */ DATA_R
  * listed beside the built-in presets. The settings record names the
  * active one by id (appearance.theme).
  */
-export const THEMES_DIR = path.join(/* turbopackIgnore: true */ DATA_ROOT, "themes");
+export const THEMES_DIR = path.join(/* turbopackIgnore: true */ LOCAL_ROOT, "themes");
+
+/**
+ * Installed community plugins (executable code: one folder per plugin, with
+ * its dist/ and its own data/). Device-local (multi-device): code must not
+ * run on a device just because another device installed it, and each shell
+ * (desktop, Android) installs and trusts its own packages.
+ */
+export const PLUGINS_DIR = path.join(/* turbopackIgnore: true */ LOCAL_ROOT, "plugins");
 
 /** The prompt-override SWITCHES (multi-device, ADR 0002): the
  *  {segmentPath: boolean} map that used to live in settings.json's

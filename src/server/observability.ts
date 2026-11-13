@@ -130,9 +130,9 @@ export function activityFeed(): {
 }
 
 /** Is this device's server working right now — a turn, a background job's
- *  loop, or an extraction run? The Android shell polls it (GET /api/busy)
+ *  loop, a plugin worker task (live, in-process rows only) or an extraction run? The Android shell polls it (GET /api/busy)
  *  and keeps its foreground service alive only while it is, so Android
  *  never kills work in progress. */
 export function deviceBusy(): boolean {
-	return anyTurnRunning() || anyJobLive() || extractionStatuses().length > 0;
+	return anyTurnRunning() || anyJobLive() || extractionStatuses().length > 0 || pluginWorkerActivities().length > 0;
 }

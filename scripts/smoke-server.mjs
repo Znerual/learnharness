@@ -112,7 +112,7 @@ async function main() {
 		// Reject absolute import escapes as well as incidental upward resolution.
 		const guard = path.join(home, "payload-import-guard.mjs");
 		fs.writeFileSync(guard, `import {registerHooks} from 'node:module'; import {realpathSync} from 'node:fs'; import path from 'node:path'; import {fileURLToPath} from 'node:url';
-const roots = ${JSON.stringify([standalone, path.join(home, "data", "plugins")])}.map(p=>realpathSync(p));
+const roots = ${JSON.stringify([standalone, path.join(home, "data-local", "plugins")])}.map(p=>realpathSync(p));
 registerHooks({resolve(specifier,context,next){ const result=next(specifier,context); if(result.url.startsWith('file:')) { const file=realpathSync(fileURLToPath(result.url)); if(!roots.some(root=>file===root || file.startsWith(root+path.sep))) throw new Error('Import escaped standalone/plugin payload: '+file); } return result; }});`);
 		imports.push("--import", guard);
 	}

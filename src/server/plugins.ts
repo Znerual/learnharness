@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { PATHS, GRAPH_FORMAT_FILE, RENDER_SETTINGS_FILE } from "../../config.ts";
+import { PATHS, PLUGINS_DIR, GRAPH_FORMAT_FILE, RENDER_SETTINGS_FILE } from "../../config.ts";
 import packageJson from "../../package.json";
 import { emit, subscribe } from "../core/events.ts";
 import { createPluginAgentService } from "../agent/plugin-agents.ts";
@@ -23,7 +23,8 @@ import { stores } from "./stores.ts";
 import { isTurnRunning } from "./turn-liveness.ts";
 import { compactionInFlight } from "./compaction.ts";
 
-export const pluginDirectory = path.join(/* turbopackIgnore: true */ PATHS.data, "plugins");
+// Community plugins are device-local (multi-device): executable code never rides the synced data folder.
+export const pluginDirectory = PLUGINS_DIR;
 // Explicitly staged by build-server, not discovered by Next's filesystem tracer.
 const core = {
 	directory: path.join(/* turbopackIgnore: true */ PATHS.root, "core-plugins"),
@@ -59,7 +60,7 @@ function runtime(): Runtime {
 			const inference = createPluginInference({ signal, dataDirectory });
 			const agents = createPluginAgentService({
 				store: createPluginAgentRecordStore(path.join(/* turbopackIgnore: true */ dataDirectory, "agents")),
-				engineFor: inference.engineFor, onUsage: inference.onUsage, signal,
+				engineFor: inference.engineFor, onUsage: inference.onUsage, signal, device: () => stores.deviceStore.getDevice(),
 				onChange: () => { if (!signal.aborted) emit("plugin-message", { pluginId: manifest.id, topic: "agents-changed" }); },
 			});
 			const workerActivity = registerPluginWorkerActivity({
@@ -68,7 +69,7 @@ function runtime(): Runtime {
 			});
 			const workers = createPluginWorkerService({
 				store: createPluginTaskRecordStore(path.join(/* turbopackIgnore: true */ dataDirectory, "tasks")),
-				engineFor: inference.engineFor, onUsage: inference.onUsage, signal,
+				engineFor: inference.engineFor, onUsage: inference.onUsage, signal, device: () => stores.deviceStore.getDevice(),
 				onChange: workerActivity,
 			});
 			return { learning, inference: inference.inference, agents, workers,
@@ -94,7 +95,7 @@ function runtime(): Runtime {
 		}));
 		// Exclusive bootstrap sweep, including disabled packages whose services
 		// will not construct. Read-only job recovery never activates plugin code.
-		for (const [id, error] of Object.entries(recoverPluginTaskRecords(pluginDirectory, coreData))) {
+		for (const [id, error] of Object.entries(recoverPluginTaskRecords(pluginDirectory, coreData, stores.deviceStore.getDevice().id))) {
 			installationErrors[id] = `Task recovery failed: ${error}`;
 		}
 		await host.initialize();

@@ -17,7 +17,7 @@ globalThis.fetch = async () => { throw Error("Unexpected external network"); };
 // Exercise the same public backend API as a distinct community fixture; the
 // production core ID is reserved and must not load code from a data directory.
 const pluginId = "coding-questions-fixture";
-const dist = path.join(root, "data", "plugins", pluginId, "dist");
+const dist = path.join(root, "data-local", "plugins", pluginId, "dist");
 fs.mkdirSync(dist, { recursive: true });
 fs.writeFileSync(path.join(dist, "manifest.json"), JSON.stringify({ apiVersion: 1, id: pluginId, name: "Coding questions", version: "0.1.0", minAppVersion: "0.4.1", backend: "backend.cjs" }));
 fs.writeFileSync(path.join(dist, "backend.cjs"), "exports.activate = ctx => ctx.handle('context', () => ctx);");

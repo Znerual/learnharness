@@ -22,6 +22,8 @@ export interface PluginWorkerServiceDeps {
 	onUsage?: (model: PluginModelSpec, usage: Usage) => void;
 	signal?: AbortSignal;
 	onChange?: (metadata: PluginWorkerActivityMetadata) => void;
+	/** This device (multi-device): stamps every record it writes; foreign unfinished records are left alone at restart. */
+	device?: () => { id: string; name: string };
 }
 const clone = <T>(value: T): T => structuredClone(value);
 const terminal = (r: PluginTaskRecord) => r.status !== "queued" && r.status !== "running";
@@ -107,7 +109,8 @@ export function createPluginWorkerService(deps: PluginWorkerServiceDeps): Plugin
 	const commit = (t: Task, record: PluginTaskRecord) => {
 		if (disposed || t.closed) throw new Error("Task writer is closed");
 		if (t.poisoned) throw t.poisoned;
-		const next = clone({ ...record, updatedAt: new Date().toISOString() });
+		const device = deps.device?.();
+		const next = clone({ ...record, ...(device ? { deviceId: device.id, deviceName: device.name } : {}), updatedAt: new Date().toISOString() });
 		try { deps.store.save(next); }
 		catch (error) {
 			t.poisoned = new Error(`Plugin task storage failed: ${text(error)}`);
@@ -135,6 +138,8 @@ export function createPluginWorkerService(deps: PluginWorkerServiceDeps): Plugin
 	};
 	for (const loaded of deps.store.list()) {
 		id(loaded.id, "task id"); id(loaded.definitionId, "worker id");
+		// Unfinished work of another device is not ours to interrupt (multi-device).
+		if (!terminal(loaded) && loaded.deviceId !== undefined && loaded.deviceId !== deps.device?.().id) continue;
 		if (typeof loaded.requestId !== "string" || !loaded.requestId.length) throw new Error("Invalid persisted worker requestId");
 		if (tasks.has(loaded.id) || [...tasks.values()].some(t => t.record.requestId === loaded.requestId)) throw new Error("Duplicate persisted task identity");
 		const t: Task = { record: clone(loaded), controller: new AbortController(), listeners: new Set(), waiters: new Set() };
@@ -266,7 +271,8 @@ export function createPluginWorkerService(deps: PluginWorkerServiceDeps): Plugin
 			}
 			const d = definitions.get(definitionId); if (!d) throw new Error(`Worker definition unavailable: ${definitionId}`);
 			const now = new Date().toISOString();
-			const record: PluginTaskRecord = { ...options, version: 1, id: randomUUID(), definitionId, createdAt: now, updatedAt: now, status: "queued", messages: [{ role: "user", content: options.prompt, timestamp: Date.now() }], turns: 0 };
+			const device = deps.device?.();
+			const record: PluginTaskRecord = { ...options, version: 1, id: randomUUID(), definitionId, ...(device ? { deviceId: device.id, deviceName: device.name } : {}), createdAt: now, updatedAt: now, status: "queued", messages: [{ role: "user", content: options.prompt, timestamp: Date.now() }], turns: 0 };
 			// A post-rename fsync failure has an uncertain durable outcome. Stop
 			// further acceptance rather than risking duplicate request identities.
 			try { deps.store.save(clone(record)); }

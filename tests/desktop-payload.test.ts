@@ -93,7 +93,7 @@ describe("desktop standalone payload", () => {
 	it("seeds packaged smoke fixtures with code in dist and persistent data beside it", async () => {
 		const home = fs.mkdtempSync(path.join(os.tmpdir(), "lh-smoke-layout-"));
 		const pluginRoot = createPluginSmokeFixture(home);
-		const directory = path.join(home, "data", "plugins");
+		const directory = path.join(home, "data-local", "plugins");
 		const host = createPluginHost({ directory, appVersion: "0.4.1", createServices() { throw Error("disabled smoke fixtures must not activate"); } });
 		try {
 			await host.initialize();

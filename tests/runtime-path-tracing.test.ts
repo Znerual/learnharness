@@ -45,7 +45,7 @@ test("plugin runtime and background capture paths never become deployment assets
 	for (const relative of ["src/server/plugins.ts", "src/agent/background-capture.ts"]) {
 		const { file, calls, ignored } = paths(relative);
 		const runtime = calls;
-		assert.equal(runtime.length, relative === "src/server/plugins.ts" ? 5 : 2);
+		assert.equal(runtime.length, relative === "src/server/plugins.ts" ? 4 : 2);
 		for (const call of runtime) assert.ok(ignored(call), `Runtime path must not ship: ${call.getText(file)}`);
 	}
 });

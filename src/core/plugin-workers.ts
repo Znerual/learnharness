@@ -45,6 +45,9 @@ export interface PluginTaskError {
 export interface PluginTaskRecord extends PluginWorkerStartOptions {
 	version: 1;
 	id: string;
+	/** The owning device (multi-device): only it interrupts or resumes this task after a restart. */
+	deviceId?: string;
+	deviceName?: string;
 	definitionId: string;
 	createdAt: string;
 	updatedAt: string;

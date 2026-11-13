@@ -26,7 +26,7 @@ export const PLUGIN_SESSION_FIXTURE = Object.freeze({
 });
 
 export function createPluginSmokeFixture(home) {
-	const pluginRoot = path.join(home, "data", "plugins", "native-smoke");
+	const pluginRoot = path.join(home, "data-local", "plugins", "native-smoke");
 	const directory = path.join(pluginRoot, "dist");
 	fs.mkdirSync(path.join(directory, "assets"), { recursive: true });
 	fs.writeFileSync(path.join(directory, "manifest.json"), JSON.stringify({
@@ -536,7 +536,7 @@ export function activate(ctx) {
 	// Separate frontend-only custom Settings page: preserve native-smoke's
 	// existing schema registration/update-handle proof, without host injection.
 	const settingsFixture = PLUGIN_PICKER_SETTINGS_FIXTURE;
-	const settingsDirectory = path.join(home, "data", "plugins", settingsFixture.id, "dist");
+	const settingsDirectory = path.join(home, "data-local", "plugins", settingsFixture.id, "dist");
 	fs.mkdirSync(path.join(settingsDirectory, "assets"), { recursive: true });
 	fs.writeFileSync(path.join(settingsDirectory, "manifest.json"), JSON.stringify({
 		apiVersion: 1, id: settingsFixture.id, name: settingsFixture.name,
@@ -634,7 +634,7 @@ export function activate(ctx) {
 }
 
 export async function verifyPluginServer(url, home, headers = {}) {
-	const directory = path.join(home, "data", "plugins", "native-smoke");
+	const directory = path.join(home, "data-local", "plugins", "native-smoke");
 	const activated = path.join(directory, "data", "activated.txt");
 	const disabled = path.join(directory, "data", "disabled.txt");
 	const jsonRequest = async (route, method, body, expected = 200) => {

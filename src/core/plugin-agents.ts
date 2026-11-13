@@ -42,6 +42,9 @@ export interface PluginPendingInput {
 export interface PluginAgentRecord {
 	version: 1;
 	id: string;
+	/** The owning device (multi-device): only it interrupts a running session after a restart. */
+	deviceId?: string;
+	deviceName?: string;
 	definitionId: string;
 	createdAt: string;
 	updatedAt: string;

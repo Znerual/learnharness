@@ -151,8 +151,9 @@ export function readPluginTaskRecord(rootPluginsDirectory: string, pluginId: str
 
 /** Exclusive server-bootstrap sweep, before any task services activate. Disabled
  * packages are included. Per-package failures are diagnostic, never rewritten
- * as missing data or allowed to prevent recovery of other valid packages. */
-export function recoverPluginTaskRecords(rootPluginsDirectory: string, core?: CorePluginDataLocation): Record<string, string> {
+ * as missing data or allowed to prevent recovery of other valid packages.
+ * Records owned by another device (selfDeviceId given) are left untouched. */
+export function recoverPluginTaskRecords(rootPluginsDirectory: string, core?: CorePluginDataLocation, selfDeviceId?: string): Record<string, string> {
 	const root = path.resolve(/* turbopackIgnore: true */ rootPluginsDirectory);
 	let entries: fs.Dirent[] = [];
 	try {
@@ -173,6 +174,8 @@ export function recoverPluginTaskRecords(rootPluginsDirectory: string, core?: Co
 			for (const record of records) { if (requests.has(record.requestId)) throw new Error("Duplicate plugin task request identity"); requests.add(record.requestId); }
 			for (const record of records) {
 				if (record.status !== "queued" && record.status !== "running") continue;
+				// Another device's unfinished task is not ours to interrupt (multi-device).
+				if (record.deviceId !== undefined && selfDeviceId !== undefined && record.deviceId !== selfDeviceId) continue;
 				const now = new Date().toISOString();
 				store.save({ ...record, status: "interrupted", completedAt: now, updatedAt: now, error: { code: "interrupted", message: "Task interrupted by server restart; no work was replayed" } });
 			}

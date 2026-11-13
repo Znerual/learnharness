@@ -32,7 +32,7 @@ const { registerJobAbort, unregisterJobAbort, isJobLive } = await import("../src
 const { projectView } = await import("../src/core/view.ts");
 
 test("external teaching example composes native tools, validated workers, separate delivery and automatic native-record storage", { timeout: 10000 }, async t => {
-	const directory = path.join(data, "plugins");
+	const directory = path.join(`${data}-local`, "plugins");
 	fs.mkdirSync(directory, { recursive: true });
 	const installed = path.join(directory, "teaching-extension");
 	fs.cpSync(path.resolve("examples/plugins/teaching-extension"), installed, { recursive: true });
