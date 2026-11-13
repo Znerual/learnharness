@@ -5,6 +5,7 @@ import {
 	useSyncExternalStore, type ReactNode, type RefObject,
 } from "react";
 
+import { nextBackSequence, registerAndroidBackSource, useAndroidShell } from "./android-shell";
 import { capturePluginQuestionKey, pluginQuestionKeySuppressed } from "./plugin-question-keys";
 
 export type LayerKind = "modal" | "popup" | "view";
@@ -417,7 +418,30 @@ export function InteractionLayersProvider({ children }: { children: ReactNode })
 			document.removeEventListener("focusin", focus, true);
 		};
 	}, [controller]);
+	useAndroidBackBridge(controller);
 	return <LayersContext.Provider value={controller}>{children}</LayersContext.Provider>;
+}
+
+/** Android back (owner F3): in the app's shell the newest open layer of ANY kind closes on back.
+ *  Each layer is numbered from the shared back counter the moment it is first seen, so it orders
+ *  against useAndroidBack layers; the newest eligible layer then closes through its own onClose,
+ *  exactly as its Escape would. No-op outside the Android shell. */
+function useAndroidBackBridge(controller: InteractionLayersController) {
+	const android = useAndroidShell();
+	useLayoutEffect(() => {
+		if (!android) return;
+		const seqs = new WeakMap<InteractionLayer, number>();
+		const number = () => { for (const layer of controller.getSnapshot()) if (!seqs.has(layer)) seqs.set(layer, nextBackSequence()); };
+		number();
+		const unsubscribe = controller.subscribe(number);
+		const unregister = registerAndroidBackSource(() => {
+			const top = controller.getTopLayer();
+			if (!top) return null;
+			number();
+			return { seq: seqs.get(top)!, close: () => controller.requestClose(top.id, "escape") !== "blocked" };
+		});
+		return () => { unsubscribe(); unregister(); };
+	}, [android, controller]);
 }
 
 export function useOptionalInteractionLayers(): InteractionLayersController | null {
