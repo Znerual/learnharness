@@ -40,7 +40,16 @@ import type { ChatSettings } from "./contracts/chat.ts";
 import { isSearchEngineId, type SearchEngineId } from "./search.ts";
 import type { DictationLanguage } from "./dictation.ts";
 import { parseFileAccessSettings, type FileAccessSettings } from "./file-access.ts";
-import { COLOR_OVERRIDE_KEYS, isThemeId, type AppearanceColorOverrides } from "./themes.ts";
+import {
+	COLOR_OVERRIDE_KEYS,
+	DEFAULT_SYSTEM_THEMES,
+	DEFAULT_THEME_ID,
+	LIGHT_THEME_ID,
+	SYSTEM_THEME_ID,
+	isThemeId,
+	type AppearanceColorOverrides,
+	type SystemThemes,
+} from "./themes.ts";
 
 /** The schema version this code understands. Bump ONLY for breaking shape
  *  changes (a field renamed/meaning changed); pure additions never bump. */
@@ -429,10 +438,15 @@ export interface MdRenderingSettings {
 /** Appearance settings — theme, color overrides, type, markdown emphasis. */
 export interface AppearanceSettings {
 	/** The active theme id (core/themes.ts presets or a custom file under
-	 *  THEMES_DIR). Absent or gone = "default". The theme declares the
-	 *  mode (dark/light) — the old `mode`/`lightBackground` keys are no
-	 *  longer read (theme wave, 2026-11-04). */
+	 *  THEMES_DIR), or "system" (follow the OS through `systemThemes`).
+	 *  Absent = "system"; a gone custom id renders Default. The theme
+	 *  declares the mode (dark/light). The old `mode` key is migrated on
+	 *  read (light → "light", dark → "default"); `lightBackground` is
+	 *  dropped (theme wave, 2026-11-04). */
 	theme?: string;
+	/** The pair System switches between, by the OS's color scheme. Kept
+	 *  across theme switches; an absent slot = its factory theme. */
+	systemThemes?: Partial<SystemThemes>;
 	/** The background override (null = the theme's). Kept at its pre-theme
 	 *  key so existing records keep their color. */
 	background?: string | null;
@@ -561,6 +575,7 @@ export interface FactorySettings {
 	dictation: { language: DictationLanguage };
 	appearance: {
 		theme: string;
+		systemThemes: SystemThemes;
 		background: string | null;
 		colors: AppearanceColorOverrides;
 		fontFamily: string | null;
@@ -583,7 +598,8 @@ export const FACTORY_SETTINGS: FactorySettings = {
 	general: { autoUpdate: true },
 	dictation: { language: "en" },
 	appearance: {
-		theme: "default",
+		theme: SYSTEM_THEME_ID, // follow the OS (owner, 2026-11)
+		systemThemes: { ...DEFAULT_SYSTEM_THEMES },
 		background: null, // null = the active theme's background
 		colors: {}, // no overrides: every color is the theme's
 		fontFamily: null, // Source Sans 3
@@ -843,10 +859,23 @@ function sanitizeMdRendering(raw: unknown): MdRenderingSettings {
 
 function sanitizeAppearance(raw: Record<string, unknown>): AppearanceSettings {
 	const out: AppearanceSettings = {};
-	// Theme wave (2026-11-04): `mode`/`lightBackground` (light-mode wave)
-	// are no longer read — the theme declares the mode. Dropped here like
-	// the graph's dead rungs; the next appearance write flushes them.
+	// Theme wave (2026-11-04): the theme declares the mode. This fork's
+	// light-mode wave stored `mode` ("dark" | "light" | "system"); it is
+	// migrated here: light → the Light preset, dark → Default, system or
+	// absent → System. `mode` and `lightBackground` are then dropped; the
+	// next appearance write flushes them.
 	if (isThemeId(raw.theme)) out.theme = raw.theme;
+	else if (raw.mode === "light") out.theme = LIGHT_THEME_ID;
+	else if (raw.mode === "dark") out.theme = DEFAULT_THEME_ID;
+	const pair = raw.systemThemes;
+	if (pair !== null && typeof pair === "object" && !Array.isArray(pair)) {
+		const p = pair as Record<string, unknown>;
+		const systemThemes: Partial<SystemThemes> = {};
+		for (const slot of ["light", "dark"] as const) {
+			if (isThemeId(p[slot]) && p[slot] !== SYSTEM_THEME_ID) systemThemes[slot] = p[slot];
+		}
+		out.systemThemes = systemThemes;
+	}
 	if (raw.background !== undefined) out.background = sanitizeHexOrNull(raw.background);
 	if (raw.colors !== null && typeof raw.colors === "object" && !Array.isArray(raw.colors)) {
 		const colors: AppearanceColorOverrides = {};

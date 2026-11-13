@@ -4,10 +4,10 @@ import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { after, beforeEach, it } from "node:test";
-import { BUILTIN_THEMES, DEFAULT_THEME, effectiveColors, resolveTheme, sanitizeThemeFile, THEME_COLOR_KEYS } from "../src/core/themes.ts";
+import { BUILTIN_THEMES, DEFAULT_THEME, resolveActiveTheme, effectiveColors, resolveTheme, sanitizeThemeFile, THEME_COLOR_KEYS } from "../src/core/themes.ts";
 
 const require = createRequire(import.meta.url);
-const { PRESET_APPEARANCE, COLOR_KEYS, normalizeAppearance, themeSourceFor, serverDataDir, readAppearance, chromeColors } = require("../electron/appearance-chrome.cjs");
+const { PRESET_APPEARANCE, COLOR_KEYS, normalizeAppearance, themeSourceFor, systemVariant, serverDataDir, serverLocalDir, readAppearance, chromeColors } = require("../electron/appearance-chrome.cjs");
 const data = fs.mkdtempSync(path.join(os.tmpdir(), "lh-appearance-chrome-"));
 after(() => fs.rmSync(data, { recursive: true, force: true }));
 beforeEach(() => { fs.rmSync(data, { recursive: true, force: true }); fs.mkdirSync(path.join(data, "themes"), { recursive: true }); });
@@ -25,6 +25,9 @@ it("native boot projection stays identical to every core preset and its color vo
 	}
 });
 
+/** The window-facing part (System adds `system` and `variants`). */
+const shown = (a: { mode: string; background: string | null }) => ({ mode: a.mode, background: a.background });
+
 it("selected custom files resolve before a renderer; missing or malformed files match core fallback", () => {
 	const custom = { ...BUILTIN_THEMES.find(t => t.id === "rose-pine-dawn")!, name: "Custom Paper" };
 	for (const raw of [custom, { ...custom, colors: { ...custom.colors, error: "bad" } }, { ...custom, mode: "system" }, { ...custom, name: "!!!" }, null]) {
@@ -32,24 +35,24 @@ it("selected custom files resolve before a renderer; missing or malformed files 
 		record({ theme: "custom-paper" });
 		const parsed = sanitizeThemeFile(raw);
 		const resolved = resolveTheme("custom-paper", parsed ? [{ ...parsed, id: "custom-paper", builtin: false }] : []);
-		assert.deepEqual(readAppearance(data), { mode: resolved.mode, background: resolved.colors.background });
+		assert.deepEqual(shown(readAppearance(data)), { mode: resolved.mode, background: resolved.colors.background });
 	}
 	fs.unlinkSync(path.join(data, "themes", "custom-paper.json"));
 	record({ theme: "custom-paper", background: "#abc" });
-	assert.deepEqual(readAppearance(data), { mode: "dark", background: "#abc" });
+	assert.deepEqual(shown(readAppearance(data)), { mode: "dark", background: "#abc" });
 	for (const theme of ["../outside", "__proto__", "constructor", "unknown"]) {
 		record({ theme });
-		assert.deepEqual(readAppearance(data), { mode: "dark", background: DEFAULT_THEME.colors.background });
+		assert.deepEqual(shown(readAppearance(data)), { mode: "dark", background: DEFAULT_THEME.colors.background });
 	}
 });
 
 it("absent and corrupt records fall back; renderer reports are normalized", () => {
-	assert.deepEqual(readAppearance(data), { mode: "dark", background: "#141414" });
+	assert.deepEqual(shown(readAppearance(data)), { mode: "dark", background: "#141414" });
 	fs.writeFileSync(path.join(data, "settings.json"), "{");
-	assert.deepEqual(readAppearance(data), { mode: "dark", background: "#141414" });
+	assert.deepEqual(shown(readAppearance(data)), { mode: "dark", background: "#141414" });
 	for (const theme of [null, [], {}, { toString: null }, 123, true]) {
 		record({ theme });
-		assert.deepEqual(readAppearance(data), { mode: "dark", background: "#141414" });
+		assert.deepEqual(shown(readAppearance(data)), { mode: "dark", background: "#141414" });
 	}
 	assert.deepEqual(normalizeAppearance({ mode: "light", background: "#fff" }), { mode: "light", background: "#fff" });
 	assert.deepEqual(normalizeAppearance({ mode: "system", background: "white" }), { mode: "dark", background: null });
@@ -69,4 +72,78 @@ it("external desktop development reads the server's directory rather than the sh
 	assert.equal(serverDataDir(base), base.packagedDataDir);
 	assert.equal(serverDataDir({ ...base, devUrl: "http://127.0.0.1:9000" }), "/fixture/repo/data");
 	assert.equal(serverDataDir({ ...base, devUrl: "http://127.0.0.1:9000", env: { LH_DATA_DIR: data } }), data);
+});
+
+it("System resolves per the OS scheme, with both variants for later flips; the source stays system", () => {
+	const light = BUILTIN_THEMES.find(t => t.id === "light")!;
+	for (const appearance of [undefined, { theme: "system" }, { mode: "system" }]) {
+		record(appearance);
+		const dark = readAppearance(data, true);
+		const day = readAppearance(data, false);
+		assert.deepEqual(shown(dark), { mode: "dark", background: "#141414" });
+		assert.deepEqual(shown(day), { mode: "light", background: light.colors.background });
+		assert.equal(day.system, true);
+		assert.deepEqual(day.variants, { light: { mode: "light", background: "#fafafa" }, dark: { mode: "dark", background: "#141414" } });
+		assert.equal(themeSourceFor(day.mode, day.system), "system", "a light system pick must not pin the renderer to light");
+		assert.deepEqual(shown(systemVariant(day, true)), shown(dark));
+	}
+	// A custom pair and a background override; a gone custom slot falls back to its factory theme.
+	fs.writeFileSync(path.join(data, "themes", "my-paper.json"), JSON.stringify({ ...BUILTIN_THEMES.find(t => t.id === "ivory")!, name: "My Paper" }));
+	record({ theme: "system", systemThemes: { light: "my-paper", dark: "gone-theme" }, background: "#abc" });
+	assert.deepEqual(readAppearance(data, false).variants, { light: { mode: "light", background: "#abc" }, dark: { mode: "dark", background: "#abc" } });
+	record({ theme: "system", systemThemes: { light: "gone-theme" } });
+	assert.deepEqual(shown(readAppearance(data, false)), { mode: "light", background: "#fafafa" });
+	// An explicit theme ignores the OS; the fork's legacy mode migrates like core's sanitizer.
+	record({ theme: "catppuccin-mocha" });
+	assert.equal(readAppearance(data, false).system, undefined);
+	assert.deepEqual(shown(readAppearance(data, false)), { mode: "dark", background: "#1e1e2e" });
+	record({ mode: "light" });
+	assert.deepEqual(shown(readAppearance(data, true)), { mode: "light", background: "#fafafa" });
+	record({ mode: "dark" });
+	assert.deepEqual(shown(readAppearance(data, false)), { mode: "dark", background: "#141414" });
+});
+
+it("native boot resolution equals core's resolveActiveTheme", () => {
+	for (const id of [undefined, "system", "light", "default", "ivory"]) {
+		for (const osDark of [true, false]) {
+			record({ theme: id });
+			const core = resolveActiveTheme(id, [], undefined, osDark);
+			assert.deepEqual(shown(readAppearance(data, osDark)), { mode: core.mode, background: core.colors.background }, `${id} ${osDark}`);
+		}
+	}
+});
+
+it("the renderer's System report keeps both variants; plain reports stay plain", () => {
+	const variants = { light: { mode: "light", background: "#fafafa" }, dark: { mode: "dark", background: "#141414" } };
+	assert.deepEqual(normalizeAppearance({ mode: "light", background: "#fafafa", system: true, variants }), { mode: "light", background: "#fafafa", system: true, variants });
+	assert.deepEqual(normalizeAppearance({ mode: "light", background: "#fafafa", system: true, variants: 3 }), { mode: "light", background: "#fafafa" });
+	assert.deepEqual(normalizeAppearance({ mode: "light", background: "#fafafa", variants }), { mode: "light", background: "#fafafa" });
+});
+
+it("settings and imported themes come from the device-local folder, the data folder as the legacy fallback", () => {
+	const base = { packagedLocalDir: "/fixture/packaged/local", repoRoot: "/fixture/repo", env: {} };
+	assert.equal(serverLocalDir(base), base.packagedLocalDir);
+	const dev = { ...base, devUrl: "http://127.0.0.1:9000" };
+	assert.equal(serverLocalDir(dev), "/fixture/repo/local");
+	assert.equal(serverLocalDir({ ...dev, env: { LH_DATA_DIR: data } }), `${data}-local`);
+	assert.equal(serverLocalDir({ ...dev, env: { LH_DATA_DIR: data, LH_LOCAL_DIR: "/x/local" } }), "/x/local");
+
+	const local = fs.mkdtempSync(path.join(os.tmpdir(), "lh-appearance-local-"));
+	try {
+		fs.mkdirSync(path.join(local, "themes"), { recursive: true });
+		const paper = { ...BUILTIN_THEMES.find(t => t.id === "ivory")!, name: "My Paper" };
+		fs.writeFileSync(path.join(local, "themes", "my-paper.json"), JSON.stringify(paper));
+		// Settings only in the local folder; the data folder holds a stale legacy copy.
+		fs.writeFileSync(path.join(local, "settings.json"), JSON.stringify({ version: 1, appearance: { theme: "my-paper" } }));
+		record({ theme: "catppuccin-mocha" });
+		assert.deepEqual(shown(readAppearance([local, data])), { mode: "light", background: paper.colors.background });
+		// Not yet migrated: only the data folder has settings and the theme.
+		fs.rmSync(path.join(local, "settings.json"));
+		fs.rmSync(path.join(local, "themes", "my-paper.json"));
+		fs.writeFileSync(path.join(data, "themes", "my-paper.json"), JSON.stringify(paper));
+		record({ theme: "my-paper" });
+		assert.deepEqual(shown(readAppearance([local, data])), { mode: "light", background: paper.colors.background });
+	} finally {
+		fs.rmSync(local, { recursive: true, force: true });
+	}
 });

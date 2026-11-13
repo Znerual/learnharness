@@ -28,7 +28,8 @@ describe("FACTORY_SETTINGS (the compiled factory layer)", () => {
 		// with the message anchors (owner, 2026-10-13)
 		assert.deepEqual(FACTORY_SETTINGS.graph, { enabled: true, rendering: true, extractionChunkTokens: 4096, obsidianVault: null });
 		const a = FACTORY_SETTINGS.appearance;
-		assert.equal(a.theme, "default");
+		assert.equal(a.theme, "system");
+		assert.deepEqual(a.systemThemes, { light: "light", dark: "default" });
 		assert.equal(a.background, null); // the theme's own background, not a factory hex
 		assert.deepEqual(a.colors, {});
 		assert.equal(a.fontFamily, null); // Source Sans 3
@@ -176,10 +177,22 @@ describe("sanitizeUserSettings", () => {
 		assert.deepEqual(junk.appearance?.colors, { error: null });
 	});
 
-	it("appearance: the light-mode wave's mode/lightBackground are no longer read", () => {
-		const out = sanitizeUserSettings({ appearance: { mode: "light", lightBackground: "#eeeeee", background: "#101010" } });
-		assert.ok(out);
-		assert.deepEqual(out.appearance, { background: "#101010" });
+	it("appearance: the fork's light-mode `mode` migrates to a theme; lightBackground is dropped", () => {
+		const cases: [unknown, string | undefined][] = [["light", "light"], ["dark", "default"], ["system", undefined], [undefined, undefined], ["sepia", undefined]];
+		for (const [mode, theme] of cases) {
+			const out = sanitizeUserSettings({ appearance: { mode, lightBackground: "#eeeeee", background: "#101010" } });
+			assert.ok(out);
+			assert.deepEqual(out.appearance, theme ? { theme, background: "#101010" } : { background: "#101010" }, String(mode));
+		}
+		// An explicit theme id wins over a stale `mode`.
+		const both = sanitizeUserSettings({ appearance: { mode: "light", theme: "catppuccin-mocha" } });
+		assert.deepEqual(both?.appearance, { theme: "catppuccin-mocha" });
+	});
+
+	it("appearance: systemThemes keeps valid slot ids, drops junk and \"system\" itself", () => {
+		const out = sanitizeUserSettings({ appearance: { theme: "system", systemThemes: { light: "ivory", dark: "system", extra: "x" } } });
+		assert.deepEqual(out?.appearance, { theme: "system", systemThemes: { light: "ivory" } });
+		assert.deepEqual(sanitizeUserSettings({ appearance: { systemThemes: [] } })?.appearance, {});
 	});
 
 	it("empty strings/whitespace fontFamily → null (Source Sans 3); wrong-type → null too (the default)", () => {

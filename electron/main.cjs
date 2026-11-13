@@ -80,7 +80,7 @@ const LOCAL_DIR = () => path.join(app.getPath("userData"), "local");
 
 // Resolve the saved palette before window creation; renderer reports keep
 // it current after live saves. This helper needs no compiled server bundle.
-const { normalizeAppearance, themeSourceFor, serverDataDir, readAppearance, chromeColors } = require("./appearance-chrome.cjs");
+const { normalizeAppearance, themeSourceFor, systemVariant, serverDataDir, serverLocalDir, readAppearance, chromeColors } = require("./appearance-chrome.cjs");
 let appearance = normalizeAppearance(null);
 
 function applyChrome(win) {
@@ -767,11 +767,21 @@ async function main() {
 
 	// Read the same record/custom theme the server uses before constructing
 	// any native window, including the external development shell.
-	appearance = readAppearance(serverDataDir({
-		devUrl: process.env.LH_DEV_URL, env: process.env,
-		packagedDataDir: DATA_DIR(), repoRoot: path.join(__dirname, ".."),
-	}));
-	nativeTheme.themeSource = themeSourceFor(appearance.mode);
+	// Device-local folder first (settings and imported themes live there);
+	// the data folder is the fallback before the server's first-launch migration.
+	const appearanceDirs = { devUrl: process.env.LH_DEV_URL, env: process.env, repoRoot: path.join(__dirname, "..") };
+	appearance = readAppearance([
+		serverLocalDir({ ...appearanceDirs, packagedLocalDir: LOCAL_DIR() }),
+		serverDataDir({ ...appearanceDirs, packagedDataDir: DATA_DIR() }),
+	], nativeTheme.shouldUseDarkColors);
+	nativeTheme.themeSource = themeSourceFor(appearance.mode, appearance.system);
+	// System theme: the OS flips the scheme, the window follows at once (the
+	// renderer's own report then confirms it).
+	nativeTheme.on("updated", () => {
+		if (!appearance.system) return;
+		appearance = systemVariant(appearance, nativeTheme.shouldUseDarkColors);
+		for (const win of BrowserWindow.getAllWindows()) applyChrome(win);
+	});
 
 	// Dev mode: point at a running `next dev` server (LH_DEV_URL) — no
 	// spawn, no packaging, full HMR. The rest of this shell still applies
@@ -900,7 +910,7 @@ async function main() {
 	ipcMain.on("lh:appearance", (event, next) => {
 		if (!trustedAppWindows.has(BrowserWindow.fromWebContents(event.sender)) || !trustedSender(event, new URL(url).origin, BrowserWindow)) return;
 		appearance = normalizeAppearance(next);
-		nativeTheme.themeSource = themeSourceFor(appearance.mode);
+		nativeTheme.themeSource = themeSourceFor(appearance.mode, appearance.system);
 		for (const win of BrowserWindow.getAllWindows()) applyChrome(win);
 	});
 	reopenWindow = () => { chatgpt?.resume(); subscriptions?.resume(); return createWindow(url); };

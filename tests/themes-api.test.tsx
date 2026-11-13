@@ -191,7 +191,30 @@ describe("removing the active custom theme falls back to Default without losing 
 		assert.ok(pressed(renderSection(), "default"));
 	});
 
+	it("removing a custom theme that a System slot names drops the slot back to its factory theme", async () => {
+		await post(ayu);
+		await put("appearance", { theme: "system", systemThemes: { dark: "my-ayu", light: "ivory" } });
+		assert.equal(readThemeBoot().system?.dark.vars["--background"], "#0f1419");
+		assert.equal((await del("my-ayu")).status, 200);
+		const stored = readSettingsRecord()!.appearance!;
+		assert.equal(stored.theme, "system");
+		assert.deepEqual(stored.systemThemes, { light: "ivory" });
+		assert.equal(readThemeBoot().system?.dark.vars["--background"], "#141414");
+	});
+
+	it("the PUT route accepts System, refuses a pair naming an unknown theme, and heals an unchanged stale slot", async () => {
+		assert.equal((await put("appearance", { theme: "system" })).status, 200);
+		assert.equal((await put("appearance", { theme: "system", systemThemes: { light: "nope" } })).status, 400);
+		assert.equal((await put("appearance", { theme: "system", systemThemes: { light: "system" } })).status, 400);
+		await post(ayu);
+		assert.equal((await put("appearance", { theme: "system", systemThemes: { dark: "my-ayu" } })).status, 200);
+		fs.rmSync(path.join(THEMES_DIR, "my-ayu.json"));
+		assert.equal((await put("appearance", { theme: "system", systemThemes: { dark: "my-ayu" }, proseFontSize: 18 })).status, 200);
+		assert.deepEqual(readSettingsRecord()!.appearance!.systemThemes, {});
+	});
+
 	it("presets cannot be removed; unknown ids are a 404", async () => {
+		assert.equal((await del("system")).status, 400);
 		assert.equal((await del("catppuccin-mocha")).status, 400);
 		assert.equal((await del("nope")).status, 404);
 	});

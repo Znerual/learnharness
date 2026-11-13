@@ -14,7 +14,7 @@
 import path from "node:path";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { isHexColor, type ChatSettings } from "../core";
-import { COLOR_OVERRIDE_KEYS, isThemeId, type AppearanceColorOverrides, type ColorOverrideKey } from "../core/themes.ts";
+import { COLOR_OVERRIDE_KEYS, SYSTEM_THEME_ID, isThemeId, type AppearanceColorOverrides, type ColorOverrideKey, type SystemThemes } from "../core/themes.ts";
 import type {
 	AgentSettings,
 	AppearanceSettings,
@@ -238,7 +238,7 @@ function parseHexOrNull(value: unknown, field: string): { color?: string | null;
 	return { color: value };
 }
 
-/** appearance: { theme?, background?, colors?, fontFamily?,
+/** appearance: { theme?, systemThemes?, background?, colors?, fontFamily?,
  *  proseFontSize?, codeLigatures?, sessionNameSerif?, mdRendering? } —
  *  `theme` is shape-checked here (slug); whether it EXISTS is the route's check. */
 export function parseAppearanceSettingsBody(body: unknown): SettingsBodyResult<AppearanceSettings> {
@@ -248,6 +248,19 @@ export function parseAppearanceSettingsBody(body: unknown): SettingsBodyResult<A
 	if (raw.theme !== undefined) {
 		if (!isThemeId(raw.theme)) return { ok: false, error: "theme must be a theme id (lowercase slug)" };
 		settings.theme = raw.theme;
+	}
+	if (raw.systemThemes !== undefined) {
+		const pair = asRecord(raw.systemThemes);
+		if (!pair) return { ok: false, error: "systemThemes must be an object" };
+		const out: Partial<SystemThemes> = {};
+		for (const [slot, id] of Object.entries(pair)) {
+			if (slot !== "light" && slot !== "dark") return { ok: false, error: `unknown systemThemes slot "${slot}" (light, dark)` };
+			if (!isThemeId(id) || id === SYSTEM_THEME_ID) {
+				return { ok: false, error: `systemThemes.${slot} must be a theme id (lowercase slug), not "system"` };
+			}
+			out[slot] = id;
+		}
+		settings.systemThemes = out;
 	}
 	if (raw.background !== undefined) {
 		const parsed = parseHexOrNull(raw.background, "background");

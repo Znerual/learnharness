@@ -28,7 +28,7 @@ export { GraphFormatNewerError } from "../store/graph-format.ts";
 // learner is signed in to the vault.
 export { readSettings as readSettingsRecord } from "../store/settings.ts";
 export { themeStore } from "../store/themes.ts";
-export { readThemeBoot, type ThemeBoot } from "./theme-boot.ts";
+export { readThemeBoot, systemBootScript, type BootVariant, type ThemeBoot } from "./theme-boot.ts";
 export { isValidSegmentPath } from "../core/prompt-segments.ts";
 // The canonical segment discovery/resolution lives in the agent layer
 // (composition is an agent concern); the barrel re-exports it for the

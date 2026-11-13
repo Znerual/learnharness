@@ -29,11 +29,13 @@ import {
 	useMemo,
 	useRef,
 	useState,
+	useSyncExternalStore,
 } from "react";
 import {
 	BUILTIN_THEMES,
 	effectiveColors,
 	FACTORY_SETTINGS,
+	resolveActiveTheme,
 	resolveTheme,
 	themeVars,
 	type AppearanceSettings,
@@ -47,6 +49,10 @@ export function resolveAppearance(delta: AppearanceSettings | undefined) {
 	const f = FACTORY_SETTINGS.appearance;
 	return {
 		theme: delta?.theme ?? f.theme,
+		systemThemes: {
+			light: delta?.systemThemes?.light ?? f.systemThemes.light,
+			dark: delta?.systemThemes?.dark ?? f.systemThemes.dark,
+		},
 		background: delta?.background ?? f.background,
 		colors: delta?.colors ?? f.colors,
 		fontFamily: delta?.fontFamily ?? f.fontFamily,
@@ -141,6 +147,33 @@ const AppearanceContext = createContext<AppearanceContextValue>({
 	onAppearanceChange: () => {},
 });
 
+const DARK_QUERY = "(prefers-color-scheme: dark)";
+/** One MediaQueryList for the page's life (browser only). */
+let darkQuery: MediaQueryList | null = null;
+function osDarkQuery(): MediaQueryList {
+	darkQuery ??= window.matchMedia(DARK_QUERY);
+	return darkQuery;
+}
+function subscribeOsScheme(onChange: () => void): () => void {
+	if (typeof window === "undefined" || typeof window.matchMedia !== "function") return () => {};
+	const query = osDarkQuery();
+	query.addEventListener("change", onChange);
+	return () => query.removeEventListener("change", onChange);
+}
+const osPrefersDarkNow = () => osDarkQuery().matches;
+/** Whether the OS prefers dark right now (the browser and the Android
+ *  WebView both report it); re-renders when it flips. The hydration
+ *  snapshot is the LIVE value, not a guess: a guess would resolve System
+ *  to the wrong variant on the first client commit and undo the pre-paint
+ *  script. Without matchMedia (SSR, tests) it is dark, the server baseline. */
+function useOsPrefersDark(): boolean {
+	return useSyncExternalStore(
+		subscribeOsScheme,
+		() => (typeof window === "undefined" || typeof window.matchMedia !== "function" ? true : osPrefersDarkNow()),
+		() => (typeof window === "undefined" || typeof window.matchMedia !== "function" ? true : osPrefersDarkNow()),
+	);
+}
+
 export function useAppearance() {
 	return useContext(AppearanceContext);
 }
@@ -149,22 +182,28 @@ export function AppearanceProvider({
 	children,
 	initialAppearance,
 	initialTheme,
+	initialCustoms,
 }: {
 	children: React.ReactNode;
 	/** The record's appearance delta, read server-side by the layout. */
 	initialAppearance: AppearanceSettings | undefined;
 	/** The active theme the layout resolved (a custom one included). */
 	initialTheme: Theme;
+	/** The imported themes the record names (System's pair may name two);
+	 *  defaults to the initial theme when that one is imported. */
+	initialCustoms?: Theme[];
 }) {
 	const [delta, setDelta] = useState<AppearanceSettings | undefined>(initialAppearance);
-	const [themes, setThemes] = useState<Theme[]>(() =>
-		initialTheme.builtin ? [...BUILTIN_THEMES] : [...BUILTIN_THEMES, initialTheme],
-	);
+	const [themes, setThemes] = useState<Theme[]>(() => [
+		...BUILTIN_THEMES,
+		...(initialCustoms ?? (initialTheme.builtin ? [] : [initialTheme])),
+	]);
+	const osPrefersDark = useOsPrefersDark();
 	const appliedRef = useRef<string>("");
 	const appearance = useMemo(() => resolveAppearance(delta), [delta]);
 	const activeTheme = useMemo(
-		() => resolveTheme(appearance.theme, themes.filter((t) => !t.builtin)),
-		[appearance.theme, themes],
+		() => resolveActiveTheme(appearance.theme, themes.filter((t) => !t.builtin), appearance.systemThemes, osPrefersDark),
+		[appearance.theme, appearance.systemThemes, themes, osPrefersDark],
 	);
 	const mode = activeTheme.mode;
 	const colors = useMemo(() => effectiveColors(activeTheme, appearance), [activeTheme, appearance]);
@@ -208,10 +247,26 @@ export function AppearanceProvider({
 
 	// The desktop shell's native chrome (window background, Windows/Linux
 	// control overlay) follows the theme — absent in a browser.
+	// Under System it also gets both variants, so the shell can follow the
+	// OS (nativeTheme) without waiting for this renderer.
 	const background = colors.background;
+	const isSystem = appearance.theme === "system";
+	const variants = useMemo(() => {
+		if (!isSystem) return null;
+		const customs = themes.filter((t) => !t.builtin);
+		const of = (dark: boolean) => {
+			const t = resolveActiveTheme("system", customs, appearance.systemThemes, dark);
+			return { mode: t.mode, background: effectiveColors(t, appearance).background };
+		};
+		return JSON.stringify({ light: of(false), dark: of(true) });
+	}, [isSystem, themes, appearance]);
 	useEffect(() => {
-		window.lh?.setAppearance?.({ mode, background });
-	}, [mode, background]);
+		window.lh?.setAppearance?.({
+			mode,
+			background,
+			...(variants ? { system: true, variants: JSON.parse(variants) } : {}),
+		});
+	}, [mode, background, variants]);
 
 	const refreshThemes = useCallback(async () => {
 		try {

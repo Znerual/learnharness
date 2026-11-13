@@ -216,6 +216,10 @@ export function resolveSettings(record: UserSettings | null): EffectiveSettings 
 		},
 		appearance: {
 			theme: appearance.theme ?? factoryAppearance.theme,
+			systemThemes: {
+				light: appearance.systemThemes?.light ?? factoryAppearance.systemThemes.light,
+				dark: appearance.systemThemes?.dark ?? factoryAppearance.systemThemes.dark,
+			},
 			background: appearance.background ?? factoryAppearance.background,
 			colors: appearance.colors ?? factoryAppearance.colors,
 			fontFamily: appearance.fontFamily ?? factoryAppearance.fontFamily,

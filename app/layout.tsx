@@ -12,7 +12,7 @@ import UpdateBanner from "@/components/update-banner";
 import { AndroidShellProvider } from "@/components/android-shell";
 import { isAndroidShell } from "@/src/core";
 import { PluginsProvider } from "@/components/plugins";
-import { readThemeBoot } from "@/src/server";
+import { readThemeBoot, systemBootScript } from "@/src/server";
 
 // Chrome = JetBrains Mono, teaching prose = Source Sans 3, titles = CMU
 // Serif (the bundled lh-cmu @font-face in globals.css — no CDN).
@@ -33,7 +33,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 	// record and the theme files are per-machine disk state — without it a
 	// prerendered route (settings) would bake the BUILD machine's record.
 	await connection();
-	const { appearance, theme, vars } = readThemeBoot();
+	const { appearance, theme, vars, customs, system } = readThemeBoot();
 	return (
 		<html
 			lang="en"
@@ -41,13 +41,20 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 			style={vars as React.CSSProperties}
 			suppressHydrationWarning
 		>
+			{/* System theme: the OS decides, and only the browser knows it —
+				 this runs before first paint and swaps in the matching variant. */}
+			{system && (
+				<head>
+					<script dangerouslySetInnerHTML={{ __html: systemBootScript(system) }} />
+				</head>
+			)}
 			<body className="min-h-dvh antialiased">
 			<AndroidShellProvider android={android}>
 			{/* The notification channel rides OUTSIDE everything: sidebar, dock,
 				 and pages all subscribe as the polls retire (push S3, 2026-10-02). */}
 			<ServerEventsProvider>
 				<PluginsProvider>
-					<AppearanceProvider initialAppearance={appearance} initialTheme={theme}>
+					<AppearanceProvider initialAppearance={appearance} initialTheme={theme} initialCustoms={customs}>
 						<SidebarProvider>
 							<ActivityProvider>
 								<AppShell>{children}</AppShell>

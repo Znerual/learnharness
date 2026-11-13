@@ -1,7 +1,7 @@
 "use client";
 /**
  * THE THEME PICKER (theme wave, 2026-11-04): a grid of theme cards — the
- * presets, then the imported customs, then the dashed "Import JSON" card —
+ * System (follow the OS), the presets, then the imported customs, then the dashed "Import JSON" card —
  * under a header that names the active theme and offers "Export JSON".
  *
  * Each card previews its theme with literal colors (never the page's live
@@ -16,7 +16,7 @@
 import { useRef, useState } from "react";
 import { CheckIcon, DownloadIcon, Trash2Icon, UploadIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { exportThemeFile, type AppearanceSettings, type Theme } from "@/src/core";
+import { exportThemeFile, SYSTEM_THEME_ID, type AppearanceSettings, type Theme } from "@/src/core";
 
 /** The selected card's frame: a 2px gap in the dialog surface, then a 1px
  *  ring in the theme accent (the check by the name does the rest). */
@@ -54,6 +54,27 @@ function Preview({ theme }: { theme: Theme }) {
 	);
 }
 
+/** System's miniature: the pair side by side — the light slot's page on the
+ *  left, the dark slot's on the right (literal colors, like Preview). */
+function SystemPreview({ light, dark }: { light: Theme; dark: Theme }) {
+	return (
+		<span aria-hidden className="flex h-11 overflow-hidden rounded-md border border-border">
+			{[light, dark].map((t) => (
+				<span
+					key={t.id}
+					className="flex flex-1 items-center justify-between px-2"
+					style={{ background: t.colors.background }}
+				>
+					<span className="font-prose text-xl font-semibold" style={{ color: t.colors.text }}>
+						Aa
+					</span>
+					<Dot color={t.colors.accent} />
+				</span>
+			))}
+		</span>
+	);
+}
+
 /** Save a JSON file through a transient object URL (browser + Electron). */
 function downloadJson(filename: string, data: unknown) {
 	const url = URL.createObjectURL(new Blob([`${JSON.stringify(data, null, "\t")}\n`], { type: "application/json" }));
@@ -68,6 +89,8 @@ function downloadJson(filename: string, data: unknown) {
 export function ThemeCards({
 	themes,
 	active,
+	selectedId,
+	systemPair,
 	appearance,
 	onSelect,
 	onRemoved,
@@ -75,8 +98,12 @@ export function ThemeCards({
 }: {
 	/** Presets, then customs (the provider's catalog). */
 	themes: readonly Theme[];
-	/** The active theme — its card is pressed. */
+	/** The theme showing now (under System, the OS's pick). */
 	active: Theme;
+	/** The record's theme id — its card is pressed ("system" included). */
+	selectedId: string;
+	/** The themes System switches between (the System card's preview). */
+	systemPair: { light: Theme; dark: Theme };
 	/** The record delta — the export applies its overrides. */
 	appearance: AppearanceSettings | undefined;
 	onSelect: (id: string) => void;
@@ -129,7 +156,9 @@ export function ThemeCards({
 				<span className="min-w-0">
 					<span className="block font-prose text-(length:--lh-prose-size)">Theme</span>
 					<span data-testid="theme-hint" className="block text-xs text-muted-foreground/70">
-						{active.name} · {active.mode} · sets every color below
+						{selectedId === SYSTEM_THEME_ID
+							? `System · follows your OS · showing ${active.name}`
+							: `${active.name} · ${active.mode} · sets every color below`}
 					</span>
 				</span>
 				<button
@@ -143,8 +172,31 @@ export function ThemeCards({
 				</button>
 			</div>
 			<div className="grid grid-cols-3 gap-3">
+				<div className="relative min-w-0">
+					<button
+						type="button"
+						data-testid={`theme-card-${SYSTEM_THEME_ID}`}
+						aria-pressed={selectedId === SYSTEM_THEME_ID}
+						onClick={() => onSelect(SYSTEM_THEME_ID)}
+						className={cn(
+							"flex w-full flex-col gap-2.5 rounded-lg border border-border bg-background p-3 text-left transition-colors",
+							selectedId === SYSTEM_THEME_ID ? SELECTED_FRAME : "hover:border-muted-foreground/50",
+						)}
+					>
+						<SystemPreview light={systemPair.light} dark={systemPair.dark} />
+						<span className="flex items-center justify-between gap-2">
+							<span className="flex min-w-0 items-center gap-1.5 font-prose text-base">
+								{selectedId === SYSTEM_THEME_ID && <CheckIcon className="size-3.5 shrink-0" strokeWidth={2.5} />}
+								<span className="truncate">System</span>
+							</span>
+							<span className="shrink-0 rounded-sm border border-border px-1.5 font-ui text-xs uppercase tracking-wider text-muted-foreground">
+								auto
+							</span>
+						</span>
+					</button>
+				</div>
 				{themes.map((theme) => {
-					const selected = theme.id === active.id;
+					const selected = theme.id === selectedId;
 					return (
 						<div key={theme.id} className="relative min-w-0">
 							<button

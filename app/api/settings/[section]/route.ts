@@ -110,6 +110,16 @@ export async function PUT(request: Request, ctx: { params: Promise<{ section: st
 			}
 			appearance.theme = "default";
 		}
+		// Same rule for the System pair: a slot may only name an existing
+		// theme; an unchanged stale slot (its file vanished) is dropped.
+		for (const slot of ["light", "dark"] as const) {
+			const id = appearance.systemThemes?.[slot];
+			if (id === undefined || isBuiltinThemeId(id) || themeStore.readTheme(id) !== null) continue;
+			if (id !== record.appearance?.systemThemes?.[slot]) {
+				return Response.json({ error: `unknown theme "${id}" in systemThemes.${slot}` }, { status: 400 });
+			}
+			delete appearance.systemThemes![slot];
+		}
 	}
 	if (section === "agent") {
 		// Orphan-heal (contract fix, interlude 2026-09-26): an ON switch

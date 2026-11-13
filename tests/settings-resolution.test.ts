@@ -50,7 +50,7 @@ describe("resolveSettings", () => {
 		assert.equal(eff.models.strong, null);
 		assert.equal(eff.models.cheap, null);
 		assert.equal(eff.models.vision, null);
-		assert.equal(eff.appearance.theme, "default");
+		assert.equal(eff.appearance.theme, "system");
 		assert.equal(eff.appearance.background, null);
 		assert.deepEqual(eff.appearance.colors, {});
 		assert.equal(eff.appearance.fontFamily, null);

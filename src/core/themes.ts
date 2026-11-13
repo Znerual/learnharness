@@ -74,8 +74,22 @@ export interface Theme extends ThemeFile {
 	builtin: boolean;
 }
 
-/** The theme a record without `appearance.theme` renders. */
+/** The app's original dark palette; also the fallback for an unknown id. */
 export const DEFAULT_THEME_ID = "default";
+/** The fork's light palette, a built-in preset (the System pair's light default). */
+export const LIGHT_THEME_ID = "light";
+/** The reserved id for "follow the OS": it is not a palette but a pair
+ *  (`appearance.systemThemes`), resolved against prefers-color-scheme. A
+ *  record without `appearance.theme` is System (owner, 2026-11). */
+export const SYSTEM_THEME_ID = "system";
+
+/** The two themes System switches between. */
+export interface SystemThemes {
+	light: string;
+	dark: string;
+}
+/** Factory pair: Light by day, Default (the original dark) by night. */
+export const DEFAULT_SYSTEM_THEMES: SystemThemes = { light: LIGHT_THEME_ID, dark: DEFAULT_THEME_ID };
 
 /** #rgb / #rrggbb (case-insensitive). Mirrors settings.isHexColor without
  *  importing it (settings.ts imports this module's types). */
@@ -153,6 +167,15 @@ export const BUILTIN_THEMES: readonly Theme[] = [
 			error: "#ef4444", success: "#22c55e", warning: "#f59e0b",
 		},
 	},
+	// Light: the fork's light palette (light-mode wave, 2026-11-02): the
+	// dark curve mirrored — #fafafa page, #f2f2f2 raised, #cbcbcb edges,
+	// #1a1a1a text; emphasis inks default to the text color; the status
+	// colors are the fork's light-mode classes (red-600, green-700, amber-600).
+	builtin("Light", "light", {
+		background: "#fafafa", surface: "#f2f2f2", border: "#cbcbcb", text: "#1a1a1a", textMuted: "#6b6b6b",
+		accent: "#6b6b6b", bold: "#1a1a1a", italic: "#1a1a1a", code: "#1a1a1a",
+		error: "#e7000b", success: "#008236", warning: "#e17100",
+	}),
 	builtin("Catppuccin Latte", "light", {
 		background: "#eff1f5", surface: "#e6e9ef", border: "#ccd0da", text: "#4c4f69", textMuted: "#6c6f85",
 		accent: "#8839ef", bold: "#7287fd", italic: "#ea76cb", code: "#fe640b",
@@ -210,7 +233,7 @@ export const DEFAULT_THEME: Theme = BUILTIN_THEMES[0]!;
 
 /** Preset ids are reserved: imports never take them, DELETE refuses them. */
 export function isBuiltinThemeId(id: string): boolean {
-	return BUILTIN_THEMES.some((t) => t.id === id);
+	return id === SYSTEM_THEME_ID || BUILTIN_THEMES.some((t) => t.id === id);
 }
 
 /** The active theme: the record's id among builtins and customs, or
@@ -218,6 +241,22 @@ export function isBuiltinThemeId(id: string): boolean {
 export function resolveTheme(id: string | null | undefined, customs: readonly Theme[] = []): Theme {
 	if (!id) return DEFAULT_THEME;
 	return BUILTIN_THEMES.find((t) => t.id === id) ?? customs.find((t) => t.id === id) ?? DEFAULT_THEME;
+}
+
+/** The theme showing: a concrete id (unknown = Default), or System — absent
+ *  id included — which picks the pair's slot for the OS's scheme. A slot
+ *  naming a gone theme falls back to that slot's factory theme. */
+export function resolveActiveTheme(
+	id: string | null | undefined,
+	customs: readonly Theme[],
+	systemThemes: Partial<SystemThemes> | undefined,
+	osPrefersDark: boolean,
+): Theme {
+	if (id && id !== SYSTEM_THEME_ID) return resolveTheme(id, customs);
+	const slot = osPrefersDark ? "dark" : "light";
+	const wanted = systemThemes?.[slot] ?? DEFAULT_SYSTEM_THEMES[slot];
+	const found = BUILTIN_THEMES.find((t) => t.id === wanted) ?? customs.find((t) => t.id === wanted);
+	return found ?? BUILTIN_THEMES.find((t) => t.id === DEFAULT_SYSTEM_THEMES[slot])!;
 }
 
 /** The single place the two override homes merge onto the theme: the

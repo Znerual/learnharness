@@ -14,6 +14,9 @@ import {
 	effectiveColors,
 	exportThemeFile,
 	parseThemeFile,
+	isBuiltinThemeId,
+	isThemeId,
+	resolveActiveTheme,
 	resolveTheme,
 	sanitizeThemeFile,
 	THEME_COLOR_KEYS,
@@ -68,9 +71,39 @@ describe("presets", () => {
 			assert.equal(t.builtin, true);
 		}
 		assert.deepEqual([...ids], [
-			"default", "catppuccin-latte", "catppuccin-frappe", "catppuccin-macchiato", "catppuccin-mocha",
+			"default", "light", "catppuccin-latte", "catppuccin-frappe", "catppuccin-macchiato", "catppuccin-mocha",
 			"rose-pine", "rose-pine-dawn", "gruvbox-dark", "ivory", "pastel", "nvchad-onedark",
 		]);
+	});
+
+	it("Light is the fork's light palette, all twelve colors pinned", () => {
+		const light = BUILTIN_THEMES.find((t) => t.id === "light")!;
+		assert.equal(light.mode, "light");
+		assert.deepEqual(light.colors, {
+			background: "#fafafa", surface: "#f2f2f2", border: "#cbcbcb", text: "#1a1a1a", textMuted: "#6b6b6b",
+			accent: "#6b6b6b", bold: "#1a1a1a", italic: "#1a1a1a", code: "#1a1a1a",
+			error: "#e7000b", success: "#008236", warning: "#e17100",
+		});
+		// the fork's hover accent (#e4e4e4) is surface minus one hover step
+		assert.equal(themeVars(light.colors, "light")["--accent"], "#e4e4e4");
+	});
+
+	it("System is reserved and resolves through the pair by the OS scheme", () => {
+		assert.ok(isBuiltinThemeId("system") && isThemeId("system"));
+		assert.equal(themeIdFromName("System"), "system");
+		const custom = (id: string, mode: "dark" | "light"): Theme => ({ ...BUILTIN_THEMES.find((t) => t.mode === mode)!, id, name: id, builtin: false });
+		const pair = { light: "my-day", dark: "my-night" };
+		const customs = [custom("my-day", "light"), custom("my-night", "dark")];
+		for (const id of [undefined, null, "", "system"]) {
+			assert.equal(resolveActiveTheme(id, customs, undefined, false).id, "light");
+			assert.equal(resolveActiveTheme(id, customs, undefined, true).id, "default");
+			assert.equal(resolveActiveTheme(id, customs, pair, false).id, "my-day");
+			assert.equal(resolveActiveTheme(id, customs, pair, true).id, "my-night");
+			assert.equal(resolveActiveTheme(id, [], pair, false).id, "light", "a gone slot falls back to its factory theme");
+			assert.equal(resolveActiveTheme(id, [], { dark: "gone" }, true).id, "default");
+		}
+		assert.equal(resolveActiveTheme("ivory", customs, pair, true).id, "ivory", "a chosen theme ignores the OS");
+		assert.equal(resolveActiveTheme("gone", customs, pair, false), DEFAULT_THEME, "an unknown id is Default");
 	});
 
 	it("an unknown or removed id resolves to Default", () => {

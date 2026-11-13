@@ -34,6 +34,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
 	EXTRACTION_CHUNK_TOKENS_FLOOR,
+	resolveActiveTheme,
 	resolveSettings,
 	THEME_COLOR_KEYS,
 	type AppearanceSettings,
@@ -47,7 +48,7 @@ import { useAndroidShell } from "@/components/android-shell";
 import { BUNDLED_READING_FONTS, useAppearance } from "./appearance.tsx";
 import { FontMenuList } from "./model-menu";
 import { ThemeCards } from "./theme-cards.tsx";
-import { CommitInput, SettingsMenuTrigger, SettingsRow, Toggle } from "./controls.tsx";
+import { CommitInput, SettingsMenuTrigger, SettingsRow, ThinSelect, Toggle } from "./controls.tsx";
 
 /** The factory reading family — the DEFAULT row's identity (unset =
  *  this). Exported for tests. */
@@ -199,6 +200,9 @@ export function AppearanceSection({
 	onSectionChange: (next: AppearanceSettings) => boolean | Promise<boolean>;
 }) {
 	const { appearance: resolved, activeTheme, colors, themes, refreshThemes } = useAppearance();
+	/** The theme a System slot names (a gone one shows its factory theme). */
+	const slotTheme = (slot: "light" | "dark") =>
+		resolveActiveTheme("system", themes.filter((t) => !t.builtin), resolved.systemThemes, slot === "dark");
 	const android = useAndroidShell();
 	const md = appearance?.mdRendering;
 
@@ -287,6 +291,8 @@ export function AppearanceSection({
 			<ThemeCards
 				themes={themes}
 				active={activeTheme}
+				selectedId={resolved.theme}
+				systemPair={{ light: slotTheme("light"), dark: slotTheme("dark") }}
 				appearance={appearance}
 				onSelect={(id) => onSectionChange({ ...appearance, theme: id })}
 				onImported={() => void refreshThemes()}
@@ -294,9 +300,38 @@ export function AppearanceSection({
 					void refreshThemes();
 					// The server already fell back to Default; the write keeps the
 					// dialog's record mirror and the live vars in step with it.
-					if (removed.id === activeTheme.id) onSectionChange({ ...appearance, theme: "default" });
+					if (resolved.theme === removed.id) {
+						onSectionChange({ ...appearance, theme: "default" });
+					} else if (appearance?.systemThemes?.light === removed.id || appearance?.systemThemes?.dark === removed.id) {
+						// The server dropped the slot (it falls back to its factory theme).
+						const { [appearance.systemThemes.light === removed.id ? "light" : "dark"]: _gone, ...rest } = appearance.systemThemes;
+						onSectionChange({ ...appearance, systemThemes: rest });
+					}
 				}}
 			/>
+			{resolved.theme === "system" && (
+				<div data-testid="group-system-themes" className="mt-3 flex flex-col gap-1">
+					{(["light", "dark"] as const).map((slot) => (
+						<SettingsRow
+							key={slot}
+							label={slot === "light" ? "Light theme" : "Dark theme"}
+							hint={`Used while your OS is in ${slot} mode`}
+							testid={`row-system-${slot}`}
+						>
+							<ThinSelect
+								value={resolved.systemThemes[slot]}
+								ariaLabel={`${slot} theme`}
+								testid={`select-system-${slot}`}
+								onChange={(id) => onSectionChange({ ...appearance, systemThemes: { ...appearance?.systemThemes, [slot]: id } })}
+							>
+								{themes.filter((t) => t.mode === slot).map((t) => (
+									<option key={t.id} value={t.id}>{t.name}</option>
+								))}
+							</ThinSelect>
+						</SettingsRow>
+					))}
+				</div>
+			)}
 			<div data-testid="group-colors" className="mt-5 flex flex-col gap-2">
 				<div className="flex items-end justify-between gap-4">
 					<p className="text-xs uppercase tracking-widest text-muted-foreground">

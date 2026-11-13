@@ -143,6 +143,17 @@ describe("parseAppearanceSettingsBody", () => {
 		});
 	});
 
+	it("accepts the System theme and a systemThemes pair; validates slot ids like theme ids", () => {
+		const ok = parseAppearanceSettingsBody({ theme: "system", systemThemes: { light: "ivory", dark: "my-night" } });
+		assert.ok(ok.ok);
+		assert.deepEqual(ok.settings, { theme: "system", systemThemes: { light: "ivory", dark: "my-night" } });
+		const partial = parseAppearanceSettingsBody({ systemThemes: { dark: "rose-pine" } });
+		assert.ok(partial.ok && JSON.stringify(partial.settings) === '{"systemThemes":{"dark":"rose-pine"}}');
+		for (const systemThemes of ["x", [], { light: "Sepia!" }, { dark: 3 }, { light: "system" }, { auto: "ivory" }]) {
+			assert.equal(parseAppearanceSettingsBody({ systemThemes }).ok, false, JSON.stringify(systemThemes));
+		}
+	});
+
 	it("rejects bad enums, ranges, and colors — with specific messages, never clamps", () => {
 		const cases: unknown[] = [
 			{ theme: "Sepia!" },

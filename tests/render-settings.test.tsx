@@ -384,7 +384,7 @@ describe("speech tabs in the dialog", () => {
 function renderAppearance(appearance: AppearanceSettings | undefined, customs: Theme[] = []): string {
 	const theme = resolveTheme(appearance?.theme, customs);
 	return renderToStaticMarkup(
-		<AppearanceProvider initialAppearance={appearance} initialTheme={theme}>
+		<AppearanceProvider initialAppearance={appearance} initialTheme={theme} initialCustoms={customs}>
 			<AppearanceSection appearance={appearance} onSectionChange={() => {}} />
 		</AppearanceProvider>,
 	);
@@ -414,9 +414,34 @@ describe("AppearanceSection (thin SSR)", () => {
 		assert.ok(!html.includes("theme-remove-"), "presets cannot be removed");
 	});
 
-	it("absent theme = the Default card pressed", () => {
+	it("absent theme = the System card pressed, and it is the first card", () => {
 		const html = renderAppearance(undefined);
-		assert.ok(tagOf(html, "theme-card-default").includes('aria-pressed="true"'));
+		assert.ok(tagOf(html, "theme-card-system").includes('aria-pressed="true"'));
+		assert.ok(tagOf(html, "theme-card-default").includes('aria-pressed="false"'));
+		assert.ok(html.indexOf('data-testid="theme-card-system"') < html.indexOf('data-testid="theme-card-default"'));
+		assert.match(html, /System · follows your OS/);
+	});
+
+	it("the Light and Dark theme pickers show only under System, filtered by mode", () => {
+		const custom: Theme[] = [
+			{ ...BUILTIN_THEMES.find((t) => t.id === "ivory")!, id: "my-paper", name: "My Paper", builtin: false },
+			{ ...BUILTIN_THEMES[0]!, id: "my-night", name: "My Night", builtin: false },
+		];
+		const html = renderAppearance({ theme: "system" }, custom);
+		const options = (testid: string) => {
+			const start = html.indexOf(`data-testid="${testid}"`);
+			const select = html.slice(start, html.indexOf("</select>", start));
+			return [...select.matchAll(/value="([^"]+)"/g)].map((m) => m[1]);
+		};
+		const ids = (mode: string) => BUILTIN_THEMES.filter((t) => t.mode === mode).map((t) => t.id);
+		assert.deepEqual(options("select-system-light"), [...ids("light"), "my-paper"]);
+		assert.deepEqual(options("select-system-dark"), [...ids("dark"), "my-night"]);
+		assert.ok(tagOf(html, "row-system-light") && html.includes("Light theme") && html.includes("Dark theme"));
+		assert.match(html, /<option value="light" selected=""/, "factory light slot = Light");
+		for (const theme of ["default", "catppuccin-latte", undefined]) {
+			const other = renderAppearance(theme ? { theme } : { theme: "default" });
+			assert.ok(!other.includes("select-system-light") && !other.includes("group-system-themes"), String(theme));
+		}
 	});
 
 	it("an imported theme gets a custom card with a remove button", () => {

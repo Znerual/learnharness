@@ -58,7 +58,7 @@ describe("desktop development startup", () => {
 				requestSingleInstanceLock: () => false, quit() {}, on() {}, once() {}, removeListener() {}, whenReady: async () => {},
 			},
 			BrowserWindow: FakeWindow,
-			nativeTheme: { themeSource: "system" },
+			nativeTheme: { themeSource: "system", shouldUseDarkColors: true, on() {} },
 			Menu: { buildFromTemplate() {}, setApplicationMenu() {} },
 			ipcMain: { handle() {}, on() {} },
 			session: { defaultSession: { setPermissionRequestHandler() {}, setPermissionCheckHandler() {} } },
@@ -105,9 +105,9 @@ describe("desktop appearance boot and IPC", () => {
 			setBackgroundColor(color: string) { this.background = color; }
 			setTitleBarOverlay(colors: unknown) { this.overlay = colors; }
 		}
-		const nativeTheme = { themeSource: "system" };
+		const nativeTheme = { themeSource: "system", shouldUseDarkColors: true, on() {} };
 		const chrome = mainRequire("./appearance-chrome.cjs");
-		let bootDirectory: string | undefined;
+		let bootDirectory: unknown;
 		const context = {
 			require: (id: string) => {
 				if (id === "electron") return {
@@ -119,7 +119,7 @@ describe("desktop appearance boot and IPC", () => {
 					session: { defaultSession: { setPermissionRequestHandler() {}, setPermissionCheckHandler() {} } },
 				};
 				if (id === "node:fs") return { mkdirSync() {}, appendFileSync() {} };
-				if (id === "./appearance-chrome.cjs") return { ...chrome, readAppearance: (directory: string) => {
+				if (id === "./appearance-chrome.cjs") return { ...chrome, readAppearance: (directory: unknown) => {
 					bootDirectory = directory; return { mode: "light", background: "#faf9f5" };
 				} };
 				if (id === "./dev-server-readiness.cjs") return { waitForDevServer: async () => {} };
@@ -130,7 +130,7 @@ describe("desktop appearance boot and IPC", () => {
 		};
 		runInNewContext(mainSource, context, { filename: mainFile });
 		await runInNewContext("main()", context);
-		assert.equal(bootDirectory, "/fixture/server-data");
+		assert.deepEqual(JSON.parse(JSON.stringify(bootDirectory)), ["/fixture/server-data-local", "/fixture/server-data"], "device-local folder first, data folder as the legacy fallback");
 		assert.equal(nativeTheme.themeSource, "light");
 		const win = windows[0]!;
 		assert.equal(win.options.backgroundColor, "#faf9f5");

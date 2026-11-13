@@ -31,7 +31,8 @@ const mocha = BUILTIN_THEMES.find((t) => t.id === "catppuccin-mocha")!;
 describe("resolveAppearance — delta over factory", () => {
 	it("absent everything = the factory view", () => {
 		const a = resolveAppearance(undefined);
-		assert.equal(a.theme, "default");
+		assert.equal(a.theme, "system");
+		assert.deepEqual(a.systemThemes, { light: "light", dark: "default" });
 		assert.equal(a.background, null);
 		assert.deepEqual(a.colors, {});
 		assert.equal(a.fontFamily, null);

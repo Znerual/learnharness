@@ -81,7 +81,13 @@ declare global {
 			expandWindow: () => void;
 			/** Native chrome follows the active theme (theme wave): main sets
 			 *  themeSource and repaints the window background / overlay. */
-			setAppearance?: (a: { mode: ThemeMode; background: string }) => void;
+			setAppearance?: (a: {
+				mode: ThemeMode;
+				background: string;
+				/** System theme: the shell follows the OS between the two variants. */
+				system?: boolean;
+				variants?: Record<"light" | "dark", { mode: ThemeMode; background: string }>;
+			}) => void;
 			/** The zoom truth (owner round 7): subscribes to "lh:zoom" pushes; returns unsubscribe. */
 			onZoom?: (cb: (factor: number) => void) => () => void;
 			getZoom?: () => Promise<number>;
