@@ -119,7 +119,7 @@ function stamp(d: Date): string {
 /** A path that does not exist yet: `p`, else `p.2`, `p.3`, ... (a move must never replace a file). */
 function freePath(p: string): string {
 	if (!fs.existsSync(p)) return p;
-	for (let i = 2; ; i++) if (!fs.existsSync(`${p}.${i}`)) return `${p}.${i}`;
+	for (let i = 2; ; i++) if (!fs.existsSync(/* turbopackIgnore: true */ `${p}.${i}`)) return `${p}.${i}`;
 }
 
 // ─────────────────────────────────────────────────────────────── what is in the folder
@@ -400,8 +400,8 @@ function takeBackup(p: MigrationPaths, final: string, hook?: () => void): void {
 		fs.copyFileSync(path.join(p.dataDir, f), to);
 	}
 	for (const name of ["settings.json", "positions.json", "render-settings.json", "device.json"]) {
-		const from = path.join(p.localDir, name);
-		if (!fs.existsSync(from)) continue;
+		const from = path.join(/* turbopackIgnore: true */ p.localDir, name);
+		if (!fs.existsSync(/* turbopackIgnore: true */ from)) continue;
 		fs.mkdirSync(path.join(tmp, "local"), { recursive: true });
 		fs.copyFileSync(from, path.join(tmp, "local", name));
 	}

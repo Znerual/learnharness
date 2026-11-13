@@ -105,7 +105,7 @@ function stamp(d: Date): { date: string; time: string } {
 
 function freePath(p: string): string {
 	if (!fs.existsSync(p)) return p;
-	for (let i = 2; ; i++) if (!fs.existsSync(`${p}.${i}`)) return `${p}.${i}`;
+	for (let i = 2; ; i++) if (!fs.existsSync(/* turbopackIgnore: true */ `${p}.${i}`)) return `${p}.${i}`;
 }
 
 function messagesOf(v: unknown): string[] | null {

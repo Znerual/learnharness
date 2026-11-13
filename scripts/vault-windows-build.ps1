@@ -108,6 +108,8 @@ Set-Location $checkout
 # -- build ---------------------------------------------------------------------
 Write-Host "== npm ci"
 Run npm ci --no-audit --no-fund
+Write-Host "== plugins:setup"
+Run npm run plugins:setup
 
 foreach ($d in "dist", ".next\standalone") { if (Test-Path $d) { Remove-Item -Recurse -Force $d } }
 Write-Host "== next build ($Version, vault https://$VaultHost)"

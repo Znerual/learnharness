@@ -95,6 +95,8 @@ cd "$checkout"
 # ── build ─────────────────────────────────────────────────────────────────────
 echo "== npm ci"
 npm ci --no-audit --no-fund
+echo "== plugins:setup"
+npm run plugins:setup
 
 # The packaged app reads learnharnessBuild from its package.json (electron/main.cjs). The edit is
 # undone afterwards, whatever happens, so the checkout stays clean.
