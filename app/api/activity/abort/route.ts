@@ -17,7 +17,7 @@
  * Extraction abort is idempotent by design (aborting with nothing in
  * flight is success — the blob is gone either way) -> 200.
  */
-import { abortExtraction, abortJob, abortPluginWorkerActivity, abortTurn } from "@/src/server";
+import { abortExtraction, abortJob, abortPluginWorkerActivity, abortTurn, foreignOwner, ownedElsewhereResponse } from "@/src/server";
 
 export async function POST(req: Request) {
 	let body: unknown;
@@ -47,6 +47,9 @@ export async function POST(req: Request) {
 		return Response.json({ ok: true });
 	}
 	if (kind === "turn") {
+		// Multi-device: a turn another device runs is not abortable from here.
+		const owner = foreignOwner(id);
+		if (owner) return ownedElsewhereResponse(owner);
 		const outcome = abortTurn(id);
 		if (!outcome.ok) return Response.json({ ok: false, reason: outcome.reason }, { status: 409 });
 		return Response.json({ ok: true });

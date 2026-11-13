@@ -111,3 +111,30 @@ test("takeover of a session nobody else owns is a no-op 200", async () => {
 	assert.equal(res.status, 200);
 	assert.deepEqual(await res.json(), { ok: true, jobsStopped: 0 });
 });
+
+test("side-chat writes, dismissal and turn abort refuse in a session another device runs", async () => {
+	const chat = stores.chatStore.createChat("owned by the desktop, side routes");
+	editRecord(chat.id, { activeTurn: { ...desktop, startedAt: "2026-10-30T10:00:00.000Z" } });
+	const sideAsk = await import("../app/api/chats/[id]/side-chats/route.ts");
+	const sideThread = await import("../app/api/chats/[id]/side-chats/[threadId]/route.ts");
+	const sideStop = await import("../app/api/chats/[id]/side-chats/[threadId]/stop/route.ts");
+	const dismiss = await import("../app/api/chats/[id]/dismiss/route.ts");
+	const abort = await import("../app/api/activity/abort/route.ts");
+	const post = (body: unknown) => new Request("http://t", { method: "POST", body: JSON.stringify(body) });
+	const threadCtx = { params: Promise.resolve({ id: chat.id, threadId: "side_1" }) };
+	const refusals = await Promise.all([
+		sideAsk.POST(post({ anchor: { messageId: "m", contentIndex: 0 }, text: "why?" }), ctx(chat.id)),
+		sideThread.PATCH(post({ open: false }), threadCtx),
+		sideStop.POST(post({}), threadCtx),
+		dismiss.POST(post({ input: { type: "dismiss-question", toolCallId: "t" } }), ctx(chat.id)),
+		abort.POST(post({ kind: "turn", id: chat.id })),
+	]);
+	for (const res of refusals) {
+		assert.equal(res.status, 409);
+		const body = await res.json();
+		assert.equal(body.code, "owned_elsewhere");
+		assert.equal(body.owner.deviceName, "Desktop");
+	}
+	// Reading stays open: the thread list is not a write.
+	assert.equal((await sideAsk.GET(new Request("http://t"), ctx(chat.id))).status, 200);
+});

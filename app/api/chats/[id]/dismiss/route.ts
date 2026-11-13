@@ -21,13 +21,16 @@
  * the current saved occurrence, then park and abort the owner here.
  */
 import { assertPluginQuestionInputAllowed, ChatInputError, dismissAppends, emit, parseDismissInput } from "@/src/core";
-import { abortTurn, getChat, isTurnRunning, parkDismissal, stores, preparePluginQuestionDismissal, reconcilePluginQuestionCompatibility } from "@/src/server";
+import { abortTurn, foreignOwner, getChat, ownedElsewhereResponse, isTurnRunning, parkDismissal, stores, preparePluginQuestionDismissal, reconcilePluginQuestionCompatibility } from "@/src/server";
 
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }): Promise<Response> {
 	const { id } = await ctx.params;
 	await reconcilePluginQuestionCompatibility(stores.chatStore, id);
 	let chat = getChat(id);
 	if (!chat) return Response.json({ error: "Unknown chat" }, { status: 404 });
+	// Multi-device: another device owns this session's running work — it parks no dismissal and aborts nothing from here.
+	const owner = foreignOwner(id);
+	if (owner) return ownedElsewhereResponse(owner);
 
 	let input;
 	try {

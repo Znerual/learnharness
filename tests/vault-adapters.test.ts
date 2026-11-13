@@ -22,6 +22,8 @@ describe("adapters note the intent before every write", () => {
 		const chats = wrapChatStore(raw.chatStore, ctx(dir, rec));
 		const { id } = chats.createChat("Photosynthesis");
 		chats.saveMessages(id, []);
+		chats.saveImageSnapshot(id, "a".repeat(64), {} as never);
+		chats.updateSideChats(id, (threads: unknown[]) => threads as never);
 		chats.saveTree(id, {});
 		chats.appendTurnUsage(id, {});
 		chats.appendExtractionUsage(id, {});
@@ -32,8 +34,8 @@ describe("adapters note the intent before every write", () => {
 		chats.resolveConflict(id, `${id}.sync-conflict-20261101-101010-dev_bbbbbbbb.json`);
 		chats.deleteChat(id);
 		const docs = rec.intents.filter((l) => l === `doc chats/${id}.json`);
-		assert.equal(docs.length, 10); // create, 7 writers, resolve (keep copy), delete
-		assert.equal(rec.log.filter((l) => l.startsWith("write ")).length, 10); // create (own write), 7 writers, resolve, delete
+		assert.equal(docs.length, 12); // create, 9 writers, resolve (keep copy), delete
+		assert.equal(rec.log.filter((l) => l.startsWith("write ")).length, 12); // create (own write), 9 writers, resolve, delete
 	});
 
 	test("jobs: update and delete note first", () => {

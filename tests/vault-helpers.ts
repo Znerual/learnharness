@@ -70,6 +70,13 @@ export function fakeStores(dataDir: string, rec: Recorder, deviceId = DEVICE) {
 			saveMessages(id: string, messages: unknown[]) {
 				put(`chats/${id}.json`, JSON.stringify({ id, messages }));
 			},
+			saveImageSnapshot(id: string, snapshotId: string, _image: unknown) {
+				put(`chats/${id}.json`, JSON.stringify({ id, snapshotId }));
+			},
+			updateSideChats(id: string, update: (threads: unknown[]) => unknown[]) {
+				put(`chats/${id}.json`, JSON.stringify({ id, sideChats: update([]) }));
+				return [] as unknown[];
+			},
 			saveTree(id: string, tree: unknown) {
 				put(`chats/${id}.json`, JSON.stringify({ id, tree }));
 			},

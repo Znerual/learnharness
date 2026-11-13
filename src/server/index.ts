@@ -15,7 +15,7 @@ export { convertPdf } from "../agent/subagents/pdf-ops.ts";
 export { joinPages } from "../agent/subagents/pdf-markdown.ts";
 export * from "./commit-positions.ts";
 export * from "./jobs.ts";
-export { foreignOwner, takeOver, type ForeignOwner } from "./ownership.ts";
+export { foreignOwner, ownedElsewhereResponse, takeOver, type ForeignOwner } from "./ownership.ts";
 export { prepareSubmissionImages, prepareSubmissionImageChannels } from "./submission-images.ts";
 export * from "./stores.ts";
 export { refreshWorkerRequestAdmission } from "../agent/worker-request-admission.ts";

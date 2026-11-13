@@ -3,12 +3,15 @@
  * after reload); PATCH changes window visibility. Closing never deletes it.
  */
 import { parseSideOpenInput, SideChatInputError } from "@/src/core";
-import { sideChats } from "@/src/server";
+import { foreignOwner, ownedElsewhereResponse, sideChats } from "@/src/server";
 
 type Ctx = { params: Promise<{ id: string; threadId: string }> };
 
 export async function PATCH(request: Request, ctx: Ctx): Promise<Response> {
 	const { id, threadId } = await ctx.params;
+	// Multi-device: another device owns this session's running work — read-only here.
+	const owner = foreignOwner(id);
+	if (owner) return ownedElsewhereResponse(owner);
 	let open: boolean;
 	try {
 		open = parseSideOpenInput(await request.json().catch(() => null));

@@ -13,7 +13,7 @@
  * createSideChatService directly.
  */
 import { parseSideAskInput, SideChatInputError } from "@/src/core";
-import { sideChats } from "@/src/server";
+import { foreignOwner, ownedElsewhereResponse, sideChats } from "@/src/server";
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }): Promise<Response> {
 	const { id } = await ctx.params;
@@ -24,6 +24,9 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
 
 export async function POST(request: Request, ctx: { params: Promise<{ id: string }> }): Promise<Response> {
 	const { id } = await ctx.params;
+	// Multi-device: another device owns this session's running work — read-only here.
+	const owner = foreignOwner(id);
+	if (owner) return ownedElsewhereResponse(owner);
 	let input;
 	try {
 		input = parseSideAskInput(await request.json().catch(() => null));

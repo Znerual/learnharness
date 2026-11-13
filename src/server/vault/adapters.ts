@@ -56,6 +56,8 @@ export function wrapChatStore<S extends ChatStore>(inner: S, ctx: AdapterContext
 			return record;
 		}) as S["createChat"],
 		saveMessages: intentFirst(inner, "saveMessages", doc),
+		saveImageSnapshot: intentFirst(inner, "saveImageSnapshot", doc),
+		updateSideChats: intentFirst(inner, "updateSideChats", doc),
 		saveTree: intentFirst(inner, "saveTree", doc),
 		appendTurnUsage: intentFirst(inner, "appendTurnUsage", doc),
 		appendExtractionUsage: intentFirst(inner, "appendExtractionUsage", doc),
