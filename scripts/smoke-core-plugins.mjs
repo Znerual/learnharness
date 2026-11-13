@@ -18,7 +18,7 @@ function hashes(root) {
 	}
 	walk(root); return result;
 }
-export async function verifyCorePlugins({ root, standalone, dataDirectory, url }) {
+export async function verifyCorePlugins({ root, standalone, dataDirectory, pluginsDirectory = path.join(dataDirectory, "plugins"), url }) {
 	const ids = readCoreCatalog(root), code = path.join(standalone, "core-plugins"), before = hashes(code);
 	const request = async (route, body) => {
 		const response = await fetch(`${url}${route}`, body === undefined ? undefined : { method: route === "/api/plugins" ? "POST" : "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -29,10 +29,10 @@ export async function verifyCorePlugins({ root, standalone, dataDirectory, url }
 	for (const id of ids) {
 		const info = initial.plugins.find(p => p.id === id);
 		assert.equal(info.enabled, false, id); assert.equal(info.status, "disabled", JSON.stringify(info));
-		assert.equal(fs.existsSync(path.join(dataDirectory, "plugins", id)), false, "core code must not be installed into user data");
+		assert.equal(fs.existsSync(path.join(pluginsDirectory, id)), false, "core code must not be installed into user data");
 	}
 	assert.equal(fs.existsSync(path.join(dataDirectory, "core-plugin-data")), false, "disabled fresh discovery creates no core records");
-	const shadow = path.join(dataDirectory, "plugins", ids[0]);
+	const shadow = path.join(pluginsDirectory, ids[0]);
 	fs.mkdirSync(path.join(shadow, "dist"), { recursive: true });
 	fs.writeFileSync(path.join(shadow, "dist", "manifest.json"), "{invalid shadow must never substitute for core}");
 	const dataMarker = path.join(shadow, "data", "private.txt"); fs.mkdirSync(path.dirname(dataMarker)); fs.writeFileSync(dataMarker, "do not migrate or change");
