@@ -46,7 +46,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { GRAPH_FORMAT_FILE, LEDGER_FILES, PATHS, POSITIONS_FILE, SOURCES_FILE } from "../../config.ts";
 import { assertGraphFormat, ensureGraphFormat } from "./graph-format.ts";
-import { writeFileAtomic } from "./fs-files.ts";
+import { removeLeftoverTemps, writeFileAtomicSync } from "./atomic-write.ts";
 import type {
 	GraphChain,
 	GraphDeletion,
@@ -240,7 +240,11 @@ export function createGraphLedgerStore(deviceId: () => string): GraphLedgerStore
 			const all = readSourceMap();
 			let removed = 0;
 			for (const id of ids) if (Object.hasOwn(all, id)) { delete all[id]; removed++; }
-			if (removed > 0) writeSourceMap(all);
+			if (removed > 0) {
+				// Deletion never saves in place on Windows (#403): a held file must keep the deleted sources readable, not truncate.
+				writeFileAtomicSync(SOURCES_FILE, JSON.stringify(all, null, "\t"));
+				removeLeftoverTemps(SOURCES_FILE); // crash leftovers would still hold the deleted sources
+			}
 			return removed;
 		},
 		/** Idempotent per startedAt — same discipline as chats.appendExtractionUsage. */
@@ -291,20 +295,7 @@ function readPositionMap(): Record<string, Position> {
 
 function writePositionMap(positions: Record<string, Position>): void {
 	fs.mkdirSync(path.dirname(POSITIONS_FILE), { recursive: true });
-	// Tmp + rename (a9339b3 UI flag): a torn write must never replace the
-	// ledger with a half-written file the reader parses as empty.
-	const tmp = `${POSITIONS_FILE}.tmp-${crypto.randomUUID().slice(0, 8)}`;
-	try {
-		fs.writeFileSync(tmp, JSON.stringify({ positions, updatedAt: new Date().toISOString() }, null, "\t"), "utf-8");
-		fs.renameSync(tmp, POSITIONS_FILE);
-	} catch (err) {
-		try {
-			fs.unlinkSync(tmp);
-		} catch {
-			/* the rename either already happened or the tmp never existed */
-		}
-		throw err;
-	}
+	writeFileAtomicSync(POSITIONS_FILE, JSON.stringify({ positions, updatedAt: new Date().toISOString() }, null, "\t"));
 }
 
 const isPosition = (v: unknown): v is Position =>
@@ -336,7 +327,7 @@ function readSourceMap(): Record<string, NotesSource> {
 function writeSourceMap(map: Record<string, NotesSource>): void {
 	fs.mkdirSync(path.dirname(SOURCES_FILE), { recursive: true });
 	ensureGraphFormat(); // the lazy format stamp (graph-format.ts)
-	writeFileAtomic(SOURCES_FILE, JSON.stringify(map, null, "\t"));
+	writeFileAtomicSync(SOURCES_FILE, JSON.stringify(map, null, "\t"), { allowInPlaceFallback: true });
 }
 
 // ─── one-way purges at adapter load: dead ledgers are exactly the confusion
@@ -345,9 +336,10 @@ function writeSourceMap(map: Record<string, NotesSource>): void {
 {
 	const graphDir = path.dirname(LEDGER_FILES.nodes);
 	for (const legacy of ["edges.jsonl", "events.jsonl"]) {
-		const file = path.join(graphDir, legacy);
+		// Runtime user records are not assets for instrumentation's build trace.
+		const file = path.join(/* turbopackIgnore: true */ graphDir, legacy);
 		try {
-			if (fs.existsSync(file)) {
+			if (fs.existsSync(/* turbopackIgnore: true */ file)) {
 				fs.rmSync(file);
 				console.info(`[graph-store] purged legacy ledger: ${file}`);
 			}

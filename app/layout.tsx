@@ -1,17 +1,18 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { JetBrains_Mono, Source_Sans_3 } from "next/font/google";
+import { connection } from "next/server";
 import "katex/dist/katex.min.css";
 import "./globals.css";
 import { AppShell, SidebarProvider } from "@/components/sidebar";
 import { ActivityProvider } from "@/components/activity-dock";
 import { ServerEventsProvider } from "@/components/server-events";
 import { AppearanceProvider } from "@/components/settings/appearance";
-import { themeScript } from "@/components/settings/theme-mode";
 import UpdateBanner from "@/components/update-banner";
 import { AndroidShellProvider } from "@/components/android-shell";
-import { FACTORY_SETTINGS, isAndroidShell } from "@/src/core";
-import { readSettingsRecord } from "@/src/server";
+import { isAndroidShell } from "@/src/core";
+import { PluginsProvider } from "@/components/plugins";
+import { readThemeBoot } from "@/src/server";
 
 // Chrome = JetBrains Mono, teaching prose = Source Sans 3, titles = CMU
 // Serif (the bundled lh-cmu @font-face in globals.css — no CDN).
@@ -27,28 +28,33 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 	// The phone layout applies only inside the Android app (owner, step 3):
 	// its WebView marks the user agent; .lh-android keys the android: variant.
 	const android = isAndroidShell((await headers()).get("user-agent") ?? undefined);
-	// Light mode wave (2026-11-02): the device's mode setting, read here so
-	// the pre-paint script applies it before anything shows. The `dark`
-	// class is the script's and AppearanceProvider's, never this className
-	// (suppressHydrationWarning: the script edits <html> before hydration).
-	const mode = readSettingsRecord()?.appearance?.mode ?? FACTORY_SETTINGS.appearance.mode;
+	// The theme is server-rendered — its class AND its color variables —
+	// so no first frame ever shows the wrong theme. connection(): the
+	// record and the theme files are per-machine disk state — without it a
+	// prerendered route (settings) would bake the BUILD machine's record.
+	await connection();
+	const { appearance, theme, vars } = readThemeBoot();
 	return (
-		<html lang="en" className={`${ui.variable} ${prose.variable}${android ? " lh-android" : ""}`} suppressHydrationWarning>
-			<head>
-				<script dangerouslySetInnerHTML={{ __html: themeScript(mode) }} />
-			</head>
+		<html
+			lang="en"
+			className={`${theme.mode} ${ui.variable} ${prose.variable}${android ? " lh-android" : ""}`}
+			style={vars as React.CSSProperties}
+			suppressHydrationWarning
+		>
 			<body className="min-h-dvh antialiased">
 			<AndroidShellProvider android={android}>
 			{/* The notification channel rides OUTSIDE everything: sidebar, dock,
 				 and pages all subscribe as the polls retire (push S3, 2026-10-02). */}
 			<ServerEventsProvider>
-				<AppearanceProvider initialMode={mode}>
-					<SidebarProvider>
-						<ActivityProvider>
-							<AppShell>{children}</AppShell>
-						</ActivityProvider>
-					</SidebarProvider>
-				</AppearanceProvider>
+				<PluginsProvider>
+					<AppearanceProvider initialAppearance={appearance} initialTheme={theme}>
+						<SidebarProvider>
+							<ActivityProvider>
+								<AppShell>{children}</AppShell>
+							</ActivityProvider>
+						</SidebarProvider>
+					</AppearanceProvider>
+				</PluginsProvider>
 			</ServerEventsProvider>
 			{/* Auto-update banner (Wave C): fixed card, Electron-only pushes. */}
 			<UpdateBanner />

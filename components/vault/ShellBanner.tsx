@@ -11,7 +11,7 @@ const api = createVaultApi({ base: "/api/vault" });
 /** Pure view: a small card at the bottom of the window. Renders nothing for a quiet state (banner null). */
 export function ShellBannerView({ banner, onOpen, onDismiss }: { banner: ShellBanner | null; onOpen: () => void; onDismiss: () => void }) {
 	if (!banner) return null;
-	const color = { ok: "border-green-500", info: "border-border", warning: "border-amber-500", error: "border-red-500" }[banner.tone];
+	const color = { ok: "border-success", info: "border-border", warning: "border-warning", error: "border-error" }[banner.tone];
 	return (
 		<div
 			role={banner.tone === "error" ? "alert" : "status"}

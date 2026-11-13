@@ -14,9 +14,12 @@ export const ROOT = path.dirname(fileURLToPath(import.meta.url));
  * byte-for-byte as before. Read-only assets (prompts) stay ROOT-anchored
  * on purpose: they ship inside the app bundle by design.
  */
+// Mutable runtime paths are not deployment assets. Turbopack analyzes each
+// path-producing call independently, so derived paths need their own opt-out.
+// Keep ROOT/teacherPrompt traceable: read-only shipped assets still belong.
 const DATA_ROOT = process.env.LH_DATA_DIR
-	? path.resolve(process.env.LH_DATA_DIR)
-	: path.join(ROOT, "data");
+	? path.resolve(/* turbopackIgnore: true */ process.env.LH_DATA_DIR)
+	: path.join(/* turbopackIgnore: true */ ROOT, "data");
 
 /**
  * THE DEVICE-LOCAL FOLDER (multi-device, ADR 0002): records that belong to
@@ -28,10 +31,10 @@ const DATA_ROOT = process.env.LH_DATA_DIR
  * other LH_DATA_DIR (so two data folders never share one).
  */
 const LOCAL_ROOT = process.env.LH_LOCAL_DIR
-	? path.resolve(process.env.LH_LOCAL_DIR)
+	? path.resolve(/* turbopackIgnore: true */ process.env.LH_LOCAL_DIR)
 	: process.env.LH_DATA_DIR
 		? `${DATA_ROOT}-local`
-		: path.join(ROOT, "local");
+		: path.join(/* turbopackIgnore: true */ ROOT, "local");
 
 export const PATHS = {
 	root: ROOT,
@@ -39,13 +42,13 @@ export const PATHS = {
 	teacherPrompt: path.join(ROOT, "src", "agent", "system-prompt.md"),
 	data: DATA_ROOT,
 	/** Chat sessions (AI SDK UIMessage transcripts, one JSON file per chat). */
-	chats: path.join(DATA_ROOT, "chats"),
-	graph: path.join(DATA_ROOT, "graph"),
+	chats: path.join(/* turbopackIgnore: true */ DATA_ROOT, "chats"),
+	graph: path.join(/* turbopackIgnore: true */ DATA_ROOT, "graph"),
 	/** The device-local folder (LOCAL_ROOT above) — never synced. */
 	local: LOCAL_ROOT,
 	/** Debug artifacts (env-gated, device-local): debug/provider-events/<chatId>.jsonl
 	 * raw provider stream recordings (src/agent/provider-events.ts). */
-	debug: path.join(LOCAL_ROOT, "debug"),
+	debug: path.join(/* turbopackIgnore: true */ LOCAL_ROOT, "debug"),
 } as const;
 
 // ─── Models ────────────────────────────────────────────────────────────────
@@ -69,7 +72,8 @@ export type ModelRole =
 	| "visualMaker"
 	| "pdfReader"
 	| "extractor"
-	| "auditor";
+	| "auditor"
+	| "sideQuestion";
 
 /**
  * The LIVE graph store (src/store/graph.ts) — owned by the app's extraction
@@ -82,13 +86,13 @@ export type ModelRole =
  * deletions.<deviceId>.jsonl); the store derives the file names.
  */
 export const LEDGER_FILES = {
-	nodes: path.join(PATHS.graph, "nodes.jsonl"),
-	chains: path.join(PATHS.graph, "chains.jsonl"),
-	sessions: path.join(PATHS.graph, "sessions.jsonl"),
+	nodes: path.join(/* turbopackIgnore: true */ PATHS.graph, "nodes.jsonl"),
+	chains: path.join(/* turbopackIgnore: true */ PATHS.graph, "chains.jsonl"),
+	sessions: path.join(/* turbopackIgnore: true */ PATHS.graph, "sessions.jsonl"),
 	/** Per-message extraction coverage (contracts/graph.ts CoverageEntry;
 	 *  the checkpoint's replacement for chat extractions — notes keep
 	 *  sessions.jsonl, whole-file as they are). */
-	coverage: path.join(PATHS.graph, "coverage.jsonl"),
+	coverage: path.join(/* turbopackIgnore: true */ PATHS.graph, "coverage.jsonl"),
 } as const;
 
 /**
@@ -96,14 +100,14 @@ export const LEDGER_FILES = {
  * record (contracts/graph.ts) — the file path + import time + the run's usage
  * log. Read-modify-write like a chat file, not append-only like the ledgers.
  */
-export const SOURCES_FILE = path.join(PATHS.graph, "sources.json");
+export const SOURCES_FILE = path.join(/* turbopackIgnore: true */ PATHS.graph, "sources.json");
 /** Presentation-only source names/folder placement; never extraction identity. */
-export const SOURCE_ORGANIZATION_FILE = path.join(PATHS.graph, "source-organization.json");
+export const SOURCE_ORGANIZATION_FILE = path.join(/* turbopackIgnore: true */ PATHS.graph, "source-organization.json");
 /** The layout ledger (read-modify-write like sources.json): nodeId →
  *  {x,y} resting positions from the incremental settle (core/layout.ts).
  *  Carries an updatedAt stamp for future live-physics conflict handling.
  *  Device-local (screen-dependent, rebuildable): never synced. */
-export const POSITIONS_FILE = path.join(LOCAL_ROOT, "positions.json");
+export const POSITIONS_FILE = path.join(/* turbopackIgnore: true */ LOCAL_ROOT, "positions.json");
 
 /**
  * Graph render settings (the settings-panel controls): one small JSON blob,
@@ -111,29 +115,29 @@ export const POSITIONS_FILE = path.join(LOCAL_ROOT, "positions.json");
  * Device-local display preferences: never synced, outside the graph format
  * family.
  */
-export const RENDER_SETTINGS_FILE = path.join(LOCAL_ROOT, "render-settings.json");
+export const RENDER_SETTINGS_FILE = path.join(/* turbopackIgnore: true */ LOCAL_ROOT, "render-settings.json");
 
 /** The device identity (multi-device): {id, name} — src/store/device.ts. */
-export const DEVICE_FILE = path.join(LOCAL_ROOT, "device.json");
+export const DEVICE_FILE = path.join(/* turbopackIgnore: true */ LOCAL_ROOT, "device.json");
 
 /** Conflict copies the learner chose NOT to keep (multi-device, ADR 0002):
  *  moved here instead of deleted, so they stay recoverable by hand. */
-export const CONFLICTS_DIR = path.join(LOCAL_ROOT, "conflicts");
+export const CONFLICTS_DIR = path.join(/* turbopackIgnore: true */ LOCAL_ROOT, "conflicts");
 
 /** Where the device-local records lived before the multi-device split —
  *  read only by the one-time migration (src/store/local-migration.ts). */
 export const LEGACY_DEVICE_LOCAL = {
-	settings: path.join(DATA_ROOT, "settings.json"),
-	positions: path.join(DATA_ROOT, "graph", "positions.json"),
-	renderSettings: path.join(DATA_ROOT, "graph", "render-settings.json"),
-	debug: path.join(DATA_ROOT, "debug"),
+	settings: path.join(/* turbopackIgnore: true */ DATA_ROOT, "settings.json"),
+	positions: path.join(/* turbopackIgnore: true */ DATA_ROOT, "graph", "positions.json"),
+	renderSettings: path.join(/* turbopackIgnore: true */ DATA_ROOT, "graph", "render-settings.json"),
+	debug: path.join(/* turbopackIgnore: true */ DATA_ROOT, "debug"),
 } as const;
 
 /** The graph-family FORMAT STAMP sidecar (schema-versioning wave,
  *  2026-10-10): one version for the whole family — the JSONL ledgers and
  *  sources.json. LAZY v1: absent = v1; the first graph-family write
  *  creates it. */
-export const GRAPH_FORMAT_FILE = path.join(PATHS.graph, "format.json");
+export const GRAPH_FORMAT_FILE = path.join(/* turbopackIgnore: true */ PATHS.graph, "format.json");
 
 /**
  * THE USER SETTINGS RECORD (settings-storage wave, 2026-09-19): one
@@ -152,7 +156,7 @@ export const GRAPH_FORMAT_FILE = path.join(PATHS.graph, "format.json");
  * with per-session models, owner 2026-09-28 — sessions own their model
  * from birth, stamped from the strong slot.)
  */
-export const SETTINGS_FILE = path.join(LOCAL_ROOT, "settings.json");
+export const SETTINGS_FILE = path.join(/* turbopackIgnore: true */ LOCAL_ROOT, "settings.json");
 
 /**
  * User prompt-override files (settings-storage wave, 2026-09-19): the
@@ -167,14 +171,22 @@ export const SETTINGS_FILE = path.join(LOCAL_ROOT, "settings.json");
  * remove, or reorder fragments adapt automatically; an override keyed to
  * a vanished segment stops composing but stays on disk.
  */
-export const PROMPTS_OVERRIDE_DIR = path.join(DATA_ROOT, "prompts");
+export const PROMPTS_OVERRIDE_DIR = path.join(/* turbopackIgnore: true */ DATA_ROOT, "prompts");
+
+/**
+ * Imported custom themes (theme wave, 2026-11-04): one `<id>.json` per
+ * theme (core/themes.ts ThemeFile shape), written by POST /api/themes and
+ * listed beside the built-in presets. The settings record names the
+ * active one by id (appearance.theme).
+ */
+export const THEMES_DIR = path.join(/* turbopackIgnore: true */ DATA_ROOT, "themes");
 
 /** The prompt-override SWITCHES (multi-device, ADR 0002): the
  *  {segmentPath: boolean} map that used to live in settings.json's
  *  agent.prompts, moved beside the override files so it syncs with them —
  *  every device teaches with the same prompts. The settings store still
  *  presents it as agent.prompts (src/store/prompt-switches.ts). */
-export const PROMPT_SWITCHES_FILE = path.join(PROMPTS_OVERRIDE_DIR, "switches.json");
+export const PROMPT_SWITCHES_FILE = path.join(/* turbopackIgnore: true */ PROMPTS_OVERRIDE_DIR, "switches.json");
 
 /**
  * THE AUTH/KEY STORE (auth-keys wave, 2026-09-19): BYOK provider keys in a
@@ -191,5 +203,5 @@ export const PROMPT_SWITCHES_FILE = path.join(PROMPTS_OVERRIDE_DIR, "switches.js
  * — this file keeps that role, alongside .env.local.
  */
 export const AUTH_FILE = process.env.LH_AUTH_FILE
-	? path.resolve(process.env.LH_AUTH_FILE)
-	: path.join(ROOT, "auth.json");
+	? path.resolve(/* turbopackIgnore: true */ process.env.LH_AUTH_FILE)
+	: path.join(/* turbopackIgnore: true */ ROOT, "auth.json");

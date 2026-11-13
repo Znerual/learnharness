@@ -143,7 +143,7 @@ export function SpeechEngineRows({ server, children }: { server?: ReactNode; chi
 			</div>
 			{engine === "builtin" && <BuiltinEngineRow />}
 			{error && (
-				<p role="alert" data-testid="speech-engine-error" className="px-1 text-xs text-red-600 dark:text-red-500">
+				<p role="alert" data-testid="speech-engine-error" className="px-1 text-xs text-error">
 					{error}
 				</p>
 			)}
@@ -216,7 +216,7 @@ function BuiltinEngineRow() {
 					<span className="text-[11px] text-muted-foreground/70">Reads English and German; starts with the first block, stops after 10 idle minutes.</span>
 					{confirmRemove ? (
 						<>
-							<button type="button" onClick={() => void remove()} data-testid="speech-builtin-remove-confirm" className="shrink-0 text-xs text-red-600 underline-offset-2 hover:underline dark:text-red-500">
+							<button type="button" onClick={() => void remove()} data-testid="speech-builtin-remove-confirm" className="shrink-0 text-xs text-error underline-offset-2 hover:underline">
 								Remove {formatBytes(status.bytes)}
 							</button>
 							<button type="button" onClick={() => setConfirmRemove(false)} className={QUIET_LINK_CLASS}>
@@ -256,7 +256,7 @@ function BuiltinEngineRow() {
 						, {formatBytes(status.bytes)} in all. Needs about 2 GB of GPU memory while it reads.
 					</p>
 					{status.state === "failed" && status.error && (
-						<p className="text-[11px] text-red-600 dark:text-red-500" data-testid="speech-builtin-failed">
+						<p className="text-[11px] text-error" data-testid="speech-builtin-failed">
 							{status.error}
 						</p>
 					)}
@@ -268,7 +268,7 @@ function BuiltinEngineRow() {
 				</>
 			)}
 			{error && (
-				<p role="alert" className="text-xs text-red-600 dark:text-red-500">
+				<p role="alert" className="text-xs text-error">
 					{error}
 				</p>
 			)}
@@ -410,7 +410,7 @@ export function VoiceClipRows() {
 				</div>
 			)}
 			{error && (
-				<p role="alert" data-testid="speech-clip-error" className="text-xs text-red-600 dark:text-red-500">
+				<p role="alert" data-testid="speech-clip-error" className="text-xs text-error">
 					{error}
 				</p>
 			)}

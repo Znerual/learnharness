@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { SurfaceRegion, usePageSurfaceBoundary, useSurfaceChromeStyle } from "./plugin-surfaces";
 import { CornerDownLeftIcon, DumbbellIcon } from "lucide-react";
 import { GraphView } from "@/components/graph-view";
 import { MinimalHome } from "@/components/minimal-home";
@@ -10,6 +11,8 @@ import { ComposerActions, NodePickerControl } from "@/components/composer-action
 import { useModelSetup, selectedModelUnavailable, openModelPicker, ZeroKeysPill } from "@/components/setup-cta";
 import { DictationBar, joinDictation, useDictation } from "@/components/dictation";
 import { useFieldCycle } from "@/components/field-cycle";
+import { useOptionalInteractionLayers } from "./interaction-layers";
+import { isInteractionScopeEligible } from "./plugin-input-focus";
 import { SidebarToggle } from "@/components/sidebar";
 import { useAndroidShell } from "@/components/android-shell";
 import { enterSubmits } from "@/components/enter-submits";
@@ -17,6 +20,7 @@ import { isCoarsePointer } from "@/components/touch";
 import { StatsBar } from "@/components/stats-bar";
 import { OPENING_PROMPT_FAILURE } from "@/components/opening-prompt";
 import { PathInput } from "@/components/path-input";
+import { AttachFilesButton } from "@/components/attach-files-button";
 import { SessionStarter } from "@/components/start-session";
 import type { TurnUsage } from "@/src/core";
 
@@ -37,7 +41,12 @@ export function Home({
 	rendering?: boolean;
 }) {
 	const android = useAndroidShell();
+	const controller = useOptionalInteractionLayers();
 	const router = useRouter();
+	const pathname = usePathname();
+	const bodyRef = useRef<HTMLDivElement>(null);
+	const surfaceTarget = usePageSurfaceBoundary({ active: pathname === "/", viewKey: "/", bodyRef });
+	const chromeStyle = useSurfaceChromeStyle(surfaceTarget);
 	const [topic, setTopic] = useState("");
 	/* The topic MIRROR ("nothing gets lost" round, 2026-10-01 — same
 	 * mechanics as the chat composer, owner's consistency ruling): a
@@ -86,9 +95,9 @@ export function Home({
 			dictationWasActiveRef.current = true;
 		} else if (dictationWasActiveRef.current) {
 			dictationWasActiveRef.current = false;
-			topicInputRef.current?.focus();
+			if (isInteractionScopeEligible(topicInputRef.current, controller)) topicInputRef.current!.focus();
 		}
-	}, [dictation.active]);
+	}, [dictation.active, controller]);
 
 	/* PRACTICE MODE (owner, 2026-10-04): the graph composer's teach |
 	 *  practice switch — practice creates a kind:"practice" session and
@@ -180,6 +189,7 @@ export function Home({
 			    MINIMAL HOME — a quiet knowledge-base summary + the graph
 			    chrome's survivors; data, extraction, and the pick flow are
 			    untouched, and the chain table stays behind its button. */}
+			<div ref={bodyRef} className="absolute inset-0">
 			<main className="absolute inset-0">
 				{rendering ? (
 					<GraphView
@@ -198,16 +208,6 @@ export function Home({
 				)}
 			</main>
 
-			{/* Header floats over the graph — pointer-events-none except the
-			    toggle, so the canvas stays draggable/hoverable around it. Carries
-			    no app-region of its own: the strip's drag comes from the mask
-			    div above, and the toggle's lh-no-drag subtracts from it (it is
-			    later in the tree, so the subtraction sticks). */}
-			<header className="pointer-events-none absolute inset-x-0 top-0 flex items-center gap-2 px-3 py-2">
-				<div className="pointer-events-auto">
-					<SidebarToggle />
-				</div>
-			</header>
 
 			{/* New session — same floating blob as the chat composer, docked
 			    OVER the graph (no gradient: the graph runs clean under it to the
@@ -247,6 +247,7 @@ export function Home({
 					/>
 					{startError && <p role="alert" className="mb-2 text-sm text-destructive">{OPENING_PROMPT_FAILURE}</p>}
 					<form
+						data-attachment-composer=""
 						className="flex items-end gap-1.5 rounded-2xl border bg-card p-1.5 shadow-lg"
 					onSubmit={(e) => {
 						e.preventDefault();
@@ -262,10 +263,12 @@ export function Home({
 						}}
 						defaultDropTarget
 						onKeyDown={(e) => {
+							if (!isInteractionScopeEligible(e.currentTarget, controller)) return;
 							// Esc ends dictation (the dictate decisions: click-again or
 							// Esc) — stopPropagation claims it (keyboard wave A) so
 							// the window chain doesn't also abort a turn.
 							if (e.key === "Escape" && dictation.active) {
+								controller?.claimEscape(e);
 								e.preventDefault();
 								e.stopPropagation();
 								dictation.cancel();
@@ -282,6 +285,7 @@ export function Home({
 						autoFocus={!isCoarsePointer()}
 						className="field-sizing-content lh-input max-h-48 min-h-10 flex-1 resize-none bg-transparent px-2.5 py-2 outline-none placeholder:text-muted-foreground"
 					/>
+					<AttachFilesButton editorRef={topicInputRef} />
 					{/* No tooltip on the start square — the ↵ glyph is the
 					    affordance (owner, subtlety round 2026-09-25). */}
 					<button
@@ -324,6 +328,17 @@ export function Home({
 					/>
 				</div>
 			</div>
+
+			<SurfaceRegion target={surfaceTarget} />
+			</div>
+			{/* Floating host chrome stays outside page-content coverage, after
+			    the region at the same owned-surface rank. The drag mask remains
+			    first so later controls retain their Electron no-drag carve-outs. */}
+			<header style={chromeStyle} className="pointer-events-none absolute inset-x-0 top-0 flex items-center gap-2 px-3 py-2">
+				<div className="pointer-events-auto">
+					<SidebarToggle />
+				</div>
+			</header>
 
 			{/* First-run setup (unconfigured): the CTA's target and the send
 			    interception's landing surface — stage 1 is the self-contained

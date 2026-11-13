@@ -215,7 +215,7 @@ function NpuSpeechRow({ models, onChange }: { models: OnDeviceModel[]; onChange:
 				);
 			})}
 			{error && (
-				<p role="alert" className="mt-1 text-xs text-red-600 dark:text-red-500">
+				<p role="alert" className="mt-1 text-xs text-error">
 					{error}
 				</p>
 			)}
@@ -362,7 +362,7 @@ export function OnDeviceSpeechGroup({ part, bare = false }: { part: "dictation" 
 							type="button"
 							onClick={() => void change(model.id, "DELETE")}
 							data-testid={`speech-model-remove-${model.id}`}
-							className="shrink-0 text-xs text-muted-foreground/70 underline-offset-2 hover:text-red-600 dark:hover:text-red-500 hover:underline"
+							className="shrink-0 text-xs text-muted-foreground/70 underline-offset-2 hover:text-error dark:hover:text-error hover:underline"
 						>
 							Remove
 						</button>
@@ -396,7 +396,7 @@ export function OnDeviceSpeechGroup({ part, bare = false }: { part: "dictation" 
 					: `${wifiOnly} (also for dictation) and run on this phone. "Listen" plays a short sample, also before the download. Read-aloud uses the voice of the language chosen below.`}
 			</p>
 			{error && (
-				<p role="alert" className="px-1 text-xs text-red-600 dark:text-red-500">
+				<p role="alert" className="px-1 text-xs text-error">
 					{error}
 				</p>
 			)}

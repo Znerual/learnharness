@@ -292,6 +292,10 @@ function firstPositive(row: Record<string, unknown>, keys: readonly string[]): n
 // gateway proxies vLLM (custom-endpoints wave).
 const CONTEXT_KEYS = ["max_input_tokens", "context_length", "context_window", "max_context", "n_ctx", "max_seq_len", "max_model_len", "max_position_embeddings"] as const;
 const MAX_TOKEN_KEYS = ["max_output_tokens"] as const;
+// llama.cpp's llama-server nests the runtime context (per slot) under `meta`.
+// Its sibling `n_ctx_train` is the model's training maximum, not what the
+// server accepts, so it is deliberately not read.
+const META_CONTEXT_KEYS = ["n_ctx"] as const;
 
 /** Pull models from a list response (objects with `id` or bare strings), each
  *  with detected image + token limits; LM Studio's index adds context, vision
@@ -314,7 +318,10 @@ function extractModels(body: unknown, lmStudio: Map<string, LmStudioModelInfo> =
 			const proxied = isRecord(row.openai) ? row.openai : undefined;
 			if (detectImage(row)) model.image = true;
 			if (detectReasoning(row)) model.reasoning = true;
-			const context = firstPositive(row, CONTEXT_KEYS) ?? (proxied ? firstPositive(proxied, CONTEXT_KEYS) : undefined);
+			const context =
+				firstPositive(row, CONTEXT_KEYS) ??
+				(proxied ? firstPositive(proxied, CONTEXT_KEYS) : undefined) ??
+				(isRecord(row.meta) ? firstPositive(row.meta, META_CONTEXT_KEYS) : undefined);
 			if (context) model.context = context;
 			const maxTokens = firstPositive(row, MAX_TOKEN_KEYS) ?? (proxied ? firstPositive(proxied, MAX_TOKEN_KEYS) : undefined);
 			if (maxTokens) model.maxTokens = maxTokens;

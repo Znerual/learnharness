@@ -8,6 +8,7 @@ import { describe, it, afterEach } from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createRoot, type Root } from "react-dom/client";
 import { parseHTML } from "linkedom";
+import { InteractionLayersProvider } from "../components/interaction-layers.tsx";
 import { AndroidShellProvider } from "../components/android-shell.tsx";
 import { SettingsDialogBody, visibleSections } from "../components/settings/settings-dialog.tsx";
 import { AppearanceSection, GraphSection } from "../components/settings/appearance-section.tsx";
@@ -55,12 +56,12 @@ describe("tabs", () => {
 });
 
 describe("desktop-only rows", () => {
-	it("the Obsidian path is hidden on the phone and kept on desktop; Mode (light mode) shows on both", () => {
-		const a = renderToStaticMarkup(android(<><AppearanceSection appearance={undefined} onSectionChange={() => {}} /><GraphSection graph={undefined} onSectionChange={() => {}} /></>));
-		assert.ok(a.includes("row-mode") && !a.includes("graph-row-obsidian-vault"));
-		assert.ok(a.includes("row-background") && a.includes("graph-row-enabled"));
-		const d = renderToStaticMarkup(<><AppearanceSection appearance={undefined} onSectionChange={() => {}} /><GraphSection graph={undefined} onSectionChange={() => {}} /></>);
-		assert.ok(d.includes("row-mode") && d.includes("graph-row-obsidian-vault"));
+	it("the Obsidian path is hidden on the phone and kept on desktop; Themes and Colors show on both", () => {
+		const a = renderToStaticMarkup(<InteractionLayersProvider>{android(<><AppearanceSection appearance={undefined} onSectionChange={() => true} /><GraphSection graph={undefined} onSectionChange={() => true} /></>)}</InteractionLayersProvider>);
+		assert.ok(a.includes("group-colors") && a.includes("theme-card-default") && !a.includes("graph-row-obsidian-vault"));
+		assert.ok(a.includes("row-color-background") && a.includes("graph-row-enabled"));
+		const d = renderToStaticMarkup(<InteractionLayersProvider><AppearanceSection appearance={undefined} onSectionChange={() => true} /><GraphSection graph={undefined} onSectionChange={() => true} /></InteractionLayersProvider>);
+		assert.ok(d.includes("group-colors") && d.includes("theme-card-default") && d.includes("graph-row-obsidian-vault"));
 	});
 });
 

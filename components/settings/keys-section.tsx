@@ -51,6 +51,8 @@ import { OnDeviceSpeechGroup } from "./on-device-speech.tsx";
 import { SubscriptionConnections } from "./subscription-connections.tsx";
 import { ClaudeCodeInstallationStatus } from "./claude-code-status.tsx";
 import { ProviderMenuList } from "./model-menu.tsx";
+import { useInteractionLayer, useInteractionLayers, useOptionalInteractionLayers } from "@/components/interaction-layers";
+import { isInteractionScopeEligible } from "@/components/plugin-input-focus";
 import { MenuShell } from "@/components/menu-shell";
 import { notifySettingsSaved } from "@/components/settings-signal";
 import { DictationLanguageSetting } from "@/components/dictation-language";
@@ -278,14 +280,14 @@ function KeyTableRow({
 							onClick={() => void onDelete()}
 							disabled={busy}
 							data-testid={`${testid}-delete`}
-							className="shrink-0 text-xs text-muted-foreground/70 underline-offset-2 hover:text-red-600 dark:hover:text-red-500 hover:underline"
+							className="shrink-0 text-xs text-muted-foreground/70 underline-offset-2 hover:text-error hover:underline"
 						>
 							Delete
 						</button>
 					)}
 				</div>
 				{error && (
-					<p role="alert" data-testid={`${testid}-error`} className="px-1 text-xs text-red-600 dark:text-red-500">
+					<p role="alert" data-testid={`${testid}-error`} className="px-1 text-xs text-error">
 						{error}
 					</p>
 				)}
@@ -323,7 +325,7 @@ function KeyTableRow({
 				</span>
 			</button>
 			{error && (
-				<p role="alert" data-testid={`${testid}-error`} className="pl-6 text-xs text-red-600 dark:text-red-500">
+				<p role="alert" data-testid={`${testid}-error`} className="pl-6 text-xs text-error">
 					{error}
 				</p>
 			)}
@@ -342,28 +344,20 @@ function AddProviderRow({
 }) {
 	const [open, setOpen] = useState(false);
 	const anchorRef = useRef<HTMLDivElement>(null);
+	const interactions = useInteractionLayers();
 
 	useEffect(() => {
 		if (!open) return;
 		const onPointerDown = (e: PointerEvent) => {
+			if (!interactions.isElementEligible(document.querySelector<HTMLElement>('[data-testid="add-provider-menu"]'))) return;
 			const target = e.target as Node;
 			if (anchorRef.current?.contains(target)) return;
 			if (target instanceof Element && target.closest("[data-lh-menu]")) return;
 			if (target instanceof Element && target.closest('[role="dialog"]')) setOpen(false);
 		};
-		const onKeyDown = (e: KeyboardEvent) => {
-			if (e.key === "Escape") {
-				e.stopPropagation();
-				setOpen(false);
-			}
-		};
 		document.addEventListener("pointerdown", onPointerDown);
-		document.addEventListener("keydown", onKeyDown);
-		return () => {
-			document.removeEventListener("pointerdown", onPointerDown);
-			document.removeEventListener("keydown", onKeyDown);
-		};
-	}, [open]);
+		return () => document.removeEventListener("pointerdown", onPointerDown);
+	}, [open, interactions]);
 
 	return (
 		<div ref={anchorRef} className="relative">
@@ -381,6 +375,7 @@ function AddProviderRow({
 				<MenuShell
 					anchorRef={anchorRef}
 					testid="add-provider-menu"
+					onClose={() => { setOpen(false); return "closed"; }}
 					preferredSide="down"
 					menuClass="flex w-72 flex-col rounded-xl border border-border bg-card p-2 text-xs shadow-xl"
 				>
@@ -444,32 +439,36 @@ export function KeysSection({
 	const [openRow, setOpenRow] = useState<string | null>(initialRow ?? null);
 	/** The paste editor for a freshly chosen Add-provider target. */
 	const [adding, setAdding] = useState<ProviderKeyInfo | null>(null);
+	// Only previously opened providers are cached. Escape folds their editors
+	// without destroying drafts; explicit Save/Cancel still discard them.
+	const [addingEditors, setAddingEditors] = useState<ProviderKeyInfo[]>([]);
 	const [addError, setAddError] = useState<string | null>(null);
-	/** The custom endpoints' statuses + whose connect editor is open (its id,
-	 *  or NEW_CUSTOM for one being added). */
+	/** The custom endpoints' statuses; whose connect editor is open (its id,
+	 *  or NEW_CUSTOM for one being added); and which editors stay mounted
+	 *  (hidden when folded, so a draft survives Escape / re-folding). */
 	const [customs, setCustoms] = useState<CustomStatus[]>([]);
 	const [openCustom, setOpenCustom] = useState<string | null>(null);
-
-	// Escape folds any open editor (unfolded row or the Add-provider paste)
-	// WITHOUT closing the dialog. Claimed at document CAPTURE phase — the
-	// only stopPropagation that outruns both the input's React handler and
-	// the dialog's window-level listener.
-	useEffect(() => {
-		if (openRow === null && adding === null && openCustom === null) return;
-		const onKeyDown = (e: KeyboardEvent) => {
-			if (e.key !== "Escape") return;
-			// A language dropdown above this editor in the dismissal stack owns
-			// the first Escape; do not swallow it at document capture phase.
-			if (document.querySelector('[data-testid="dictation-language-menu"]')) return;
-			e.preventDefault();
-			e.stopPropagation();
+	const [customEditors, setCustomEditors] = useState<string[]>([]);
+	const editorScopeRef = useRef<HTMLDivElement>(null);
+	useInteractionLayer({
+		kind: "view", rootRef: editorScopeRef,
+		enabled: openRow !== null || adding !== null || openCustom !== null,
+		onClose: () => {
 			setOpenRow(null);
 			setAdding(null);
 			setOpenCustom(null);
-		};
-		document.addEventListener("keydown", onKeyDown, true);
-		return () => document.removeEventListener("keydown", onKeyDown, true);
-	}, [openRow, adding, openCustom]);
+			return "closed";
+		},
+	});
+	const mountCustomEditor = (id: string) => setCustomEditors((editors) => (editors.includes(id) ? editors : [...editors, id]));
+	const discardCustomEditor = (id: string) => {
+		setOpenCustom((v) => (v === id ? null : v));
+		setCustomEditors((editors) => editors.filter((e) => e !== id));
+	};
+	const discardProviderEditor = (id: string) => {
+		setAdding(null);
+		setAddingEditors(editors => editors.filter(provider => provider.id !== id));
+	};
 
 	const reload = async () => {
 		try {
@@ -530,7 +529,7 @@ export function KeysSection({
 	async function disconnectCustom(id: string, revision: string): Promise<string | null> {
 		const res = await fetch(`/api/custom-providers/${encodeURIComponent(id)}`, { method: "DELETE", headers: { "content-type": "application/json", "if-match": revision }, body: JSON.stringify({}) }).catch(() => null);
 		if (!res?.ok) return res ? ((await res.json().catch(() => ({}))).error ?? "Disconnect failed.") : "Disconnect failed. Check your connection.";
-		setOpenCustom(null);
+		discardCustomEditor(id);
 		await reload();
 		notifySettingsSaved("keys");
 		return null;
@@ -546,7 +545,7 @@ export function KeysSection({
 		const err = await saveKey(p.envVar, value);
 		if (err) setAddError(err);
 		else {
-			setAdding(null);
+			discardProviderEditor(p.id);
 			setAddError(null);
 		}
 	}
@@ -574,6 +573,7 @@ export function KeysSection({
 	if (view === "dictation") {
 		// The engine choice first; only the chosen engine's rows follow (owner, 2026-11-02).
 		return (
+			<div ref={editorScopeRef} className="contents">
 			<SettingsGroup label="Dictation" testid={TOOL_GROUP_TESTIDS.Dictation}>
 				<DictationEngineRows
 					android={android}
@@ -601,12 +601,13 @@ export function KeysSection({
 					}
 				/>
 			</SettingsGroup>
+			</div>
 		);
 	}
 
 	if (view === "read-aloud") {
 		return (
-			<>
+			<div ref={editorScopeRef} className="contents">
 				{/* The phone's own read-aloud voices (Android app). */}
 				{android && <OnDeviceSpeechGroup part="read-aloud" />}
 				<SettingsGroup label="Read aloud" testid={TOOL_GROUP_TESTIDS["Read aloud"]}>
@@ -621,12 +622,12 @@ export function KeysSection({
 						</SpeechEngineRows>
 					)}
 				</SettingsGroup>
-			</>
+			</div>
 		);
 	}
 
 	return (
-		<>
+		<div ref={editorScopeRef} className="contents">
 			<SettingsGroup label="Model API keys" testid="group-provider-keys">
 				{providerRows.map((status) => (
 					<KeyTableRow
@@ -651,38 +652,44 @@ export function KeysSection({
 						<CustomEndpointRow
 							status={c}
 							expanded={openCustom === c.id}
-							onToggle={() => setOpenCustom((v) => (v === c.id ? null : c.id))}
+							onToggle={() => { mountCustomEditor(c.id); setOpenCustom((v) => (v === c.id ? null : c.id)); }}
 						/>
-						{openCustom === c.id && (
-							<CustomEndpointEditor
-								status={c}
-								onReload={async () => { await reload(); setOpenCustom(null); }}
-								onSaved={async () => {
-									setOpenCustom(null);
-									await reload();
-									notifySettingsSaved("keys");
-								}}
-								onPinsSaved={async () => {
-									await reload();
-									notifySettingsSaved("keys");
-								}}
-								onDelete={(revision) => disconnectCustom(c.id, revision)}
-								onCancel={() => setOpenCustom(null)}
-							/>
+						{customEditors.includes(c.id) && (
+							<div hidden={openCustom !== c.id} inert={openCustom !== c.id} style={{ display: openCustom === c.id ? undefined : "none" }}>
+								<CustomEndpointEditor
+									active={openCustom === c.id}
+									status={c}
+									onReload={async () => { await reload(); discardCustomEditor(c.id); }}
+									onSaved={async () => {
+										discardCustomEditor(c.id);
+										await reload();
+										notifySettingsSaved("keys");
+									}}
+									onPinsSaved={async () => {
+										await reload();
+										notifySettingsSaved("keys");
+									}}
+									onDelete={(revision) => disconnectCustom(c.id, revision)}
+									onCancel={() => discardCustomEditor(c.id)}
+								/>
+							</div>
 						)}
 					</div>
 				))}
-				{openCustom === NEW_CUSTOM && (
-					<CustomEndpointEditor
-						onReload={async () => { await reload(); setOpenCustom(null); }}
-						onSaved={async () => {
-							setOpenCustom(null);
-							await reload();
-							notifySettingsSaved("keys");
-						}}
-						onPinsSaved={reload}
-						onCancel={() => setOpenCustom(null)}
-					/>
+				{customEditors.includes(NEW_CUSTOM) && (
+					<div hidden={openCustom !== NEW_CUSTOM} inert={openCustom !== NEW_CUSTOM} style={{ display: openCustom === NEW_CUSTOM ? undefined : "none" }}>
+						<CustomEndpointEditor
+							active={openCustom === NEW_CUSTOM}
+							onReload={async () => { await reload(); discardCustomEditor(NEW_CUSTOM); }}
+							onSaved={async () => {
+								discardCustomEditor(NEW_CUSTOM);
+								await reload();
+								notifySettingsSaved("keys");
+							}}
+							onPinsSaved={reload}
+							onCancel={() => discardCustomEditor(NEW_CUSTOM)}
+						/>
+					</div>
 				)}
 				{providers !== undefined && (
 					<AddProviderRow
@@ -691,20 +698,24 @@ export function KeysSection({
 							setAddError(null);
 							if (p.id === CUSTOM_PROVIDER.id) {
 								setAdding(null);
+								mountCustomEditor(NEW_CUSTOM);
 								setOpenCustom(NEW_CUSTOM);
 							} else {
 								setOpenCustom(null);
+								setAddingEditors(editors => editors.some(provider => provider.id === p.id) ? editors : [...editors, p]);
 								setAdding(p);
 							}
 						}}
 					/>
 				)}
-				{adding && (
-					<div className="flex items-center gap-2 rounded-sm px-1 py-1.5" data-testid={`key-${adding.id}-editor`}>
-						<span className="shrink-0 font-ui text-xs text-foreground">{adding.label}</span>
-						<AddProviderEditor provider={adding} onSave={(v) => void saveNewProvider(adding, v)} onCancel={() => setAdding(null)} error={addError} />
+				{addingEditors.map(provider => (
+					<div key={provider.id} hidden={adding?.id !== provider.id} inert={adding?.id !== provider.id}
+						style={{ display: adding?.id === provider.id ? undefined : "none" }}
+						className="flex items-center gap-2 rounded-sm px-1 py-1.5" data-testid={`key-${provider.id}-editor`}>
+						<span className="shrink-0 font-ui text-xs text-foreground">{provider.label}</span>
+						<AddProviderEditor provider={provider} active={adding?.id === provider.id} onSave={(v) => void saveNewProvider(provider, v)} onCancel={() => discardProviderEditor(provider.id)} error={addError} />
 					</div>
-				)}
+				))}
 				{unknownRows.length > 0 && <div data-testid="group-unknown-keys">
 					{unknownRows.map((status) => <div key={status.id} data-testid={`unknown-${status.id}`} className="flex items-center justify-between gap-3 px-1 py-1.5 opacity-40">
 						<span className="font-mono text-xs text-foreground">{status.id}</span>
@@ -731,7 +742,7 @@ export function KeysSection({
 			<SettingsGroup label="Search" testid={TOOL_GROUP_TESTIDS.Search}>
 				{toolRows.filter((status) => toolGroupOf(status.id) === "Search").map(toolRow)}
 			</SettingsGroup>
-		</>
+		</div>
 	);
 }
 
@@ -739,19 +750,27 @@ export function KeysSection({
  *  beneath the Add row until saved or cancelled. */
 function AddProviderEditor({
 	provider,
+	active,
 	onSave,
 	onCancel,
 	error,
 }: {
 	provider: ProviderKeyInfo;
+	active: boolean;
 	onSave: (value: string) => void;
 	onCancel: () => void;
 	error: string | null;
 }) {
 	const [value, setValue] = useState("");
+	const inputRef = useRef<HTMLInputElement>(null);
+	const interactions = useInteractionLayers();
+	useEffect(() => {
+		if (active && isInteractionScopeEligible(inputRef.current, interactions)) inputRef.current?.focus();
+	}, [active, interactions]);
 	return (
 		<>
 			<input
+				ref={inputRef}
 				type="text"
 				value={value}
 				onChange={(e) => setValue(e.target.value)}
@@ -761,7 +780,7 @@ function AddProviderEditor({
 				placeholder="Paste key…"
 				aria-label={`${provider.label} key`}
 				data-testid={`key-${provider.id}-input`}
-				autoFocus
+				autoFocus={active}
 				className="h-7 min-w-0 flex-1 rounded-sm border border-border bg-background px-1.5 font-mono text-xs text-foreground outline-none placeholder:text-muted-foreground/60 focus:border-muted-foreground/50"
 			/>
 			<button
@@ -782,7 +801,7 @@ function AddProviderEditor({
 				Cancel
 			</button>
 			{error && (
-				<p role="alert" className="w-full pl-0 text-xs text-red-600 dark:text-red-500" data-testid={`key-${provider.id}-error`}>
+				<p role="alert" className="w-full pl-0 text-xs text-error" data-testid={`key-${provider.id}-error`}>
 					{error}
 				</p>
 			)}
@@ -879,6 +898,7 @@ const pinTestid = (prefix: string, id: string) => `${prefix}-${id.replace(/[^a-z
 function CustomEndpointEditor({
 	setup = false,
 	status,
+	active = true,
 	onReload,
 	onSaved,
 	onPinsSaved,
@@ -888,6 +908,8 @@ function CustomEndpointEditor({
 	setup?: boolean;
 	/** The stored endpoint; absent while adding one. */
 	status?: CustomStatus;
+	/** Whether this editor is the visible one (it stays mounted, hidden, while folded). */
+	active?: boolean;
 	onReload: () => void | Promise<void>;
 	onSaved: () => void | Promise<void>;
 	/** Pins saved — the editor stays open (a form, not a connect). */
@@ -909,6 +931,14 @@ function CustomEndpointEditor({
 	const endpointUrl = id ? `/api/custom-providers/${encodeURIComponent(id)}` : "/api/custom-providers";
 	const [name, setName] = useState(status?.name ?? "");
 	const [thinkingFormat, setThinkingFormat] = useState<EndpointThinkingFormat>(status?.thinkingFormat ?? DEFAULT_ENDPOINT_THINKING_FORMAT);
+	const nameRef = useRef<HTMLInputElement>(null);
+	const baseUrlRef = useRef<HTMLInputElement>(null);
+	const interactions = useOptionalInteractionLayers();
+	useEffect(() => {
+		// A new endpoint starts at its name; an existing one at its URL.
+		const target = id ? baseUrlRef.current : nameRef.current;
+		if (active && isInteractionScopeEligible(target, interactions)) target?.focus();
+	}, [active, interactions, id]);
 	const [revision, setRevision] = useState(revision0);
 	const [authMode, setAuthMode] = useState(authMode0);
 	const [keySource, setKeySource] = useState(keySource0);
@@ -999,6 +1029,7 @@ function CustomEndpointEditor({
 	return (
 		<div data-testid="custom-endpoint-editor" className="flex flex-col gap-2 rounded-sm px-1 py-1.5">
 			<input
+				ref={nameRef}
 				type="text"
 				value={name}
 				onChange={(e) => setName(e.target.value)}
@@ -1006,12 +1037,12 @@ function CustomEndpointEditor({
 				aria-label="Custom endpoint name"
 				data-testid="custom-name-input"
 				disabled={busy}
-				autoFocus={!id}
 				className="h-7 min-w-0 rounded-sm border border-border bg-background px-1.5 font-ui text-xs text-foreground outline-none placeholder:text-muted-foreground/60 focus:border-muted-foreground/50"
 			/>
 			<div className="flex items-center gap-2">
 				<span className="shrink-0 font-ui text-xs text-foreground">Base URL</span>
 				<input
+					ref={baseUrlRef}
 					type="text"
 					value={baseUrl}
 					onChange={(e) => setBaseUrl(e.target.value)}
@@ -1019,7 +1050,6 @@ function CustomEndpointEditor({
 					aria-label="Custom endpoint base URL"
 					data-testid="custom-baseurl-input"
 					disabled={busy}
-					autoFocus={Boolean(id)}
 					className="h-7 min-w-0 flex-1 rounded-sm border border-border bg-background px-1.5 font-mono text-xs text-foreground outline-none placeholder:text-muted-foreground/60 focus:border-muted-foreground/50"
 				/>
 			</div>
@@ -1087,7 +1117,7 @@ function CustomEndpointEditor({
 						onClick={async () => { setBusy(true); const err = await onDelete(revision); if (err) setError(err); setBusy(false); }}
 						disabled={busy || pinsBusy}
 						data-testid="custom-delete"
-						className="shrink-0 text-xs text-muted-foreground/70 underline-offset-2 hover:text-red-600 dark:hover:text-red-500 hover:underline"
+						className="shrink-0 text-xs text-muted-foreground/70 underline-offset-2 hover:text-error hover:underline"
 					>
 						Disconnect
 					</button>
@@ -1144,7 +1174,7 @@ function CustomEndpointEditor({
 					</div>
 					<div className="flex items-center gap-2">
 						{pinsError && (
-							<p role="alert" data-testid="custom-pins-error" className="text-[11px] text-red-600 dark:text-red-500">
+							<p role="alert" data-testid="custom-pins-error" className="text-[11px] text-error">
 								{pinsError}
 							</p>
 						)}
@@ -1166,7 +1196,7 @@ function CustomEndpointEditor({
 			</div>
 			{(error || pinsError) && <button type="button" data-testid="custom-reload" onClick={() => void onReload()} className="text-left text-xs underline">Reload configuration</button>}
 			{error && (
-				<p role="alert" data-testid="custom-error" className="text-xs text-red-600 dark:text-red-500">
+				<p role="alert" data-testid="custom-error" className="text-xs text-error">
 					{error}
 				</p>
 			)}

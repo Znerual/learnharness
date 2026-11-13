@@ -7,11 +7,14 @@ import { prettyModel } from "@/components/usage-format";
 import { ModelMenuList, ThinkingMenuList } from "@/components/settings/model-menu";
 import { composeSlotModel } from "@/components/settings/agent-section";
 import { MenuShell } from "@/components/menu-shell";
+import { useInteractionLayers } from "@/components/interaction-layers";
+import { isInputShortcutScopeEligible } from "@/components/plugin-input-focus";
+import { ModelPickerPill } from "@/components/model-picker-pill";
 import { Hint } from "@/components/ui/hint";
 import { notifySettingsSaved, onSettingsSaved, useSettingsSaved } from "@/components/settings-signal";
 import { useModelCatalog } from "@/components/model-catalog";
 export { useModelCatalog } from "@/components/model-catalog";
-import { defaultOrderLevel, populateLevel, THINKING_LABEL, thinkingLabel } from "@/components/thinking-default";
+import { defaultOrderLevel, populateLevel, thinkingLabel } from "@/components/thinking-default";
 
 /** provider:id → known contextWindow over the cached catalog, mirroring
  * the server's catalogContextLimits join. CLI aliases have no global
@@ -56,6 +59,7 @@ export function ModelControl({
 	const [open, setOpen] = useState<"model" | "thinking" | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const containerRef = useRef<HTMLDivElement>(null);
+	const interactions = useInteractionLayers();
 
 	// The record read — BOTH mount and the cross-surface signal land
 	// here (fix wave: another surface's models write re-reads into the
@@ -131,27 +135,19 @@ export function ModelControl({
 	useEffect(() => {
 		if (open === null) return;
 		const onPointerDown = (e: PointerEvent) => {
+			const popup = interactions.getTopLayer();
+			if (popup?.kind !== "popup" || !containerRef.current?.contains(popup.anchorRef?.current ?? null) || !interactions.isElementEligible(popup.rootRef.current)) return;
 			const t = e.target as Element;
 			if (t instanceof Element && t.closest("[data-lh-menu]")) return;
 			if (containerRef.current && !containerRef.current.contains(t)) {
 				setOpen(null);
 			}
 		};
-		const onKeyDown = (e: KeyboardEvent) => {
-			if (e.key === "Escape") {
-				// Claim the Esc (keyboard wave A): the window-level chain must
-				// not ALSO stop dictation / abort the turn under this menu.
-				e.stopPropagation();
-				setOpen(null);
-			}
-		};
 		document.addEventListener("pointerdown", onPointerDown);
-		document.addEventListener("keydown", onKeyDown);
 		return () => {
 			document.removeEventListener("pointerdown", onPointerDown);
-			document.removeEventListener("keydown", onKeyDown);
 		};
-	}, [open]);
+	}, [open, interactions]);
 
 	// One write seam: composeSlotModel preserves the cheap/vision siblings
 	// (replace-whole-section discipline) and the per-field independence of
@@ -239,16 +235,18 @@ export function ModelControl({
 	// tab-focus. Both work from any focus, including mid-typing.
 	useEffect(() => {
 		const onOpenPicker = () => {
+			if (!isInputShortcutScopeEligible(containerRef.current, interactions)) return;
 			setOpen("model");
 			setError(null);
 			refresh(); // mid-session key changes widen the menu (cache fix)
 		};
 		window.addEventListener("lh:kbd-open-model-picker", onOpenPicker);
 		return () => window.removeEventListener("lh:kbd-open-model-picker", onOpenPicker);
-	}, [refresh]);
+	}, [refresh, interactions]);
 
 	useEffect(() => {
 		const onCycleThinking = () => {
+			if (!isInputShortcutScopeEligible(containerRef.current, interactions)) return;
 			if (levels.length === 0) return;
 			const idx = effectiveLevel === undefined ? -1 : levels.indexOf(effectiveLevel);
 			const next = levels[(idx + 1) % levels.length];
@@ -257,7 +255,7 @@ export function ModelControl({
 		};
 		window.addEventListener("lh:kbd-cycle-thinking", onCycleThinking);
 		return () => window.removeEventListener("lh:kbd-cycle-thinking", onCycleThinking);
-	}, [levels, effectiveLevel, effectiveProvider, effectiveId, apply]);
+	}, [levels, effectiveLevel, effectiveProvider, effectiveId, apply, interactions]);
 
 	// Selecting a model (click and Enter share one path): keep the
 	// thinking level only when the new model supports it — otherwise
@@ -292,24 +290,19 @@ export function ModelControl({
 				action="open-model-picker"
 				side="bottom"
 			>
-				<button
-				type="button"
-				data-testid="stats-model"
-				onClick={() => openMenu("model")}
-				aria-expanded={open === "model"}
-				// Chrome look (owner, fix wave round 3): matches the graph
-				// view's floating top-right buttons (import notes, gear,
-				// coverage) — blurred, fuller opacity, shadowed — so the
-				// graph no longer bleeds through these pills.
-				className="flex items-center gap-1.5 rounded-full border bg-card/85 px-2.5 py-1 shadow-lg backdrop-blur transition-colors hover:border-border hover:bg-muted"
-			>
-				<span className="text-card-foreground">{effectiveId ? prettyModel(effectiveId) : "—"}</span>
-				{/* Multi-device: a handed-off session's model this device lacks. */}
-				{catalog && effectiveId && !entry && <span className="text-xs text-muted-foreground">(not on this device)</span>}
-				<span aria-hidden className="text-xs text-muted-foreground">▾</span>
-			</button>
+				<ModelPickerPill
+					data-testid="stats-model"
+					onClick={() => openMenu("model")}
+					aria-expanded={open === "model"}
+				>
+					{effectiveId ? prettyModel(effectiveId) : "—"}
+					{/* Multi-device: a handed-off session's model this device lacks. */}
+					{catalog && effectiveId && !entry && <span className="text-xs text-muted-foreground"> (not on this device)</span>}
+				</ModelPickerPill>
 			</Hint>
 			)}
+			{/* The Android app sets the thinking level in Settings → This session (owner, 2026-10-30). */}
+			<span className={part === "both" ? "contents android:hidden" : "contents"}>
 			<Hint
 				// "Thinking" + its real shortcut via the registry (owner interlude
 				// 2026-09-25): ⇧⇥ cycles the level, so "Thinking (⇧⇥)" —
@@ -318,31 +311,16 @@ export function ModelControl({
 				action="cycle-thinking"
 				side="bottom"
 			>
-				<button
-				type="button"
-				data-testid="stats-thinking"
-				// The Android app sets the thinking level in Settings → This session (owner, 2026-10-30).
-				onClick={() => {
-					// No model picked → nothing to set a level FOR: the click
-					// is a no-op, never an empty menu.
-					if (entry === undefined) return;
-					openMenu("thinking");
-				}}
-				aria-expanded={open === "thinking"}
-				// Chrome look (owner, fix wave round 3): matches the graph
-				// view's floating top-right buttons (import notes, gear,
-				// coverage) — blurred, fuller opacity, shadowed — so the
-				// graph no longer bleeds through these pills.
-				className={`${part === "both" ? "android:hidden " : ""}flex items-center gap-1.5 rounded-full border bg-card/85 px-2.5 py-1 shadow-lg backdrop-blur transition-colors hover:border-border hover:bg-muted`}
-			>
-				{/* Just the level — the button reads like the model button reads
-				   the model name (owner, stats-control round 1). */}
-				<span className="text-card-foreground">
-					{effectiveLevel === undefined ? "—" : thinkingLabel(effectiveLevel, entry)}
-				</span>
-				<span aria-hidden className="text-xs text-muted-foreground">▾</span>
-			</button>
+				<ModelPickerPill
+					data-testid="stats-thinking"
+					onClick={() => {
+						if (entry === undefined) return;
+						openMenu("thinking");
+					}}
+					aria-expanded={open === "thinking"}
+				>{effectiveLevel === undefined ? "—" : thinkingLabel(effectiveLevel, entry)}</ModelPickerPill>
 			</Hint>
+			</span>
 
 			{/* The shared dropdown body (extracted 2026-09-20): the agent
 			    settings' slot selects and the setup dialog use the exact same
@@ -350,7 +328,7 @@ export function ModelControl({
 			{open === "model" && (
 				<MenuShell
 					anchorRef={containerRef}
-					testid="model-menu"
+					testid="model-menu" onClose={() => { setOpen(null); return "closed"; }}
 					preferredSide="up"
 					menuClass="flex w-[22rem] flex-col rounded-xl border bg-card p-2 text-xs shadow-xl"
 				>
@@ -374,7 +352,7 @@ export function ModelControl({
 			{open === "thinking" && (
 				<MenuShell
 					anchorRef={containerRef}
-					testid="thinking-menu"
+					testid="thinking-menu" onClose={() => { setOpen(null); return "closed"; }}
 					preferredSide="up"
 					menuClass="flex w-44 flex-col gap-0.5 rounded-xl border bg-card p-2 text-xs shadow-xl"
 				>

@@ -16,7 +16,7 @@ export interface DeleteAccountActions {
 export function DeleteAccountView({ state, email, dispatch, actions, reauthSlot }: { state: DeleteAccountState; email: string; dispatch: Dispatch<DeleteAccountEvent>; actions: DeleteAccountActions; reauthSlot?: () => ReactNode }) {
 	return (
 		<section data-testid="delete-account" data-step={state.step} className="flex flex-col gap-3">
-			<h2 className="text-lg font-semibold text-red-600">{strings.delete.title}</h2>
+			<h2 className="text-lg font-semibold text-error">{strings.delete.title}</h2>
 			{state.step !== "done" ? <p className="text-sm">{strings.delete.warning}</p> : null}
 			{state.step === "export" ? (
 				<>

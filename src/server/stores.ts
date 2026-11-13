@@ -18,6 +18,8 @@ import type { UserSettings } from "../core/settings.ts";
 import { activeVaultStores, type VaultStores } from "./vault/active.ts";
 import { resolveSettings, type EffectiveSettings } from "../core/settings-resolution.ts";
 import { syncCustomProvider } from "./custom-provider.ts";
+import { configureWorkerRequestAdmission } from "../agent/worker-request-admission.ts";
+import { themeStore } from "../store/themes.ts";
 import { migrateCustomEndpoints } from "./custom-provider-migration.ts";
 import { migrateDeviceLocalData } from "../store/local-migration.ts";
 import { deviceStore } from "../store/device.ts";
@@ -39,6 +41,7 @@ const plain = {
 	jobStore: createJobStore(() => deviceStore.getDevice()),
 	settingsStore: plainSettingsStore,
 	deviceStore,
+	themeStore,
 };
 
 /** The synced member `key` of the vault-wrapped stores while the learner is signed in to
@@ -69,6 +72,7 @@ export const stores: Stores = {
 		return current("settingsStore");
 	},
 	deviceStore: plain.deviceStore,
+	themeStore: plain.themeStore,
 };
 
 /** The un-wrapped adapters, for the vault service to wrap. Nothing else uses these. */
@@ -81,6 +85,7 @@ export type Stores = {
 	jobStore: ReturnType<typeof createJobStore>;
 	settingsStore: typeof plainSettingsStore;
 	deviceStore: typeof deviceStore;
+	themeStore: typeof themeStore;
 };
 
 /** The settings record writer behind the settings routes: `writeSettings` of the settings store,
@@ -109,6 +114,9 @@ export const promptOverrides: PromptOverrideStore = {
 export function effectiveSettings(): EffectiveSettings {
 	return resolveSettings(plainSettingsStore.readSettings());
 }
+
+// Runtime policy is supplied at the composition root, never imported by agents.
+configureWorkerRequestAdmission(() => effectiveSettings().agent.workerRequestConcurrency);
 
 // Boot: register the custom endpoints (when configured) into piModels(); the
 // /api/custom-providers routes re-sync after every change.

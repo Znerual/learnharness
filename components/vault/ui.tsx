@@ -21,7 +21,7 @@ export function Field({ label, help, error, children }: { label: string; help?: 
 			{children}
 			{help ? <span className="text-xs text-muted-foreground">{help}</span> : null}
 			{error ? (
-				<span role="alert" className="text-xs text-red-500">
+				<span role="alert" className="text-xs text-error">
 					{error}
 				</span>
 			) : null}
@@ -37,14 +37,14 @@ export function TextInput(props: InputHTMLAttributes<HTMLInputElement>) {
 export function ErrorLine({ code }: { code?: string | undefined }) {
 	if (!code) return null;
 	return (
-		<p role="alert" data-testid="error" className="text-sm text-red-500">
+		<p role="alert" data-testid="error" className="text-sm text-error">
 			{errorText(code)}
 		</p>
 	);
 }
 
 export function Notice({ tone = "info", title, children, testid }: { tone?: "ok" | "info" | "warning" | "error"; title?: string; children?: ReactNode; testid?: string }) {
-	const color = { ok: "border-green-500", info: "border-border", warning: "border-amber-500", error: "border-red-500" }[tone];
+	const color = { ok: "border-success", info: "border-border", warning: "border-warning", error: "border-error" }[tone];
 	return (
 		<div role={tone === "error" ? "alert" : "status"} data-testid={testid} data-tone={tone} className={`rounded-md border-l-4 ${color} px-3 py-2 text-sm`}>
 			{title ? <p className="font-medium">{title}</p> : null}
@@ -58,7 +58,7 @@ export function RuleList({ feedback }: { feedback: PasswordFeedback }) {
 	return (
 		<ul data-testid="password-rules" className="flex flex-col gap-0.5 text-xs">
 			{feedback.rules.map((r) => (
-				<li key={r.id} data-rule={r.id} data-status={r.status} className={r.status === "fail" ? "text-red-500" : r.status === "ok" ? "text-green-500" : "text-muted-foreground"}>
+				<li key={r.id} data-rule={r.id} data-status={r.status} className={r.status === "fail" ? "text-error" : r.status === "ok" ? "text-success" : "text-muted-foreground"}>
 					<span aria-hidden="true">{mark[r.status]} </span>
 					{r.label}
 					{r.detail ? <span className="block pl-4">{r.detail}</span> : null}

@@ -2,5 +2,5 @@
  *  pointer is a finger. Client-only — false while rendering on the server,
  *  which is fine for autoFocus (React applies it on the client only). */
 export function isCoarsePointer(): boolean {
-	return typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches;
+	return typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
 }
