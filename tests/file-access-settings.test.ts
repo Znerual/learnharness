@@ -97,7 +97,8 @@ describe("strict persisted file-access policy", () => {
 		await fs.unlink(SETTINGS_FILE);
 		// The settings file's folder is the device-local one (multi-device), not the data folder.
 		const folder = path.dirname(SETTINGS_FILE);
-		await fs.rmdir(folder);
+		// The local folder also holds this device's migration marker, so it is not empty.
+		await fs.rm(folder, { recursive: true, force: true });
 		await fs.symlink(path.join(root, "missing-data"), folder, process.platform === "win32" ? "junction" : "dir");
 		try { assert.equal(readFileAccessSettings().ok, false); }
 		finally { await fs.unlink(folder); await fs.mkdir(folder); }

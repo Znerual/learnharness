@@ -777,7 +777,7 @@ async function main() {
 	nativeTheme.themeSource = themeSourceFor(appearance.mode, appearance.system);
 	// System theme: the OS flips the scheme, the window follows at once (the
 	// renderer's own report then confirms it).
-	nativeTheme.on("updated", () => {
+	nativeTheme.on?.("updated", () => {
 		if (!appearance.system) return;
 		appearance = systemVariant(appearance, nativeTheme.shouldUseDarkColors);
 		for (const win of BrowserWindow.getAllWindows()) applyChrome(win);

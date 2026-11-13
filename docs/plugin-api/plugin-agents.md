@@ -112,6 +112,8 @@ Public SDK type, exported as `PluginAgentRecord`. Import with `import type`; the
 export interface PluginAgentRecord {
     version: 1;
     id: string;
+    deviceId?: string;
+    deviceName?: string;
     definitionId: string;
     createdAt: string;
     updatedAt: string;
@@ -129,6 +131,8 @@ export interface PluginAgentRecord {
 
 - [version](#pluginagentrecord-version)
 - [id](#pluginagentrecord-id)
+- [deviceId](#pluginagentrecord-deviceid)
+- [deviceName](#pluginagentrecord-devicename)
 - [definitionId](#pluginagentrecord-definitionid)
 - [createdAt](#pluginagentrecord-createdat)
 - [updatedAt](#pluginagentrecord-updatedat)
@@ -148,6 +152,20 @@ version: 1;
 
 ```ts
 id: string;
+```
+
+### PluginAgentRecord deviceId
+
+The owning device (multi-device): only it interrupts a running session after a restart.
+
+```ts
+deviceId?: string;
+```
+
+### PluginAgentRecord deviceName
+
+```ts
+deviceName?: string;
 ```
 
 ### PluginAgentRecord definitionId

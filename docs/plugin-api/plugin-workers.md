@@ -296,6 +296,8 @@ Public SDK type, exported as `PluginTaskRecord`. Import with `import type`; the 
 export interface PluginTaskRecord extends PluginWorkerStartOptions {
     version: 1;
     id: string;
+    deviceId?: string;
+    deviceName?: string;
     definitionId: string;
     createdAt: string;
     updatedAt: string;
@@ -316,6 +318,8 @@ export interface PluginTaskRecord extends PluginWorkerStartOptions {
 
 - [version](#plugintaskrecord-version)
 - [id](#plugintaskrecord-id)
+- [deviceId](#plugintaskrecord-deviceid)
+- [deviceName](#plugintaskrecord-devicename)
 - [definitionId](#plugintaskrecord-definitionid)
 - [createdAt](#plugintaskrecord-createdat)
 - [updatedAt](#plugintaskrecord-updatedat)
@@ -338,6 +342,20 @@ version: 1;
 
 ```ts
 id: string;
+```
+
+### PluginTaskRecord deviceId
+
+The owning device (multi-device): only it interrupts or resumes this task after a restart.
+
+```ts
+deviceId?: string;
+```
+
+### PluginTaskRecord deviceName
+
+```ts
+deviceName?: string;
 ```
 
 ### PluginTaskRecord definitionId
