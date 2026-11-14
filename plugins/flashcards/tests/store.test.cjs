@@ -94,3 +94,16 @@ test('malformed and unsupported stores fail closed without overwriting original 
     assert.deepEqual(fs.readdirSync(dir), ['flashcards.json']);
   }
 });
+
+test('stores from before the output limit setting get 32768, once', t => {
+  const dir = directory(t), file = path.join(dir, 'flashcards.json');
+  const old = { version: 1, revision: 3, settings: { retention: 0.9, learningSteps: [1, 10], relearningSteps: [10], dayStart: 4, fuzz: false, chunkBudget: 2000, modelOverride: null }, decks: [], propositions: {}, reviews: [], batches: [] };
+  fs.writeFileSync(file, JSON.stringify(old));
+  const store = openStore(dir);
+  assert.equal(store.get().settings.outputBudget, 32768);
+  assert.equal(store.get().settings.chunkBudget, 2000, 'other settings stay');
+  assert.equal(store.get().revision, 4);
+  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).settings.outputBudget, 32768);
+  fs.writeFileSync(file, JSON.stringify({ ...old, settings: { ...old.settings, outputBudget: 8192 } }));
+  assert.equal(openStore(dir).get().settings.outputBudget, 8192, 'a saved value is never replaced');
+});

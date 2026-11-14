@@ -69,8 +69,9 @@ function validateFileInput(input) {
 const estimate = prompt => Math.ceil(Buffer.byteLength(instructions + JSON.stringify(resultSchema) + prompt, 'utf8') / 3) + 256;
 function prepareFileChunks(options) {
   const { name, markdown } = validateFileInput(options);
-  const { chunkBudget, entry, ranges } = options;
+  const { chunkBudget, outputBudget, entry, ranges } = options;
   if (!Number.isSafeInteger(chunkBudget) || chunkBudget < 1) fail('Input budget must be a positive safe whole number.');
+  if (!Number.isSafeInteger(outputBudget) || outputBudget < 1024) fail('Output limit must be a whole number of at least 1024 tokens.');
   if (!entry || typeof entry !== 'object') fail('A model catalog entry is required.');
   const outputLimit = entry.maxTokens ?? 8192, contextLimit = entry.contextWindow ?? Infinity;
   if (!Number.isSafeInteger(outputLimit) || outputLimit < 1024 || (contextLimit !== Infinity && (!Number.isSafeInteger(contextLimit) || contextLimit < 1))) fail('The selected model cannot fit this context and an output allowance of at least 1024 tokens.');
@@ -85,7 +86,7 @@ function prepareFileChunks(options) {
   const plan = (start, end) => {
     const input = { name, markdown: markdown.slice(start, end) }, prompt = promptFor(input);
     const tokens = estimate(prompt);
-    const maxTokens = Math.min(8192, outputLimit, contextLimit - tokens - 256);
+    const maxTokens = Math.min(outputBudget, outputLimit, contextLimit - tokens - 256);
     return { start, end, input, prompt, tokens, maxTokens };
   };
   // Match core extraction's source-only chars/4 budget. Filename, JSON

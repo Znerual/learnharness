@@ -16,8 +16,12 @@ function atomicWrite(file, content) {
   }
 }
 // Keep retry receipts separate from card text so deletion can be physical.
+// Generation output limit per chunk (owner, 2026-11-14): 32768 tokens, so a
+// thinking model can reason and still submit its result.
+const DEFAULT_OUTPUT_BUDGET = 32768;
 function migrate(state) {
   let changed = false;
+  if (!Object.hasOwn(state.settings, 'outputBudget')) { state.settings.outputBudget = DEFAULT_OUTPUT_BUDGET; changed = true; }
   for (const p of Object.values(state.propositions)) {
     for (const cue of p.cues) if (cue.creation) {
       state.creationReceipts ??= [];
@@ -48,7 +52,7 @@ function migrate(state) {
   for (const r of state.reviews) for (const key of ['question', 'answer']) if (Object.hasOwn(r, key)) { delete r[key]; changed = true; }
   return changed;
 }
-const defaults = () => ({ retention: 0.9, learningSteps: [1, 10], relearningSteps: [10], dayStart: 4, fuzz: false, chunkBudget: 4000, modelOverride: null });
+const defaults = () => ({ retention: 0.9, learningSteps: [1, 10], relearningSteps: [10], dayStart: 4, fuzz: false, chunkBudget: 4000, outputBudget: DEFAULT_OUTPUT_BUDGET, modelOverride: null });
 function openStore(directory) {
   fs.mkdirSync(directory, { recursive: true });
   const file = path.join(directory, 'flashcards.json');

@@ -17,7 +17,7 @@ const result = (...rows) => ({ propositions: rows });
 // persistent tasks, explicit accepted-result validation, and no model execution.
 function workerService() {
   const tasks = new Map(), subscriptions = new Map(), waiters = new Map();
-  const definitions = new Map(); let starts = 0;
+  const definitions = new Map(), runOptions = []; let starts = 0;
   const terminal = task => ['succeeded', 'failed', 'cancelled', 'interrupted'].includes(task.status);
   const emit = task => {
     for (const listener of subscriptions.get(task.id) ?? []) listener(structuredClone(task));
@@ -31,7 +31,7 @@ function workerService() {
       assert.ok(options.requestId);
       const prior = [...tasks.values()].find(task => task.requestId === options.requestId);
       if (prior) return structuredClone(prior);
-      starts++;
+      starts++; runOptions.push(structuredClone(options.options));
       const task = { id: randomUUID(), workerId, requestId: options.requestId, input: structuredClone(options.input), status: 'running', turns: 0, activity: 'waiting' };
       tasks.set(task.id, task);
       return structuredClone(task);
@@ -57,7 +57,7 @@ function workerService() {
     cancel(id) { tasks.get(id).cancelRequested = true; },
   };
   return {
-    service, tasks, get starts() { return starts; },
+    service, tasks, runOptions, get starts() { return starts; },
     stage(id, value) {
       const task = tasks.get(id);
       definitions.get(task.workerId).validateResult(value, { input: task.input });
@@ -1185,11 +1185,27 @@ test('restart reconciles accepted durable results exactly once and never replays
   assert.equal(h.workers.starts, 2);
 });
 
+test('the output limit setting defaults to 32768, caps each chunk and stretches the worker timeout', async t => {
+  const h = harness(t);
+  assert.equal(h.state().settings.outputBudget, 32768);
+  h.catalog.models[0].maxTokens = 262144; h.catalog.models[0].contextWindow = 262144;
+  await h.start(['p1']);
+  assert.deepEqual(h.workers.runOptions.at(-1), { maxTokens: 32768, timeoutMs: 120000 + 10 * 32768, maxRetries: 0 });
+});
+
+test('the output limit setting is saved, and the model limit still caps it', async t => {
+  const h = harness(t);
+  await h.call('save-settings', { outputBudget: 4096 });
+  assert.equal(h.disk().settings.outputBudget, 4096);
+  await h.start(['p1']);
+  assert.deepEqual(h.workers.runOptions.at(-1), { maxTokens: 4096, timeoutMs: 120000 + 10 * 4096, maxRetries: 0 });
+});
+
 test('settings validate atomically and model resolution fails explicitly without a configured slot', async t => {
   const h = harness(t);
   const before = h.state();
   for (const patch of [{ retention: .69 }, { retention: 1 }, { learningSteps: [] }, { relearningSteps: [10, 5] },
-    { learningSteps: [1440] }, { dayStart: 24 }, { chunkBudget: 0 }, { modelOverride: {} }, { thinkingOverride: 'invented' }, { unknown: true }]) {
+    { learningSteps: [1440] }, { dayStart: 24 }, { chunkBudget: 0 }, { outputBudget: 1023 }, { outputBudget: 4096.5 }, { outputBudget: '32768' }, { modelOverride: {} }, { thinkingOverride: 'invented' }, { unknown: true }]) {
     await assert.rejects(h.call('save-settings', patch));
     assert.deepEqual(h.state(), before);
   }

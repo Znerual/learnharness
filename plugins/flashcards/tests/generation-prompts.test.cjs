@@ -59,7 +59,7 @@ test('the unchanged default budget governs source chunks separately from the ful
   assert.deepEqual(input.targets, ['p']);
   assert.ok(backend.estimate(input) > 0);
   const markdown = '# Transactions\n\n' + 'A transaction commits all of its writes or none of them.\n\n'.repeat(400);
-  const chunks = files.prepareFileChunks({ name: 'transactions.md', markdown, chunkBudget: settings.chunkBudget, entry: { contextWindow: 100000, maxTokens: 8192 } });
+  const chunks = files.prepareFileChunks({ name: 'transactions.md', markdown, chunkBudget: settings.chunkBudget, outputBudget: settings.outputBudget, entry: { contextWindow: 100000, maxTokens: 8192 } });
   assert.ok(chunks.length > 1);
   assert.equal(chunks.map(chunk => chunk.input.markdown).join(''), markdown);
   for (const chunk of chunks) assert.ok(Math.ceil(chunk.input.markdown.length / 4) <= settings.chunkBudget);
@@ -115,7 +115,7 @@ test('graph and file full-request estimates still account for composed instructi
   const expectedGraph = Math.ceil(Buffer.byteLength(prompts.graphInstructions + JSON.stringify(backend.resultSchema) + prompts.graphPromptFor(input), 'utf8') / 3) + 256;
   assert.equal(backend.estimate(input), expectedGraph);
   const file = { name: 'notes.md', markdown: '# A supported fact\n\nSome source material.' };
-  const [plan] = files.prepareFileChunks({ ...file, chunkBudget: 4000, entry: { contextWindow: 100000, maxTokens: 8192 } });
+  const [plan] = files.prepareFileChunks({ ...file, chunkBudget: 4000, outputBudget: 8192, entry: { contextWindow: 100000, maxTokens: 8192 } });
   const expectedFile = Math.ceil(Buffer.byteLength(prompts.fileInstructions + JSON.stringify(files.resultSchema) + prompts.filePromptFor(file), 'utf8') / 3) + 256;
   assert.equal(plan.prompt, prompts.filePromptFor(file)); assert.equal(plan.tokens, expectedFile);
 });

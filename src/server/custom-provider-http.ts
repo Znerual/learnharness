@@ -108,6 +108,37 @@ function commit(id: string, cp: CustomProviderSettings | undefined, binding?: Cu
 	syncCustomProvider();
 }
 
+/** Startup re-detect (owner, 2026-11-14): once per server start, every
+ * endpoint's model list is discovered again and replaced exactly like Save
+ * does — discovered plus manual models, pins of vanished models dropped, the
+ * credential binding untouched. Same key rules as Save: API-key mode needs
+ * the authorized effective key, keyless sends none. A failed discovery
+ * (offline, HTTP error) keeps the stored list; a record or credential that
+ * changed while discovery ran is never overwritten. Never throws. */
+export async function redetectCustomProviders(): Promise<void> {
+	for (const { id } of readSettings()?.customProviders ?? []) {
+		try { await redetectOne(id); }
+		catch (error) { console.error(`[custom-providers] Startup re-detect of ${id} failed; keeping stored models:`, error); }
+	}
+}
+
+async function redetectOne(id: string): Promise<void> {
+	const apiKey = entryOf(readSettings(), id)?.authMode === "apiKey";
+	const before = snapshot(id, apiKey);
+	const cp = before.cp;
+	if (!cp?.baseUrl) return;
+	if (apiKey && (!before.key || !customKeyAuthorized(cp, before.auth))) return;
+	const found = await discoverModels(cp.baseUrl, apiKey ? before.key : undefined, { assumeReasoning: isOnOffThinkingFormat(cp.thinkingFormat) });
+	if (!found.ok) return;
+	const now = snapshot(id, apiKey);
+	if (before.etag !== now.etag || JSON.stringify(before.auth) !== JSON.stringify(now.auth)) return;
+	const models = mergeManualModels(found.models, cp.manualModels ?? []);
+	if (models.length > 10_000) return;
+	const overrides = sanitizeCustomModelOverrides(cp.overrides, models.map((m) => m.id));
+	if (JSON.stringify(models) === JSON.stringify(cp.models ?? []) && JSON.stringify(overrides) === JSON.stringify(cp.overrides ?? {})) return;
+	commit(id, { ...cp, models, overrides });
+}
+
 function thinkingFormatOf(raw: unknown): EndpointThinkingFormat | null | undefined {
 	if (raw === undefined) return undefined;
 	return (ENDPOINT_THINKING_FORMATS as readonly unknown[]).includes(raw) ? raw as EndpointThinkingFormat : null;

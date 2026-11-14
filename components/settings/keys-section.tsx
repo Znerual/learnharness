@@ -31,7 +31,7 @@ import { useEffect, useRef, useState } from "react";
 import {
 	AUTH_KEYS,
 	CUSTOM_MODEL_DEFAULT_CONTEXT_WINDOW,
-	CUSTOM_MODEL_DEFAULT_MAX_TOKENS,
+	customModelFallbackMaxTokens,
 	CUSTOM_PROVIDER,
 	DEFAULT_ENDPOINT_THINKING_FORMAT,
 	ENDPOINT_THINKING_FORMATS,
@@ -886,6 +886,14 @@ function pinsPayload(drafts: Record<string, PinDraft>): Record<string, CustomMod
 	return out;
 }
 
+/** The output limit a blank Output pin falls back to: the context the row
+ *  would run with (its context draft when that is a positive whole number,
+ *  else the reported context) decides, as in server/custom-provider.ts. */
+function fallbackOutput(m: CustomModel, d: PinDraft): number {
+	const drafted = Number(d.context.trim());
+	return customModelFallbackMaxTokens(d.context.trim() && Number.isSafeInteger(drafted) && drafted > 0 ? drafted : m.context);
+}
+
 /** testids must survive ids carrying slashes, colons, dots. */
 const pinTestid = (prefix: string, id: string) => `${prefix}-${id.replace(/[^a-z0-9-]/gi, "_")}`;
 
@@ -1132,7 +1140,7 @@ function CustomEndpointEditor({
 								<div key={m.id} className="flex items-center gap-2" data-testid={pinTestid("custom-pin-row", m.id)}>
 									<span className="min-w-0 flex-1 truncate font-mono text-[11px] text-foreground" title={m.id}>
 										{m.id}
-										<span className="block text-[10px] text-muted-foreground">Context: {d.context.trim() ? "user pin" : m.context ? `reported ${m.context}` : `fallback ${CUSTOM_MODEL_DEFAULT_CONTEXT_WINDOW}`} · Output: {d.maxTokens.trim() ? "user pin" : m.maxTokens ? `reported ${m.maxTokens}` : `fallback ${CUSTOM_MODEL_DEFAULT_MAX_TOKENS}`}</span>
+										<span className="block text-[10px] text-muted-foreground">Context: {d.context.trim() ? "user pin" : m.context ? `reported ${m.context}` : `fallback ${CUSTOM_MODEL_DEFAULT_CONTEXT_WINDOW}`} · Output: {d.maxTokens.trim() ? "user pin" : m.maxTokens ? `reported ${m.maxTokens}` : `fallback ${fallbackOutput(m, d)}`}</span>
 									</span>
 									<input
 										type="text"
@@ -1150,7 +1158,7 @@ function CustomEndpointEditor({
 										inputMode="numeric"
 										value={d.maxTokens}
 										onChange={(e) => setDraft(m, { maxTokens: e.target.value })}
-										placeholder={String(m.maxTokens ?? CUSTOM_MODEL_DEFAULT_MAX_TOKENS)}
+										placeholder={String(m.maxTokens ?? fallbackOutput(m, d))}
 										aria-label={`${m.id} max output tokens`}
 										data-testid={pinTestid("custom-pin-maxtokens", m.id)}
 										disabled={pinsBusy}
@@ -1191,7 +1199,7 @@ function CustomEndpointEditor({
 				</div>
 			)}
 			<div className="flex flex-col gap-1 text-[11px] text-muted-foreground" data-testid="custom-help">
-				{!setup && models.length > 0 && <p data-testid="custom-budget-help">Budget pins do not resize backend context. Blank uses reported limits, then fallback (8192 context / 4096 output). Custom pricing is unknown.</p>}
+				{!setup && models.length > 0 && <p data-testid="custom-budget-help">Budget pins do not resize backend context. Blank uses reported limits, then fallback (8192 context; output up to the context window when the context is known, else 4096). Custom pricing is unknown.</p>}
 				<p data-testid="custom-reasoning-help">Reasoning support is a capability declaration. The effort picker’s Off may not disable a custom backend’s default thinking.</p>
 			</div>
 			{(error || pinsError) && <button type="button" data-testid="custom-reload" onClick={() => void onReload()} className="text-left text-xs underline">Reload configuration</button>}

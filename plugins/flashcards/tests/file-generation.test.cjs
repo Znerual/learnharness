@@ -3,7 +3,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { instructions, resultSchema, validateResult, validateFileInput, prepareFileChunks } = require('../src/file-generation.cjs');
 const entry = Object.freeze({ maxTokens: 8192, contextWindow: 100000 });
-const chunks = (markdown, options = {}) => prepareFileChunks({ name: 'Notes.md', markdown, chunkBudget: 4000, entry, ...options });
+const chunks = (markdown, options = {}) => prepareFileChunks({ name: 'Notes.md', markdown, chunkBudget: 4000, outputBudget: 8192, entry, ...options });
 const tokensFor = prompt => Math.ceil(Buffer.byteLength(instructions + JSON.stringify(resultSchema) + prompt, 'utf8') / 3) + 256;
 const fact = (statement = 'Water freezes at the stated conditions.', question = 'What happens under these conditions?') => ({ name: 'Freezing', statement, cards: [{ question, answer: 'Water freezes.' }] });
 function assertCoverage(source, plans, start = 0, end = source.length) {
@@ -164,6 +164,11 @@ test('output allowances honor provider/context caps, reserve 256 tokens and requ
   assert.equal(chunks('A short supported fact.', { entry: { contextWindow: tokens + 256 + 1024 } })[0].maxTokens, 1024);
   assert.equal(chunks('A short supported fact.', { entry: {} })[0].maxTokens, 8192);
   assert.throws(() => chunks('A short supported fact.', { entry: { maxTokens: 8192, contextWindow: tokens + 256 + 1023 } }), /output allowance/);
+  // The output limit setting caps the allowance; the model limit and free context still apply.
+  assert.equal(chunks('A short supported fact.', { outputBudget: 32768, entry: { maxTokens: 262144, contextWindow: 262144 } })[0].maxTokens, 32768);
+  assert.equal(chunks('A short supported fact.', { outputBudget: 32768, entry: { maxTokens: 16384, contextWindow: 262144 } })[0].maxTokens, 16384);
+  assert.equal(chunks('A short supported fact.', { outputBudget: 32768, entry: { maxTokens: 262144, contextWindow: tokens + 256 + 20000 } })[0].maxTokens, 20000);
+  for (const outputBudget of [undefined, 1023, 2048.5, NaN]) assert.throws(() => chunks('x', { outputBudget, entry: { maxTokens: 8192 } }), /Output limit/);
   for (const entry of [null, { maxTokens: 1023 }, { maxTokens: NaN }, { contextWindow: 0 }, { contextWindow: 1.5 }]) assert.throws(() => chunks('x', { entry }), /model|allowance/i);
 });
 
@@ -171,7 +176,7 @@ test('retry ranges preserve separate exact spans, never bridge gaps or merge adj
   const source = '😀 FIRST SPAN\n\nexcluded middle\n\nSECOND SPAN 😀';
   const firstEnd = source.indexOf('excluded'), secondStart = source.indexOf('SECOND');
   const ranges = Object.freeze([Object.freeze({ start: 0, end: firstEnd }), Object.freeze({ start: secondStart, end: source.length })]);
-  const options = Object.freeze({ name: 'Retry.md', markdown: source, chunkBudget: 4000, entry, ranges, fileSourceId: 'ignored', start: 99 });
+  const options = Object.freeze({ name: 'Retry.md', markdown: source, chunkBudget: 4000, outputBudget: 8192, entry, ranges, fileSourceId: 'ignored', start: 99 });
   const before = JSON.stringify(options), plans = prepareFileChunks(options);
   assert.equal(plans.length, 2);
   assertCoverage(source, [plans[0]], 0, firstEnd);

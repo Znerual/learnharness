@@ -374,6 +374,7 @@ export function activate(ctx) {
         row('relearningSteps', 'Relearning steps (minutes)', settings.relearningSteps.map(value => `${value}m`).join(' '), 'text', parseSteps),
         row('dayStart', 'Day starts at (hour)', settings.dayStart, 'number', Number, { min: 0, max: 23, step: 1 }),
         row('chunkBudget', 'Generation chunk budget (estimated tokens)', settings.chunkBudget, 'number', Number, { min: 1, step: 1 }),
+        row('outputBudget', 'Generation output limit (tokens)', settings.outputBudget, 'number', Number, { min: 1024, step: 1 }),
       ];
     };
     const changeModels = async patch => {

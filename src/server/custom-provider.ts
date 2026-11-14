@@ -16,7 +16,7 @@ import { customAuthState, customKeyAuthorized } from "./custom-provider-auth.ts"
 import { isEmbeddingModel, isOnOffThinkingFormat, lmStudioV0Url, parseLmStudioModels, type EndpointThinkingFormat, type LmStudioModelInfo } from "../core/endpoints.ts";
 import {
 	CUSTOM_MODEL_DEFAULT_CONTEXT_WINDOW,
-	CUSTOM_MODEL_DEFAULT_MAX_TOKENS,
+	customModelFallbackMaxTokens,
 	customProviderUsable,
 	normalizeBaseUrl,
 	type CustomModel,
@@ -116,7 +116,7 @@ function toPiModel(
 		input: model.image ? ["text", "image"] : ["text"],
 		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 		contextWindow: pin?.context ?? model.context ?? CUSTOM_MODEL_DEFAULT_CONTEXT_WINDOW,
-		maxTokens: pin?.maxTokens ?? model.maxTokens ?? CUSTOM_MODEL_DEFAULT_MAX_TOKENS,
+		maxTokens: pin?.maxTokens ?? model.maxTokens ?? customModelFallbackMaxTokens(pin?.context ?? model.context),
 		type: "chat",
 		// Local servers (vLLM, LM Studio) reject the developer role and the
 		// store flag; the Qwen formats ride pi-ai's thinkingFormat.

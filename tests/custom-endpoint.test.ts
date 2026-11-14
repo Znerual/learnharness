@@ -271,8 +271,21 @@ describe("buildOpenAiCompatibleProvider / syncCustomProvider", () => {
 		assert.equal(pinned!.contextWindow, 131072, "the pin wins over the endpoint's own number");
 		assert.equal(pinned!.maxTokens, 16384);
 		assert.equal(detected!.contextWindow, 65536, "no pin → the endpoint's value");
-		assert.equal(detected!.maxTokens, CUSTOM_MODEL_DEFAULT_MAX_TOKENS, "endpoint silent → the compiled default");
+		assert.equal(detected!.maxTokens, 65536, "output silent, context known → the whole context window");
 		assert.equal(bare!.contextWindow, CUSTOM_MODEL_DEFAULT_CONTEXT_WINDOW);
+		assert.equal(bare!.maxTokens, CUSTOM_MODEL_DEFAULT_MAX_TOKENS, "context unknown too → the compiled output default");
+	});
+
+	it("an output fallback follows a pinned context when the endpoint reports neither", () => {
+		const provider = build({
+			baseUrl: "http://h/v1",
+			models: [{ id: "silent" }, { id: "reported", context: 262144 }],
+			overrides: { silent: { context: 32768 }, reported: { context: 131072 } },
+		});
+		const byId = new Map(provider.getModels().map((m) => [m.id, m]));
+		const silent = byId.get("silent"), reported = byId.get("reported");
+		assert.equal(silent!.maxTokens, 32768, "the pinned context is a known context");
+		assert.equal(reported!.maxTokens, 131072, "the pin beats the reported context for the fallback too");
 	});
 
 	it("the thinking pin is tri-state: false beats a detected-true endpoint, true beats silence", () => {

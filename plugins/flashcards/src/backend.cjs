@@ -21,9 +21,12 @@ const memberships = (s, id) => s.decks.filter(d => d.propositionIds.includes(id)
 const isLocal = p => p.origin === 'file' || p.origin === 'manual';
 const reviewConfiguration = s => fingerprint({ retention: s.retention, learningSteps: s.learningSteps, relearningSteps: s.relearningSteps, dayStart: s.dayStart, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone });
 const fail = (message) => { throw new Error(message); };
+// A worker task may run 120 s plus 10 ms per output token it is allowed
+// (owner, 2026-11-14): 32768 tokens → about 448 s.
+const taskTimeoutMs = maxTokens => 120000 + 10 * maxTokens;
 function requiredText(value, label) { if (typeof value !== 'string' || !value.trim()) fail(`${label} must not be blank.`); return value; }
 function validateSettings(patch, old) {
-  const allowed = new Set(['retention', 'learningSteps', 'relearningSteps', 'dayStart', 'chunkBudget', 'modelOverride', 'thinkingOverride']);
+  const allowed = new Set(['retention', 'learningSteps', 'relearningSteps', 'dayStart', 'chunkBudget', 'outputBudget', 'modelOverride', 'thinkingOverride']);
   for (const key of Object.keys(patch)) if (!allowed.has(key)) fail(`Unsupported setting: ${key}`);
   const s = { ...old, ...patch };
   if (s.thinkingOverride === null) delete s.thinkingOverride;
@@ -33,6 +36,7 @@ function validateSettings(patch, old) {
   }
   if (!Number.isInteger(s.dayStart) || s.dayStart < 0 || s.dayStart > 23) fail('Study-day start must be a whole hour from 0 to 23.');
   if (!Number.isSafeInteger(s.chunkBudget) || s.chunkBudget < 1) fail('Input budget must be a positive safe whole number.');
+  if (!Number.isSafeInteger(s.outputBudget) || s.outputBudget < 1024) fail('Output limit must be a whole number of at least 1024 tokens.');
   if (s.modelOverride !== null && (!s.modelOverride || typeof s.modelOverride.provider !== 'string' || typeof s.modelOverride.id !== 'string')) fail('Invalid model override.');
   if (s.thinkingOverride !== undefined && !['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'].includes(s.thinkingOverride)) fail('Invalid thinking level.');
   return s;
@@ -370,7 +374,7 @@ function activate(ctx) {
     const state = store.get(), chunks = pack(graphNow(), propositionIds, state);
     const plans = chunks.map(input => {
       const tokens = estimate(input);
-      const maxTokens = Math.min(8192, resolved.entry.maxTokens ?? 8192, (resolved.entry.contextWindow ?? Infinity) - tokens - 256);
+      const maxTokens = Math.min(state.settings.outputBudget, resolved.entry.maxTokens ?? 8192, (resolved.entry.contextWindow ?? Infinity) - tokens - 256);
       if (maxTokens < 1024) fail('The selected model cannot fit this context and an output allowance. Reduce the chunk budget or choose another model.');
       return { input, prompt: promptFor(input), maxTokens, tokens };
     });
@@ -380,7 +384,7 @@ function activate(ctx) {
     return { id, chunkCount: plans.length, propositionCount: new Set(propositionIds).size, estimatedTokens: plans.reduce((n, p) => n + p.tokens, 0), modelLabel: resolved.entry.name };
   });
   function rememberFilePlan(file, resolved, state, source, ranges, retryOf) {
-    const plans = fileGeneration.prepareFileChunks({ name: file.name, markdown: file.markdown, chunkBudget: state.settings.chunkBudget, entry: resolved.entry, ...(ranges ? { ranges } : {}) });
+    const plans = fileGeneration.prepareFileChunks({ name: file.name, markdown: file.markdown, chunkBudget: state.settings.chunkBudget, outputBudget: state.settings.outputBudget, entry: resolved.entry, ...(ranges ? { ranges } : {}) });
     const id = randomUUID(), sourceId = source?.id ?? randomUUID(), deckId = source?.deckId ?? randomUUID();
     preflights.set(id, { kind: 'file', file, sourceId, deckId, retryOf, revision: state.revision, settingsHash: fingerprint(state.settings), model: resolved.spec, plans, createdAt: Date.now() });
     for (const [key, value] of preflights) if (Date.now() - value.createdAt > 600000) preflights.delete(key);
@@ -461,7 +465,7 @@ function activate(ctx) {
         try {
           if (store.get().batches.find(b => b.id === batchId).cancelRequested) return;
           const p = plan.plans[index];
-          const task = ctx.workers.start(plan.kind === 'file' ? 'generate-file-facts-v1' : 'generate-cues-v1', { requestId: chunk.requestId, input: plan.kind === 'file' ? { ...p.input, sourceId: plan.sourceId } : p.input, prompt: p.prompt, model: plan.model, purpose: 'user', maxTurns: 4, options: { maxTokens: p.maxTokens, timeoutMs: 120000, maxRetries: 0 } });
+          const task = ctx.workers.start(plan.kind === 'file' ? 'generate-file-facts-v1' : 'generate-cues-v1', { requestId: chunk.requestId, input: plan.kind === 'file' ? { ...p.input, sourceId: plan.sourceId } : p.input, prompt: p.prompt, model: plan.model, purpose: 'user', maxTurns: 4, options: { maxTokens: p.maxTokens, timeoutMs: taskTimeoutMs(p.maxTokens), maxRetries: 0 } });
           change(s => { const c = s.batches.find(b => b.id === batchId).chunks.find(c => c.id === chunk.id); c.taskId = task.id; c.status = 'queued'; }, 'batch-changed');
           watch(batchId, chunk.id, task.id);
         } catch (error) {

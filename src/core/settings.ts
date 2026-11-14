@@ -263,6 +263,15 @@ export interface ModelsSettings {
 export const CUSTOM_MODEL_DEFAULT_CONTEXT_WINDOW = 8192;
 export const CUSTOM_MODEL_DEFAULT_MAX_TOKENS = 4096;
 
+/** Output limit for a custom model whose endpoint reports none (owner,
+ *  2026-11-14): the whole context window when the context is known (reported
+ *  or pinned), since pi-ai clamps every request to context − prompt − 4096;
+ *  otherwise CUSTOM_MODEL_DEFAULT_MAX_TOKENS, so compaction's output reserve
+ *  never swallows the 8192 fallback context. */
+export function customModelFallbackMaxTokens(knownContext: number | undefined): number {
+	return knownContext ?? CUSTOM_MODEL_DEFAULT_MAX_TOKENS;
+}
+
 /** Custom budgets accept every positive integer, including small output caps. */
 export const CUSTOM_MODEL_PIN_FLOOR = 1;
 
