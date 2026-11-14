@@ -234,7 +234,10 @@ function activate(ctx) {
     if (!pin?.model) fail('Configure the cheap model slot or choose a Flashcards model override.');
     const entry = catalog.models.find(m => m.provider === pin.model.provider && m.id === pin.model.id);
     if (!entry) fail('The selected model is unavailable. Choose a configured model.');
-    const thinkingLevel = settings.thinkingOverride ?? pin.thinkingLevel;
+    // Generation thinks only when the user picks a level (owner, 2026-11-14):
+    // a thinking model can spend the whole output allowance reasoning and
+    // never submit. A model that cannot turn thinking off keeps its default.
+    const thinkingLevel = settings.thinkingOverride ?? (entry.supportedLevels.includes('off') ? 'off' : undefined);
     if (thinkingLevel && !entry.supportedLevels.includes(thinkingLevel)) fail('The selected thinking level is not supported by this model.');
     return { spec: { ...pin.model, ...(thinkingLevel ? { thinkingLevel } : {}) }, entry };
   }

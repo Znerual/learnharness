@@ -360,7 +360,8 @@ export function activate(ctx) {
     error.setAttribute('role', 'alert'); root.append(fields, modelArea, error); container.append(root);
     let initialized = false, rows, followRows, modelPicker, thinkingPicker, modelPickers, modelRow, thinkingRow, catalog = null;
     let overrideDraft = false, modelBusy = false;
-    const followingCheap = settings => !overrideDraft && !settings.modelOverride && settings.thinkingOverride == null;
+    // Follow cheap slot follows the slot's MODEL only; thinking is Flashcards' own (default off).
+    const followingCheap = settings => !overrideDraft && !settings.modelOverride;
     const showError = cause => { if (!signal.aborted) error.textContent = message(cause); };
     const save = async patch => {
       try { const state = await ctx.call('save-settings', patch); if (signal.aborted) return; error.textContent = ''; publish(state); rows?.update({ rows: settingsRows(snapshot.settings) }); updateModels(snapshot.settings); }
@@ -386,19 +387,17 @@ export function activate(ctx) {
     const followCheapRow = settings => ({ key: 'followCheapSlot', label: 'Model', description: 'Follow cheap slot', type: 'toggle', value: followingCheap(settings), disabled: modelBusy,
       onChange: async follow => {
         if (modelBusy || signal.aborted) return;
-        if (follow) await changeModels({ modelOverride: null, thinkingOverride: null });
-        else if (catalog?.slots?.cheap?.model) await changeModels({ modelOverride: catalog.slots.cheap.model, thinkingOverride: catalog.slots.cheap.thinkingLevel ?? null });
+        if (follow) await changeModels({ modelOverride: null });
+        else if (catalog?.slots?.cheap?.model) await changeModels({ modelOverride: catalog.slots.cheap.model });
         else { overrideDraft = true; updateModels(snapshot.settings); }
       },
     });
     const updateModels = settings => {
       const following = followingCheap(settings), model = settings.modelOverride || catalog?.slots?.cheap?.model || undefined;
       followRows?.update({ rows: [followCheapRow(settings)] });
-      if (modelPickers) modelPickers.hidden = following;
       if (modelRow) modelRow.hidden = following;
-      if (thinkingRow) thinkingRow.hidden = following;
       modelPicker?.update({ value: model, disabled: following || modelBusy });
-      thinkingPicker?.update({ model, value: settings.thinkingOverride ?? (settings.modelOverride ? undefined : catalog?.slots?.cheap?.thinkingLevel), disabled: following || modelBusy || !model });
+      thinkingPicker?.update({ model, value: settings.thinkingOverride ?? 'off', disabled: modelBusy || !model });
     };
     observe((state, loadError) => {
       if (signal.aborted) return; if (loadError) { showError(loadError); return; }

@@ -61,10 +61,12 @@ function fileBatch(h, patch = {}) {
   h.state.batch = { id: 'file-batch', kind: 'file', sourceId: 'file-source', deckId: 'file-deck', name: 'Lecture.pdf', status: 'completed', chunks: [{ id: 'file-chunk', status: 'applied' }], added: 0, completed: 1, total: 1, failedChunkIds: [], ...patch };
   h.state.revision++; h.notify();
 }
-function assertModelRows(h, hidden) {
-  const overrides = h.settings.querySelector('.fc-model-overrides'); assert.ok(overrides); assert.equal(overrides.hidden, hidden);
+// Following the cheap slot hides only the model picker; Flashcards' own
+// thinking picker is always visible (generation thinking defaults to off).
+function assertModelRows(h, following) {
+  const overrides = h.settings.querySelector('.fc-model-overrides'); assert.ok(overrides); assert.equal(overrides.hidden, false);
   for (const name of ['fc-model-row', 'fc-thinking-row']) {
-    const row = h.settings.querySelector(`.${name}`); assert.ok(row, `Missing ${name}`); assert.equal(row.hidden, hidden);
+    const row = h.settings.querySelector(`.${name}`); assert.ok(row, `Missing ${name}`); assert.equal(row.hidden, name === 'fc-model-row' && following);
     assert.equal(row.parentElement, overrides, 'model and thinking controls share one overrides row');
     assert.equal(row.querySelector('label,.fc-label'), null, 'picker rows add no duplicate labels');
   }
@@ -982,7 +984,7 @@ test('settings parse minutes/hours, retain failed drafts and use acknowledged va
   } finally { h.dispose(); }
 });
 
-test('Follow cheap slot has its own toggle row; OFF pins current slot atomically and ON clears both overrides', async () => {
+test('Follow cheap slot has its own toggle row; OFF pins the current slot model and ON clears only the model override', async () => {
   const h = await setup();
   try {
     h.mountSettings(); await flush();
@@ -993,19 +995,21 @@ test('Follow cheap slot has its own toggle row; OFF pins current slot atomically
     assert.equal(toggle().type, 'toggle'); assert.equal(toggle().value, true); assertModelRows(h, true);
     assert.equal([...h.settings.querySelectorAll('button')].some(node => node.textContent === 'Follow cheap slot'), false);
     assert.equal(savedSettings(h).length, 0, 'opening settings never pins the slot');
+    assert.equal(picker(h, 'thinking').props.value, 'off', 'generation thinking is off by default, not the slot level');
     await toggle().onChange(false);
-    assert.deepEqual(savedSettings(h).at(-1)[1], { modelOverride: { provider: 'test', id: 'cheap' }, thinkingOverride: 'low' });
+    assert.deepEqual(savedSettings(h).at(-1)[1], { modelOverride: { provider: 'test', id: 'cheap' } });
     assert.equal(toggle().value, false); assertModelRows(h, false);
     assert.deepEqual(picker(h, 'model').props.value, { provider: 'test', id: 'cheap' });
     assert.deepEqual(picker(h, 'thinking').props.model, { provider: 'test', id: 'cheap' });
-    assert.equal(picker(h, 'thinking').props.value, 'low'); assert.equal(picker(h, 'thinking').props.disabled, false);
+    assert.equal(picker(h, 'thinking').props.value, 'off'); assert.equal(picker(h, 'thinking').props.disabled, false);
     assert.equal(h.settings.querySelector('.fc-model-settings button'), null, 'no reset/default-thinking buttons remain');
     await picker(h, 'thinking').props.onChange('high');
     assert.equal(h.state.settings.thinkingOverride, 'high');
     await toggle().onChange(true);
-    assert.deepEqual(savedSettings(h).at(-1)[1], { modelOverride: null, thinkingOverride: null });
+    assert.deepEqual(savedSettings(h).at(-1)[1], { modelOverride: null });
     assert.equal(toggle().value, true); assertModelRows(h, true);
-    assert.equal(h.state.settings.modelOverride, null); assert.equal(h.state.settings.thinkingOverride ?? null, null);
+    assert.equal(h.state.settings.modelOverride, null); assert.equal(h.state.settings.thinkingOverride, 'high', 'the thinking choice survives following again');
+    assert.equal(picker(h, 'thinking').props.value, 'high');
     assert.equal(Object.hasOwn(h.state.settings, 'followCheapSlot'), false, 'UI mode is not a new backend setting');
   } finally { h.dispose(); }
 });
@@ -1043,27 +1047,28 @@ test('Model settings delegate the full label/toggle row to native rows and keep 
   } finally { h.dispose(); }
 });
 
-test('turning Follow cheap slot OFF without a slot thinking level pins null rather than inventing a level', async () => {
-  const h = await setup(h => { delete h.catalog.slots.cheap.thinkingLevel; });
+test('turning Follow cheap slot OFF pins only the model, never the slot thinking level', async () => {
+  const h = await setup(h => { h.catalog.slots.cheap.thinkingLevel = 'high'; });
   try {
     h.mountSettings(); await flush();
     await settingsRow(h, 'followCheapSlot').onChange(false);
-    assert.deepEqual(savedSettings(h).at(-1)[1], { modelOverride: { provider: 'test', id: 'cheap' }, thinkingOverride: null });
+    assert.deepEqual(savedSettings(h).at(-1)[1], { modelOverride: { provider: 'test', id: 'cheap' } });
+    assert.equal(picker(h, 'thinking').props.value, 'off');
     assert.equal(settingsRow(h, 'followCheapSlot').value, false); assertModelRows(h, false);
   } finally { h.dispose(); }
 });
 
-test('thinking-only overrides stay OFF and resolve the current cheap model without autosaving or migrating settings', async () => {
+test('a thinking choice applies while following the cheap slot model, without autosaving or migrating settings', async () => {
   const pending = deferred();
   const h = await setup(h => { h.state.settings.thinkingOverride = 'high'; h.overrides['get-catalog'] = () => pending.promise; });
   try {
     h.mountSettings(); await flush();
-    assert.equal(settingsRow(h, 'followCheapSlot').value, false); assertModelRows(h, false);
+    assert.equal(settingsRow(h, 'followCheapSlot').value, true); assertModelRows(h, true);
     assert.equal(picker(h, 'thinking').props.disabled, true, 'catalog has not supplied an effective model yet');
     const before = JSON.stringify(h.state.settings);
     const effective = { provider: 'test', id: 'updated-cheap' };
     pending.resolve({ slots: { cheap: { model: effective, thinkingLevel: 'low' } } }); await flush();
-    assert.equal(settingsRow(h, 'followCheapSlot').value, false);
+    assert.equal(settingsRow(h, 'followCheapSlot').value, true);
     assert.deepEqual(picker(h, 'model').props.value, effective);
     assert.deepEqual(picker(h, 'thinking').props.model, effective);
     assert.equal(picker(h, 'thinking').props.value, 'high'); assert.equal(picker(h, 'thinking').props.disabled, false);
@@ -1081,7 +1086,7 @@ test('delayed catalog updates the effective slot while following and OFF explici
     pending.resolve({ slots: { cheap: { model: effective, thinkingLevel: 'medium' } } }); await flush();
     assert.equal(savedSettings(h).length, 0); assert.equal(settingsRow(h, 'followCheapSlot').value, true); assertModelRows(h, true);
     await settingsRow(h, 'followCheapSlot').onChange(false);
-    assert.deepEqual(savedSettings(h).at(-1)[1], { modelOverride: effective, thinkingOverride: 'medium' });
+    assert.deepEqual(savedSettings(h).at(-1)[1], { modelOverride: effective });
   } finally { h.dispose(); }
 });
 
@@ -1150,7 +1155,7 @@ test('pending model saves disable toggle and pickers; failures restore acknowled
     assert.ok(h.settings.textContent.includes('Clear unavailable'));
     assert.equal(settingsRow(h, 'followCheapSlot').value, false); assertModelRows(h, false);
     assert.deepEqual(picker(h, 'model').props.value, { provider: 'test', id: 'cheap' });
-    assert.equal(picker(h, 'thinking').props.value, 'low');
+    assert.equal(picker(h, 'thinking').props.value, 'off');
     assert.equal(JSON.stringify(h.state.settings), acknowledged);
   } finally { h.dispose(); }
 });
@@ -1194,7 +1199,7 @@ test('late catalog resolution after Settings unmount cannot remount controls, sa
     h.mountSettings(); await flush();
     assert.notEqual(picker(h, 'model'), oldModel); assert.equal(settingsRow(h, 'followCheapSlot').value, true);
     await settingsRow(h, 'followCheapSlot').onChange(false);
-    assert.deepEqual(savedSettings(h).at(-1)[1], { modelOverride: { provider: 'test', id: 'fresh-cheap' }, thinkingOverride: 'medium' });
+    assert.deepEqual(savedSettings(h).at(-1)[1], { modelOverride: { provider: 'test', id: 'fresh-cheap' } });
   } finally { h.dispose(); }
 });
 

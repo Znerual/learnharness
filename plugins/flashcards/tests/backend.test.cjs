@@ -17,7 +17,7 @@ const result = (...rows) => ({ propositions: rows });
 // persistent tasks, explicit accepted-result validation, and no model execution.
 function workerService() {
   const tasks = new Map(), subscriptions = new Map(), waiters = new Map();
-  const definitions = new Map(), runOptions = []; let starts = 0;
+  const definitions = new Map(), runOptions = [], runModels = []; let starts = 0;
   const terminal = task => ['succeeded', 'failed', 'cancelled', 'interrupted'].includes(task.status);
   const emit = task => {
     for (const listener of subscriptions.get(task.id) ?? []) listener(structuredClone(task));
@@ -31,7 +31,7 @@ function workerService() {
       assert.ok(options.requestId);
       const prior = [...tasks.values()].find(task => task.requestId === options.requestId);
       if (prior) return structuredClone(prior);
-      starts++; runOptions.push(structuredClone(options.options));
+      starts++; runOptions.push(structuredClone(options.options)); runModels.push(structuredClone(options.model));
       const task = { id: randomUUID(), workerId, requestId: options.requestId, input: structuredClone(options.input), status: 'running', turns: 0, activity: 'waiting' };
       tasks.set(task.id, task);
       return structuredClone(task);
@@ -57,7 +57,7 @@ function workerService() {
     cancel(id) { tasks.get(id).cancelRequested = true; },
   };
   return {
-    service, tasks, runOptions, get starts() { return starts; },
+    service, tasks, runOptions, runModels, get starts() { return starts; },
     stage(id, value) {
       const task = tasks.get(id);
       definitions.get(task.workerId).validateResult(value, { input: task.input });
@@ -1191,6 +1191,25 @@ test('the output limit setting defaults to 32768, caps each chunk and stretches 
   h.catalog.models[0].maxTokens = 262144; h.catalog.models[0].contextWindow = 262144;
   await h.start(['p1']);
   assert.deepEqual(h.workers.runOptions.at(-1), { maxTokens: 32768, timeoutMs: 120000 + 10 * 32768, maxRetries: 0 });
+});
+
+test('generation thinking is off unless chosen in Flashcards, whatever the cheap slot level', async t => {
+  const h = harness(t);
+  h.catalog.slots.cheap.thinkingLevel = 'low';
+  await h.start(['p1']);
+  assert.deepEqual(h.workers.runModels.at(-1), { provider: 'mock', id: 'cheap', thinkingLevel: 'off' });
+});
+
+test('a chosen thinking level is sent; a model that cannot turn thinking off keeps its default', async t => {
+  const h = harness(t, graph('p1', 'p2'));
+  await h.call('save-settings', { thinkingOverride: 'low' });
+  const [task] = await h.start(['p1']);
+  assert.deepEqual(h.workers.runModels.at(-1), { provider: 'mock', id: 'cheap', thinkingLevel: 'low' });
+  await h.complete(task, null, 'failed');
+  await h.call('save-settings', { thinkingOverride: null });
+  h.catalog.models[0].supportedLevels = ['low', 'high'];
+  await h.start(['p2']);
+  assert.deepEqual(h.workers.runModels.at(-1), { provider: 'mock', id: 'cheap' });
 });
 
 test('the output limit setting is saved, and the model limit still caps it', async t => {
