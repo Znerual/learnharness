@@ -139,4 +139,4 @@ Not done:
 
 - Plugin sync status reaches the UI through Settings → Vault → Plugin data only; the sync status banner does not mention plugins.
 - The app does not flush plugin files at shutdown (ADR 0007 says it does): `engine.flushPluginFiles()` has no caller there. An edit made less than 60 s before quitting goes up at the next start instead.
-- Pushed to the fork; not released.
+- Release order step 1 is done: the server runs on the Pi (`lan-82f939e`, 2026-11-18). Step 2, the app release with vault client 0.5.0, is open.
