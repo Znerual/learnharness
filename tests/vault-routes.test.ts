@@ -206,7 +206,7 @@ function world(over: Partial<VaultStatics> = {}, migration?: VaultRouteDeps["mig
 		preview: async (at) => [{ path: "a.md", change: "changed" as const, extra: at.toISOString() } as { path: string; change: "changed" }],
 		restoreTo: async () => [{ path: "a.md", change: "removed" }],
 	};
-	const status: SyncStatus = { state: "idle", pendingChanges: 0, lastSuccess: null, conflicts: 0, rollbacks: 0, rejected: 0 };
+	const status: SyncStatus = { state: "idle", pendingChanges: 0, lastSuccess: null, conflicts: 0, rollbacks: 0, rejected: 0, skipped: 0 };
 	let reminder = true;
 	const deps: VaultRouteDeps = {
 		serverUrl: "https://vault.example",

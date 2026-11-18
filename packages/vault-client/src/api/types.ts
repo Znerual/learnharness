@@ -129,6 +129,8 @@ export interface DeviceRow {
 	current: boolean;
 	established: boolean;
 	hasUnlockMethod: boolean;
+	/** Sync features the device reported (ADR 0014 rollout); absent on servers before 2026-11. */
+	capabilities?: string[];
 }
 
 export interface GrantResponse {

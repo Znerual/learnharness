@@ -8,7 +8,7 @@ import { ShellBannerView } from "../components/vault/ShellBanner.tsx";
 const NOW = new Date("2026-11-01T12:00:00Z");
 const o = { now: NOW, billingEnabled: false };
 const signedIn = { state: "signed_in", accountId: "a", deviceId: "d", ephemeral: false, offline: false } as const;
-const status = (state: SyncState, over: Partial<SyncStatus> = {}): SyncStatus => ({ state, pendingChanges: 0, lastSuccess: "2026-11-01T11:59:00Z", conflicts: 0, rollbacks: 0, rejected: 0, ...over });
+const status = (state: SyncState, over: Partial<SyncStatus> = {}): SyncStatus => ({ state, pendingChanges: 0, lastSuccess: "2026-11-01T11:59:00Z", conflicts: 0, rollbacks: 0, rejected: 0, skipped: 0, ...over });
 
 test("shell banner: quiet while signed out, idle or syncing", () => {
 	assert.equal(shellBanner({ state: "signed_out" }, null, o), null);

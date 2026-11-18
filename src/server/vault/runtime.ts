@@ -37,7 +37,7 @@ import { leaveLocalVault, wireVault, type WiredVault } from "./wire.ts";
 /** `LH_VAULT_PASSWORD_CHECK=offline` skips the online breach lookup of sign-up passwords (offline setups, tests). */
 const PASSWORD_CHECK = process.env.LH_VAULT_PASSWORD_CHECK === "offline" ? { offline: true } : {};
 
-const IDLE = { state: "idle", pendingChanges: 0, lastSuccess: null, conflicts: 0, rollbacks: 0, rejected: 0 } as const;
+const IDLE = { state: "idle", pendingChanges: 0, lastSuccess: null, conflicts: 0, rollbacks: 0, rejected: 0, skipped: 0 } as const;
 
 /** What a first sign-in on this device did to the data folder; written once, beside the outbox. */
 const BOOTSTRAP_FILE = "bootstrapped.json";

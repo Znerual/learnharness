@@ -69,8 +69,10 @@ export interface SyncStatus {
 	error?: string;
 	conflicts: number;
 	rollbacks: number;
-	/** Changes the server offered that were refused (bad path, not a synced document). */
+	/** Changes the server offered that were refused (malformed segment path). */
 	rejected: number;
+	/** Records at paths this client does not sync (written by newer clients), skipped quietly. */
+	skipped: number;
 }
 
 export interface Version {

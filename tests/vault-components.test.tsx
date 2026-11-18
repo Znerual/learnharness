@@ -210,7 +210,7 @@ test("pairing joiner shows the same 6-digit code", () => {
 });
 
 test("sync banner: user-facing text for the states", () => {
-	const st = (state: SyncStatus["state"], o: Partial<SyncStatus> = {}): SyncStatus => ({ state, pendingChanges: 0, lastSuccess: "2026-11-01T11:00:00Z", conflicts: 0, rollbacks: 0, rejected: 0, ...o });
+	const st = (state: SyncStatus["state"], o: Partial<SyncStatus> = {}): SyncStatus => ({ state, pendingChanges: 0, lastSuccess: "2026-11-01T11:00:00Z", conflicts: 0, rollbacks: 0, rejected: 0, skipped: 0, ...o });
 	const r = (s: SyncStatus, billing = false) => renderToString(<SyncStatusBannerView status={s} now={NOW} billingEnabled={billing} />);
 	assert.match(r(st("idle")), /Synced 1 hour ago/);
 	assert.match(r(st("syncing", { pendingChanges: 2 })), /Syncing\.\.\./);

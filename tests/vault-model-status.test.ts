@@ -10,7 +10,7 @@ import { syncBanner } from "../src/core/vault/models/syncStatus.ts";
 const NOW = new Date("2026-11-01T12:00:00Z");
 
 function status(state: SyncState, over: Partial<SyncStatus> = {}): SyncStatus {
-	return { state, pendingChanges: 0, lastSuccess: "2026-11-01T11:55:00Z", conflicts: 0, rollbacks: 0, rejected: 0, ...over };
+	return { state, pendingChanges: 0, lastSuccess: "2026-11-01T11:55:00Z", conflicts: 0, rollbacks: 0, rejected: 0, skipped: 0, ...over };
 }
 
 test("sync banner has text for every SyncState", () => {

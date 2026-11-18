@@ -422,6 +422,11 @@ export class Vault {
 		return (await this.api.get<{ devices: DeviceRow[] }>("/v1/devices", this.auth())).devices;
 	}
 
+	/** Replaces this device's list of supported sync features on the server (ADR 0014 rollout). */
+	async reportCapabilities(capabilities: readonly string[]): Promise<void> {
+		await this.api.json("PUT", "/v1/devices/self/capabilities", { capabilities: [...capabilities] }, this.auth());
+	}
+
 	async renameDevice(id: string, name: string): Promise<void> {
 		await this.api.json("PATCH", `/v1/devices/${id}`, { name: checkDeviceName(name) }, this.auth());
 	}

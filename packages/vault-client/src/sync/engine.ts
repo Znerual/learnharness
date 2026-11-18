@@ -21,6 +21,13 @@ const MAX_BATCH_WRITES = 100;
 const MAX_BATCH_BYTES = 48 << 20; // below the 64 MiB server limit, leaving room for overhead
 const POLL_MS = 60_000;
 
+/**
+ * Sync features this client supports, reported to the server once per change of the list
+ * (ADR 0014 rollout). `skip-unknown-1`: records at paths this client does not sync are skipped
+ * quietly instead of reported as errors.
+ */
+export const CLIENT_CAPABILITIES: readonly string[] = ["skip-unknown-1"];
+
 type OutboxEntry = { t: "doc"; p: string } | { t: "led"; f: string; o: number };
 
 interface HeadState {
@@ -46,6 +53,8 @@ interface EngineState {
 	/** Segment boundaries planned before a push, reused after a crash so a re-push matches. */
 	ledgerInflight?: Record<string, [number, number][]>;
 	lastSuccess: string | null;
+	/** The capability list the server last accepted from this device, joined by commas. */
+	reportedCapabilities?: string;
 }
 
 export type SyncState = "idle" | "syncing" | "offline" | "error" | "over_quota" | "read_only" | "rotation_rejected" | "revoked" | "needs_unlock";
@@ -57,8 +66,10 @@ export interface SyncStatus {
 	error?: string;
 	conflicts: number;
 	rollbacks: number;
-	/** Changes the server offered that were refused (bad path, not a synced document). */
+	/** Changes the server offered that were refused (malformed segment path). */
 	rejected: number;
+	/** Records at paths this client does not sync (written by newer clients); skipped without an error. */
+	skipped: number;
 }
 
 export interface SyncEngineOptions {
@@ -92,7 +103,7 @@ export class SyncEngine {
 	private readonly o: SyncEngineOptions;
 	private state: EngineState = { v: 1, lastSeq: 0, heads: {}, ledgerPushed: {}, pendingSegments: [], lastSuccess: null };
 	private outbox: OutboxEntry[] = [];
-	private statusValue: SyncStatus = { state: "idle", pendingChanges: 0, lastSuccess: null, conflicts: 0, rollbacks: 0, rejected: 0 };
+	private statusValue: SyncStatus = { state: "idle", pendingChanges: 0, lastSuccess: null, conflicts: 0, rollbacks: 0, rejected: 0, skipped: 0 };
 	private running: Promise<SyncReport> | null = null;
 	private again = false;
 	private timer: NodeJS.Timeout | null = null;
@@ -304,6 +315,7 @@ export class SyncEngine {
 		const report: SyncReport = { pulled: 0, pushed: 0, conflicts: [] };
 		try {
 			report.pulled += await this.pull();
+			await this.reportCapabilities();
 			const pushed = await this.push(report);
 			report.pushed += pushed;
 			if (pushed > 0) report.pulled += await this.pull();
@@ -316,6 +328,23 @@ export class SyncEngine {
 			throw e;
 		}
 		return report;
+	}
+
+	/**
+	 * Tells the server which sync features this client supports, once per change of the list.
+	 * A server without the endpoint (404) is left alone; the next start tries again.
+	 */
+	private async reportCapabilities(): Promise<void> {
+		const key = CLIENT_CAPABILITIES.join(",");
+		if (this.state.reportedCapabilities === key) return;
+		try {
+			await this.o.vault.reportCapabilities(CLIENT_CAPABILITIES);
+		} catch (e) {
+			if (e instanceof ApiError && e.status === 404) return;
+			throw e;
+		}
+		this.state.reportedCapabilities = key;
+		await this.saveState();
 	}
 
 	private classify(e: unknown): void {
@@ -369,7 +398,9 @@ export class SyncEngine {
 	private async applyChange(c: ChangeRow, pendingDocs: Set<string>): Promise<AppliedChange | null> {
 		const { header, body } = await this.openRecord(c);
 		if (header.kind === "doc") {
-			if (!isDocumentPath(header.path)) return this.reject(`the server offered a record at ${JSON.stringify(header.path)}, which is not a synced document`);
+			// A path this client does not sync was written by a newer client (for example plugin files,
+			// ADR 0014). The header authenticated it as this account's record, so it is skipped, not an error.
+			if (!isDocumentPath(header.path)) return this.skip();
 			const known = this.state.heads[header.path];
 			if (known && c.seq < known.seq) {
 				// Rollback (ADR 0002 consequences): refuse and report.
@@ -407,6 +438,12 @@ export class SyncEngine {
 		const head = this.state.heads[path];
 		if (local === null) return !head || head.deleted;
 		return !!head && !head.deleted && head.sha === sha256Hex(local);
+	}
+
+	private skip(): null {
+		this.statusValue.skipped++;
+		this.setStatus({});
+		return null;
 	}
 
 	private reject(message: string): null {

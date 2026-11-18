@@ -10,4 +10,4 @@ export * from "./sync/mapping.ts";
 export * from "./vault.ts";
 
 /** Version of the vault client package. */
-export const clientVersion = "0.3.0";
+export const clientVersion = "0.4.0";
