@@ -50,13 +50,26 @@ function changesBetween(releases, installed, offered) {
 	return out.sort((a, b) => compareVersions(b.version, a.version)).slice(0, 20);
 }
 
-/** Reads the changelog and picks the entries for this update; [] on any failure. */
-async function fetchChanges(url, installed, offered, fetchImpl = globalThis.fetch) {
+const MAX_CHANGELOG_BYTES = 2 * 1024 * 1024;
+
+/**
+ * Reads the changelog and picks the entries for this update; [] on any failure. With `verify`
+ * (bytes, signature text) => boolean, also [] unless the changelog's signature is valid.
+ */
+async function fetchChanges(url, installed, offered, fetchImpl = globalThis.fetch, verify = null) {
 	if (!url) return [];
 	try {
 		const res = await fetchImpl(url, { signal: AbortSignal.timeout(10_000), cache: "no-store" });
 		if (!res.ok) return [];
-		const body = await res.json();
+		const bytes = Buffer.from(await res.arrayBuffer());
+		if (bytes.length > MAX_CHANGELOG_BYTES) return [];
+		if (verify) {
+			// The notes are text the host could write at will; with a signed feed they are shown
+			// only when the release key signed them (<url>.sig, see update-signature.cjs).
+			const sig = await fetchImpl(`${url}.sig`, { signal: AbortSignal.timeout(10_000), cache: "no-store" });
+			if (!sig.ok || !verify(bytes, await sig.text())) return [];
+		}
+		const body = JSON.parse(bytes.toString("utf8"));
 		return changesBetween(body && body.releases, installed, offered);
 	} catch {
 		return [];

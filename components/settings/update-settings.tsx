@@ -51,7 +51,7 @@ export function useUpdateState() {
 
 /** The Android app's update check (learnharness-android AppUpdate, pro edition): `LHAndroid`
  * offers it, and the result comes back through `window.lhAndroidUpdate`. */
-export type AndroidUpdateStatus = { status: "checking" | "up-to-date" | "available" | "error"; version?: string };
+export type AndroidUpdateStatus = { status: "checking" | "up-to-date" | "available" | "error"; version?: string; /** Why the check failed, when the app knows (an update whose release signature is not valid). */ message?: string };
 type AndroidUpdateWindow = {
 	LHAndroid?: { updateCheckAvailable?: () => boolean; checkForUpdates?: () => void };
 	lhAndroidUpdate?: (s: AndroidUpdateStatus) => void;
@@ -62,7 +62,7 @@ export function androidUpdateText(s: AndroidUpdateStatus | null): string | null 
 		case "checking": return "Checking for updates…";
 		case "up-to-date": return "You have the latest version.";
 		case "available": return `Version ${s.version ?? "?"} is available. Follow the prompt to install it.`;
-		case "error": return UPDATE_ERROR;
+		case "error": return typeof s.message === "string" && s.message ? s.message.slice(0, 200) : UPDATE_ERROR;
 		default: return null;
 	}
 }

@@ -34,6 +34,7 @@ const { flushVault } = require("./vault-flush.cjs");
 const { createKeyStorageService, attachKeyStorageChild } = require("./keystorage-main.cjs");
 const { changelogUrlFor, fetchChanges } = require("./changelog.cjs");
 const { findSuccessor, startSuccessor } = require("./identity-handover.cjs");
+const { verifySignature, verifyUpdate } = require("./update-signature.cjs");
 const { passkeyHost, createPasskeyCeremony, attachPasskeyChild } = require("./passkey-window.cjs");
 const { desktopAPIHeaders } = require("./desktop-api.cjs");
 const { openWebSubscriptionBrowser } = require("./web-subscription-browser.cjs");
@@ -555,6 +556,7 @@ const ZOOM_LADDER = [0.75, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2];
  * and before-quit alone would race the swap. */
 const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 let autoUpdater = null; // electron-updater's, packaged builds only
+let signedFeed = null; // the build's update feed, whose metadata must carry a release signature
 // Observational only: this snapshot NEVER gates a check, download or install.
 // The revision lets late subscribers reject an older in-flight IPC snapshot.
 let updateState = { status: "idle", version: null, notes: [], revision: 0 };
@@ -677,9 +679,13 @@ function setupAutoUpdater() {
 	} else if (typeof BUILD.updateFeed === "string" && /^https:\/\//.test(BUILD.updateFeed)) {
 		autoUpdater.setFeedURL({ provider: "generic", url: BUILD.updateFeed });
 		changelogUrl = changelogUrlFor(BUILD.updateFeed);
-		log(`auto-update: build feed → ${BUILD.updateFeed}`);
+		// The build's own feed is the vault host, and its installers are not code-signed: an
+		// update is downloaded only after its metadata passed the release signature check
+		// (update-signature.cjs). LH_UPDATE_FEED above is a developer's override and is not checked.
+		signedFeed = BUILD.updateFeed;
+		log(`auto-update: build feed → ${BUILD.updateFeed} (release signature required)`);
 	}
-	autoUpdater.autoDownload = true;
+	autoUpdater.autoDownload = !signedFeed;
 	autoUpdater.autoInstallOnAppQuit = true;
 	// Route every updater log line through the shell's own log (userData/
 	// logs/main.log) — feed failures must be diagnosable after the fact.
@@ -693,9 +699,23 @@ function setupAutoUpdater() {
 	autoUpdater.on("update-available", (info) => {
 		const offered = info?.version;
 		reportUpdateStatus("downloading", offered);
+		if (signedFeed) {
+			void verifyUpdate(signedFeed, info).then((check) => {
+				if (!check.ok) {
+					log(`auto-update: ${offered} refused: ${check.reason}`);
+					reportUpdateStatus("error");
+					return;
+				}
+				log(`auto-update: ${offered} has a valid release signature, downloading`);
+				autoUpdater.downloadUpdate().catch((err) => {
+					log(`update download failed: ${err?.message ?? err}`);
+					reportUpdateStatus("error");
+				});
+			});
+		}
 		// What's new since this version, for the banner (Vault feeds only); never blocks or fails the update.
 		if (changelogUrl) {
-			void fetchChanges(changelogUrl, app.getVersion(), offered)
+			void fetchChanges(changelogUrl, app.getVersion(), offered, undefined, signedFeed ? verifySignature : null)
 				.then((notes) => {
 					if (notes.length && updateState.version === offered) reportUpdateStatus(updateState.status, offered, notes);
 				})
