@@ -1,6 +1,6 @@
 # Plugin data sync: implementation plan
 
-Status: plan (2026-11-18). Design: [ADR 0007](adr/0007-plugin-data-syncs-without-plugin-changes.md) in this repo and learnharness-vault ADR 0014 (delta chains). Work spans this repo (the app and `packages/vault-client`) and learnharness-vault (server, spec, vectors, `lhv-decrypt`).
+Status: implemented on `main` (2026-11-18), not released; see "Implementation status" at the end. Design: [ADR 0007](adr/0007-plugin-data-syncs-without-plugin-changes.md) in this repo and learnharness-vault ADR 0014 (delta chains). Work spans this repo (the app and `packages/vault-client`) and learnharness-vault (server, spec, vectors, `lhv-decrypt`).
 
 The phases are ordered by dependency. Phase 0 ships alone, before everything else, because today's client reports every unknown record path as an error. Phases 1 to 3 and 6 ship together in one release. Each device syncs plugin data as soon as it runs that release; a device on an older release gets no plugin data, like a device where the plugin is not active, and nothing else changes for the account. Phases 4 and 5 are upstream changes and need an explicit go before any PR.
 
@@ -110,3 +110,23 @@ Deploying stays with the owner; no phase deploys or pushes by itself.
 3. Coding Questions `sync.exclude` is carried in the fork until upstream takes it.
 4. Flashcards replay uses the current settings; the daily new-card limit is per learner across devices.
 5. Concurrent changes merge three ways, JSON-aware, on the delta chains; not git, not Automerge.
+
+## Implementation status (2026-11-18)
+
+| Phase | Commits | Tests |
+| --- | --- | --- |
+| 0 compatibility | learnharness `e98acb5`, vault `1fdd696` | Go `TestDeviceCapabilities`, e2e security test |
+| 1 delta format | learnharness `eaba5bf`, vault `c7c24f6` | `packages/vault-client/test/delta.test.ts`, vectors in both languages |
+| 2 chain engine | learnharness `c7819c6`, vault `531d149` | `test/merge.test.ts`, vault `e2e/plugins.e2e.test.ts` (9 cases against the server) |
+| 3 app host | learnharness `eaa086d` | `tests/plugin-sync.test.ts` |
+| 4 `ctx.localDataDirectory` | learnharness `013c5d2` | `tests/plugin-sync.test.ts` |
+| 5 Flashcards | learnharness `70a9695` | `plugins/flashcards/tests` (store and backend) |
+| 6 export | vault `c7c24f6` | Go export vectors, `lhv-decrypt` tests |
+
+Not done, or different from the plan:
+
+- No end-to-end test runs two app processes with Flashcards against a real vault; the engine is tested end to end with a test plugin host, and the app side with unit tests.
+- "Delete data in the vault" asks for confirmation only; ADR 0007's re-authentication is not implemented.
+- The record header gained the optional `chain` field without a new version label. Older readers ignore it (phase 0 skips the paths); spec section 10 asks for a new label or version on any format change, so the owner should confirm this reading.
+- Plugin sync status reaches the UI through Settings → Vault → Plugin data only; the sync status banner does not mention plugins.
+- Upstream PRs for phases 4 and 5 are not opened (they need the owner's go). Nothing is pushed, released or deployed.
