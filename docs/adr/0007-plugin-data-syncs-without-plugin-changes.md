@@ -36,9 +36,15 @@ Plugins keep state in memory (Flashcards reads `flashcards.json` once in `openSt
 
 The receiver applies its own rules, not the sender's: a record is accepted only if its path is allowed by the receiver's installed manifest and the rules above. The plugin still checks its own format version, as Flashcards does ("Unsupported or invalid Flashcards data. No data was changed.").
 
-## Conflicts
+## Merging
 
-A file is one record chain (ADR 0014). When two devices change the same file before syncing, the vault's version wins, the local version moves to `local/conflicts/plugins/<origin>/<id>/<path>.<yyyymmdd>-<hhmmss>`, and Settings → Vault lists it. Nothing merges. When one device deleted a file and another changed it, the change wins (as for sessions in ADR 0002).
+A file is one record chain (ADR 0014). When two devices change the same file before syncing, the device that syncs second merges the two versions three ways, with the last synced version as the common ancestor, and syncs the result (owner, 2026-11-18). Unlike ADR 0002, plugin data merges automatically:
+
+- JSON objects merge key by key. Arrays whose elements are all objects with a unique string `id` merge as sets by `id`, keeping order. Other arrays merge element by element; appends on both sides are both kept.
+- A key or element deleted on one device and changed on the other is kept with the change (as for sessions in ADR 0002).
+- The same value changed differently on both devices takes the vault's value. The local value is kept in a conflict copy, `local/conflicts/plugins/<origin>/<id>/<path>.<yyyymmdd>-<hhmmss>`, which Settings → Vault lists.
+- Text files (`md`, `txt`) merge by lines; overlapping changes are handled like the same value changed on both devices. Images take the vault's version.
+- If the plugin refuses the merged file when it restarts (its format check throws or activation fails), the host writes the vault's version instead, keeps the local version as a conflict copy, and starts the plugin again.
 
 ## Device-local plugin data
 
@@ -48,15 +54,19 @@ The host gives each plugin `ctx.localDataDirectory`, a folder that never syncs (
 
 Follow-up, as an upstream PR after an explicit go:
 
-- Each install keeps an install id in `ctx.localDataDirectory` and appends its reviews to `reviews/<installId>.jsonl`. Only that install writes the file, so reviews made offline on two devices never conflict, and each upload is a small append delta.
-- The schedule of a proposition is rebuilt by replaying all installs' reviews in time order.
-- Decks, propositions and cues stay in `flashcards.json`. Editing them on two devices offline still conflicts; this is expected to be rare.
+- Each install keeps an install id in `ctx.localDataDirectory` and appends its reviews to `reviews/<installId>.jsonl`. Only that install writes the file, so reviews made offline on two devices never meet in a merge, and each upload is a small append delta.
+- The schedule of a proposition is rebuilt by replaying all installs' reviews in time order, with the current settings (owner, 2026-11-18).
+- The daily new-card limit belongs to the learner, not the device: it counts the reviews of every install (owner, 2026-11-18). Two devices used offline on the same day can each admit up to the limit before they sync.
+- Decks, propositions and cues stay in `flashcards.json` and merge as described above.
 - `modelOverride` moves to device-local settings in `ctx.localDataDirectory`, as model configuration is device-local (ADR 0002).
 
 ## Considered Options
 
 - A storage API for plugins (`ctx.documents`, `ctx.ledger`, `ctx.blobs`): sync could not go wrong, but every plugin would have to change. Rejected by the owner (2026-11-18): sync must work for unchanged plugins.
 - Whole-file document records: simple, but Flashcards rewrites its whole file on every rating, and with 90 days of version history that fills the quota. Replaced by delta chains (ADR 0014).
+- The vault's version wins and the other goes to a conflict copy, as for jobs: no merge code, but reviews made offline on a second device would leave the app. Replaced by the three-way merge (owner, 2026-11-18).
+- Git (isomorphic-git) for history and merging: its merge works on lines, so one-line JSON such as `flashcards.json` would always conflict, and its object store and garbage collection do not fit a vault of encrypted records.
+- Automerge (a JSON CRDT): merges without a common ancestor, but adds a WebAssembly dependency on the Android server, has to infer edits from whole-file JSON writes, and keeps a history that cannot be trimmed safely while a device is offline.
 - Syncing a disabled core plugin's data in advance: rejected (owner, 2026-11-18); data arrives only on activation.
 - Keeping plugin tasks and agent sessions device-local: rejected (owner, 2026-11-18); they sync and keep their owning device.
 
@@ -65,4 +75,4 @@ Follow-up, as an upstream PR after an explicit go:
 - A plugin that writes executable content into its data folder under an allowed extension and runs it is not stopped by the host; plugins are trusted code (`docs/plugin-architecture.md`). The rules above stop the sync from placing code, symlinks or files outside the data folder.
 - Restarting a backend to apply changes interrupts nothing in progress, because the apply waits for running operations and workers. A device that generates for a long time applies other devices' changes later.
 - Single-device users and upstream builds see no change; `ctx.localDataDirectory` is the only API addition (ADR 0004).
-- Open points: the export layout for community plugin data (ADR 0014), and the Flashcards replay rules for settings changed between reviews and for daily limits across installs.
+- A merged file is valid JSON but can break a plugin's own invariants (a deck deleted on one device and given a card on another comes back). The plugin's format check and the fallback above keep a refused merge from replacing the vault's version.
