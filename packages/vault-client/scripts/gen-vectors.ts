@@ -5,8 +5,8 @@ import { createHash } from "node:crypto";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-	approveTag, boxKeyPairFromSeed, commitKey, commitment, concat, confirmationCode, crockfordEncode, encodeHeader, encodePairingQr,
-	encodePairingText, encodePlaintext, encryptRecord, fromUtf8, hash, ikTag, joinTag, type KeySet, METHOD_KINDS, type MethodKind,
+	applyDelta, approveTag, boxKeyPairFromSeed, commitKey, commitment, concat, confirmationCode, crockfordEncode, encodeHeader, encodePairingQr,
+	encodePairingText, encodePlaintext, encodeDelta, encryptRecord, fromUtf8, hash, ikTag, joinTag, type KeySet, METHOD_KINDS, type MethodKind,
 	parseRecoverySecret, passkeySeed, passwordSeed, pkTag, recordId, recoveryChallengeMessage, recoveryMaterial, type RecordHeader,
 	sealRootKeyDeterministic, signRecoveryChallenge, sodium, toHex, u32be, vkName, wrapAd, wrapKey, type Wrap, SECRET_FORMATS,
 } from "../src/crypto/index.ts";
@@ -152,8 +152,18 @@ const segHeader: RecordHeader = { kind: "seg", path: "ledger/nodes/dev_ab12cd34/
 const docBody = sodium.from_string('{"id":"chat_mvniw6ja_263d49a8","title":"Grüße"}\n');
 const segBody = sodium.from_string('{"op":"add","id":"n1"}\n{"op":"add","id":"n2"}\n');
 const keys1: KeySet = { accountId: ACCOUNT, generation: 1, rootKey: ARK1, ik: IK, vaultKeys: [VK1] };
+// Delta chains (ADR 0014): a full slot and the delta slot after it.
+const chainV1 = sodium.from_string(`{"version":1,"revision":1,"decks":[{"id":"d1","name":"Deck"}],"text":"${"fact ".repeat(40)}"}`);
+const chainV2 = sodium.from_string(`{"version":1,"revision":2,"decks":[{"id":"d1","name":"Deck"},{"id":"d2","name":"Neu"}],"text":"${"fact ".repeat(40)}"}`);
+const chainDelta = encodeDelta(chainV1, chainV2);
+if (!chainDelta) throw new Error("the chain vector needs a delta");
+const sha = (b: Uint8Array) => createHash("sha256").update(b).digest("hex");
+const fullSlotHeader: RecordHeader = { kind: "doc", path: "pf/core/flashcards/flashcards.json/000000000001", baseSeq: 0, deleted: false, deviceId: "dev_ab12cd34", writtenAt: "2026-11-18T10:00:00Z", chain: { type: "full", size: chainV1.length, sha256: sha(chainV1) } };
+const deltaSlotHeader: RecordHeader = { kind: "doc", path: "pf/core/flashcards/flashcards.json/000000000002", baseSeq: 0, deleted: false, deviceId: "dev_cd34ef56", writtenAt: "2026-11-18T10:05:00Z", chain: { type: "delta", size: chainV2.length, sha256: sha(chainV2), baseSha256: sha(chainV1) } };
 const recordCases = [
 	{ header: docHeader, body: docBody, epoch: 1, vk: VK1, nonce: det("nonce/rec/doc", 24) },
+	{ header: fullSlotHeader, body: chainV1, epoch: 1, vk: VK1, nonce: det("nonce/rec/full-slot", 24) },
+	{ header: deltaSlotHeader, body: chainDelta, epoch: 1, vk: VK1, nonce: det("nonce/rec/delta-slot", 24) },
 	{ header: tombHeader, body: new Uint8Array(0), epoch: 1, vk: VK1, nonce: det("nonce/rec/tomb", 24) },
 	{ header: segHeader, body: segBody, epoch: 2, vk: VK2, nonce: det("nonce/rec/seg", 24) },
 ];
@@ -191,6 +201,32 @@ write("record.json", {
 	recordIds: ["chats/a.json", "graph/sources.json", "prompts/switches.json", "ledger/nodes/dev_ab12cd34/000000000000", "notes/Küche.md"].map((p) => ({ path: p, recordId: recordId(IK, p) })),
 	invalidPaths: ["", "/abs.json", "a//b", "a/./b", "a/../b", "a\\b", "trailing/", "lhv1/pk-tag-key", "lhv1/anything"],
 	valid: recValid,
+	invalidHeaders: [
+		{ why: "full slot with baseSha256", header: { ...docHeader, chain: { type: "full", size: 1, sha256: "a".repeat(64), baseSha256: "b".repeat(64) } } },
+		{ why: "delta slot without baseSha256", header: { ...docHeader, chain: { type: "delta", size: 1, sha256: "a".repeat(64) } } },
+		{ why: "unknown chain type", header: { ...docHeader, chain: { type: "patch", size: 1, sha256: "a".repeat(64) } } },
+		{ why: "negative chain size", header: { ...docHeader, chain: { type: "full", size: -1, sha256: "a".repeat(64) } } },
+		{ why: "uppercase chain sha256", header: { ...docHeader, chain: { type: "full", size: 1, sha256: "A".repeat(64) } } },
+		{ why: "chain is not an object", header: { ...docHeader, chain: "full" } },
+		{ why: "tombstone with chain", header: { ...tombHeader, chain: { type: "full", size: 0, sha256: "a".repeat(64) } } },
+	].map((c) => ({ why: c.why, header: JSON.stringify(c.header) })),
+	deltas: {
+		description: "Delta slot bodies (ADR 0014, spec section 8). Valid: applying delta to base gives result. Invalid: readers refuse with bad_delta.",
+		valid: [
+			{ why: "encoder output for the delta slot above", base: hx(chainV1), delta: hx(chainDelta), result: hx(chainV2) },
+			{ why: "COPY then INSERT", base: hx(sodium.from_string("0123456789")), delta: "010000000200000003" + "0200000001" + "41", result: hx(sodium.from_string("234A")) },
+			{ why: "empty delta gives an empty file", base: hx(sodium.from_string("abc")), delta: "", result: "" },
+		],
+		invalid: [
+			{ why: "unknown operation", base: "30313233", delta: "03", maxSize: 100 },
+			{ why: "truncated COPY", base: "30313233", delta: "01000000000000", maxSize: 100 },
+			{ why: "empty COPY", base: "30313233", delta: "010000000000000000", maxSize: 100 },
+			{ why: "COPY outside the previous version", base: "30313233", delta: "010000000200000003", maxSize: 100 },
+			{ why: "empty INSERT", base: "30313233", delta: "0200000000", maxSize: 100 },
+			{ why: "truncated INSERT bytes", base: "30313233", delta: "02000000040102", maxSize: 100 },
+			{ why: "result over the limit", base: "30313233", delta: "010000000000000004", maxSize: 3 },
+		].map((c) => ({ ...c, error: "bad_delta" })),
+	},
 	invalid: [
 		{ why: "wrong account in associated data", accountId: OTHER_ACCOUNT, recordId: docId, kind: "doc", envelope: hx(docEnv), error: "decrypt_failed" },
 		{ why: "wrong record id in associated data", accountId: ACCOUNT, recordId: otherPathId, kind: "doc", envelope: hx(docEnv), error: "decrypt_failed" },
@@ -314,14 +350,28 @@ write("rotation.json", {
 // ---------- export archive ----------
 const rkKp = rkMat.unlock;
 const bcKp = bcMat.unlock;
-const exportRecords = recValid.filter((r) => r.kind === "doc");
+const chainSlot = (path: string, body: Uint8Array, chain: { type: "full" } | { type: "delta"; base: Uint8Array; result: Uint8Array }, label: string) => {
+	const result = chain.type === "full" ? body : chain.result;
+	const header: RecordHeader = {
+		kind: "doc", path, baseSeq: 0, deleted: false, deviceId: "dev_ab12cd34", writtenAt: "2026-11-18T11:00:00Z",
+		chain: chain.type === "full" ? { type: "full", size: body.length, sha256: sha(body) } : { type: "delta", size: result.length, sha256: sha(result), baseSha256: sha(chain.base) },
+	};
+	const sealed = encryptRecord(ACCOUNT, IK, 1, VK1, { header, body }, det(`nonce/export/${label}`, 24));
+	return { recordId: sealed.recordId, kind: "doc" as const, epoch: 1, envelope: hx(sealed.envelope) };
+};
+const communityNote = sodium.from_string("# Note\n");
+const registryBody = sodium.from_string('{"origin":"community","id":"my-plugin","name":"My plugin","source":"local"}\n{"origin":"core","id":"flashcards","name":"Flashcards","source":"core"}\n');
+const exportRecords = [
+	...recValid.filter((r) => r.kind === "doc"),
+	chainSlot("pf/community/my-plugin/notes/a.md/000000000001", communityNote, { type: "full" }, "community"),
+	chainSlot("pr/000000000001", registryBody, { type: "full" }, "registry"),
+];
 const allWraps = [w(ARK2, 2, "ik", IK), w(ARK2, 2, "vk/1", VK1), w(ARK2, 2, "vk/2", VK2)];
 const seg0Body = sodium.from_string('{"op":"add","id":"n0"}\n');
 const segment = (offset: number, body: Uint8Array) =>
 	encryptRecord(ACCOUNT, IK, 2, VK2, { header: { kind: "seg", path: `ledger/nodes/dev_ab12cd34/${String(offset).padStart(12, "0")}`, ledger: "nodes", deviceId: "dev_ab12cd34", offset, writtenAt: "2026-11-01T10:00:00Z" }, body }, det(`nonce/rec/seg/${offset}`, 24));
 const segs = [segment(0, seg0Body), segment(seg0Body.length, segBody)];
 const blobs = [...exportRecords.map((r) => ({ recordId: r.recordId, kind: r.kind, epoch: r.epoch, env: sodium.from_hex(r.envelope) })), ...segs.map((x) => ({ recordId: x.recordId, kind: "seg", epoch: 2, env: x.envelope }))];
-const sha = (b: Uint8Array) => createHash("sha256").update(b).digest("hex");
 const b64 = (b: Uint8Array) => sodium.to_base64(b, sodium.base64_variants.URLSAFE_NO_PADDING);
 const manifest = {
 	format: "lhv-export",
@@ -349,8 +399,13 @@ write("export.json", {
 	files: {
 		"chats/chat_mvniw6ja_263d49a8.json": hx(docBody),
 		"graph/nodes.dev_ab12cd34.jsonl": hx(concat(seg0Body, segBody)),
+		"core-plugin-data/flashcards/flashcards.json": hx(chainV2),
+		"plugin-data/community/my-plugin/notes/a.md": hx(communityNote),
 	},
 	deleted: ["jobs/job_x1.json"],
-	notes: "Segments ledger/<ledger>/<deviceId>/<offset> rebuild graph/<ledger>.<deviceId>.jsonl and ledger/<ledger>/base/<offset> rebuild graph/<ledger>.jsonl, concatenated in offset order. A gap or overlap stops that ledger at the gap and is reported. Tombstoned documents are not written.",
+	notes: "Segments ledger/<ledger>/<deviceId>/<offset> rebuild graph/<ledger>.<deviceId>.jsonl and ledger/<ledger>/base/<offset> rebuild graph/<ledger>.jsonl, concatenated in offset order. A gap or overlap stops that ledger at the gap and is reported. Tombstoned documents are not written. Plugin files (ADR 0014) are rebuilt from their delta chains, pf/<origin>/<id>/<rel>/<slot>: the newest full slot plus the deltas after it; core plugin data goes to core-plugin-data/<id>/<rel>, community plugin data to plugin-data/community/<id>/<rel>. Registry (pr/) and index (pi/) chains are not written.",
 });
+for (const c of [{ base: chainV1, delta: chainDelta, result: chainV2 }]) {
+	if (sha(applyDelta(c.base, c.delta, { maxSize: c.result.length })) !== sha(c.result)) throw new Error("delta vector does not apply");
+}
 console.log(`vectors written to ${OUT}`);

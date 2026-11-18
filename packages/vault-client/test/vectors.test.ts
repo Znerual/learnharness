@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { describe, test } from "node:test";
 
 import {
-	acceptRotation, approveTag, boxKeyPairFromSeed, checkAccountId, checkCounter, checkMethodKind, checkRecordKind, checkWrapName, commitKey,
+	acceptRotation, applyDelta, approveTag, boxKeyPairFromSeed, checkAccountId, checkCounter, checkMethodKind, checkRecordKind, checkWrapName, commitKey,
 	commitment, confirmationCode, decodePairingQr, decodePairingText, decryptRecord, encodeHeader, encodePairingQr, encodePairingText,
 	encodePlaintext, encryptRecord, fromHex, fromUtf8, hash, ikTag, joinTag, type KeySet, lengthPrefixed, type MethodKind, openRootKey,
 	parseCanonicalDecimal, parseRecoverySecret, passkeySeed, passwordSeed, pkTag, ProtocolError, type RecordHeader, type RecordKind, recordId,
@@ -133,6 +133,13 @@ describe("record", () => {
 	});
 	test("invalid envelopes are rejected with the stated error", () => {
 		for (const c of v.invalid) assert.equal(code(() => decryptRecord(c.accountId, ik, c.recordId, c.kind, h(c.envelope), vk)), c.error, c.why);
+	});
+	test("invalid chain headers are rejected", () => {
+		for (const c of v.invalidHeaders) assert.equal(code(() => encodeHeader(JSON.parse(c.header) as RecordHeader)), "bad_format", c.why);
+	});
+	test("delta slots apply, and malformed ones are refused", () => {
+		for (const c of v.deltas.valid) assert.equal(toHex(applyDelta(h(c.base), h(c.delta), { maxSize: 1 << 20 })), c.result, c.why);
+		for (const c of v.deltas.invalid) assert.equal(code(() => applyDelta(h(c.base), h(c.delta), { maxSize: c.maxSize })), c.error, c.why);
 	});
 });
 

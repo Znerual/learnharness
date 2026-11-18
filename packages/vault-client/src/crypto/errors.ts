@@ -8,7 +8,8 @@ export type ProtocolErrorCode =
 	| "rotation_rejected" // a new generation failed rotation acceptance
 	| "rollback" //          a generation or epoch lower than one already accepted
 	| "pairing_tag" //       a pairing tag did not verify
-	| "bad_code"; //         a recovery key, backup code or pairing text is malformed
+	| "bad_code" //          a recovery key, backup code or pairing text is malformed
+	| "bad_delta"; //        a delta slot is malformed, exceeds a limit or does not produce the declared file
 
 export class ProtocolError extends Error {
 	readonly code: ProtocolErrorCode;

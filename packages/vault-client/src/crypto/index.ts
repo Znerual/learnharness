@@ -1,5 +1,6 @@
 export * from "./acceptance.ts";
 export * from "./bytes.ts";
+export * from "./delta.ts";
 export * from "./envelope.ts";
 export * from "./errors.ts";
 export * from "./framing.ts";

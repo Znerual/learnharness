@@ -13,6 +13,14 @@ const ENVELOPE_OVERHEAD = 1 + 4 + NONCE_BYTES + 16;
 export const MAX_RECORD_BYTES = 32 * 1024 * 1024;
 const MAX_HEADER_BYTES = 64 * 1024;
 
+/**
+ * A slot of a delta chain (ADR 0014): `size` and `sha256` describe the whole file after this slot;
+ * `baseSha256` (delta slots only) is the SHA-256 of the file after the previous slot.
+ */
+export type ChainInfo =
+	| { readonly type: "full"; readonly size: number; readonly sha256: string }
+	| { readonly type: "delta"; readonly size: number; readonly sha256: string; readonly baseSha256: string };
+
 export interface DocumentHeader {
 	readonly kind: "doc";
 	readonly path: string;
@@ -20,6 +28,8 @@ export interface DocumentHeader {
 	readonly deleted: boolean;
 	readonly deviceId: string;
 	readonly writtenAt: string;
+	/** Present on delta-chain slots only; never on a tombstone. */
+	readonly chain?: ChainInfo;
 }
 
 export interface SegmentHeader {
@@ -53,6 +63,28 @@ export function checkPath(path: string): void {
 
 const DEVICE_ID_RE = /^dev_[0-9a-z]{8}$/;
 const RFC3339_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,9})?(Z|[+-]\d{2}:\d{2})$/;
+const SHA256_RE = /^[0-9a-f]{64}$/;
+
+function checkChain(v: unknown, deleted: boolean): ChainInfo | undefined {
+	if (v === undefined) return undefined;
+	if (typeof v !== "object" || v === null || Array.isArray(v)) throw new ProtocolError("bad_format", "record header field chain must be an object");
+	if (deleted) throw new ProtocolError("bad_format", "a tombstone has no chain field");
+	const c = v as Record<string, unknown>;
+	const size = c["size"];
+	if (typeof size !== "number" || !Number.isSafeInteger(size) || size < 0) throw new ProtocolError("bad_format", "chain.size must be a non-negative integer");
+	const sha256 = c["sha256"];
+	if (typeof sha256 !== "string" || !SHA256_RE.test(sha256)) throw new ProtocolError("bad_format", "chain.sha256 must be 64 lowercase hex characters");
+	if (c["type"] === "full") {
+		if (c["baseSha256"] !== undefined) throw new ProtocolError("bad_format", "a full slot has no chain.baseSha256");
+		return { type: "full", size, sha256 };
+	}
+	if (c["type"] === "delta") {
+		const baseSha256 = c["baseSha256"];
+		if (typeof baseSha256 !== "string" || !SHA256_RE.test(baseSha256)) throw new ProtocolError("bad_format", "chain.baseSha256 must be 64 lowercase hex characters");
+		return { type: "delta", size, sha256, baseSha256 };
+	}
+	throw new ProtocolError("bad_format", "chain.type must be full or delta");
+}
 
 function checkHeader(h: unknown): RecordHeader {
 	if (typeof h !== "object" || h === null) throw new ProtocolError("bad_format", "record header is not an object");
@@ -77,7 +109,8 @@ function checkHeader(h: unknown): RecordHeader {
 	if (kind === "doc") {
 		const deleted = o["deleted"];
 		if (typeof deleted !== "boolean") throw new ProtocolError("bad_format", "record header field deleted must be a boolean");
-		return { kind, path, baseSeq: int("baseSeq"), deleted, deviceId, writtenAt };
+		const chain = checkChain(o["chain"], deleted);
+		return chain ? { kind, path, baseSeq: int("baseSeq"), deleted, deviceId, writtenAt, chain } : { kind, path, baseSeq: int("baseSeq"), deleted, deviceId, writtenAt };
 	}
 	const ledger = str("ledger");
 	if (!/^[a-z][a-z0-9_-]{0,31}$/.test(ledger)) throw new ProtocolError("bad_format", "record header ledger is malformed");
@@ -89,7 +122,10 @@ export function encodeHeader(header: RecordHeader): Bytes {
 	const h = checkHeader(header);
 	const ordered =
 		h.kind === "doc"
-			? { kind: h.kind, path: h.path, baseSeq: h.baseSeq, deleted: h.deleted, deviceId: h.deviceId, writtenAt: h.writtenAt }
+			? {
+					kind: h.kind, path: h.path, baseSeq: h.baseSeq, deleted: h.deleted, deviceId: h.deviceId, writtenAt: h.writtenAt,
+					...(h.chain ? { chain: h.chain.type === "delta" ? { type: h.chain.type, size: h.chain.size, sha256: h.chain.sha256, baseSha256: h.chain.baseSha256 } : { type: h.chain.type, size: h.chain.size, sha256: h.chain.sha256 } } : {}),
+				}
 			: { kind: h.kind, path: h.path, ledger: h.ledger, deviceId: h.deviceId, offset: h.offset, writtenAt: h.writtenAt };
 	return utf8(JSON.stringify(ordered));
 }
