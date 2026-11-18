@@ -36,6 +36,10 @@ _Avoid_: unlock, force, steal
 A second version of a file that the sync tool keeps when two devices changed the same file before syncing. LearnHarness shows it to the learner to choose; it never merges or discards one silently.
 _Avoid_: duplicate, fork
 
+**Active plugin**:
+A plugin that is installed and enabled on a device and, for a community plugin, has sync turned on there. With the vault on, only an active plugin's data folder syncs; another device receives that data only once the plugin is active there too (ADR 0007).
+_Avoid_: enabled plugin (a disabled core plugin is installed but not active)
+
 ## Thinking and speech
 
 **Learner thinking**:
