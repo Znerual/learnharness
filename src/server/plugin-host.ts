@@ -15,6 +15,7 @@ import type { PluginAgentService } from "../core/plugin-agents.ts";
 import type { PluginWorkerService } from "../core/plugin-workers.ts";
 import type { ServerEvent } from "../core/events.ts";
 import { safePluginDataDirectory } from "../store/plugin-data-paths.ts";
+import { rememberAskedQuestion } from "../store/asked-questions.ts";
 
 /** Expected host/transport failure. Exceptions thrown by plugin handlers stay ordinary 500 errors. */
 export class PluginHostError extends Error {
@@ -487,6 +488,7 @@ export function createPluginHost(deps: PluginHostDependencies) {
 					questionTypes.push(Object.freeze({
 						pluginId: pkg.info.id, definition, variant, signal: activation.controller.signal,
 						requireActive() { if (!live(pkg, activation)) throw new PluginHostError(409, `Plugin ${pkg.info.id} is disabled or unavailable`); },
+						asked: rememberAskedQuestion,
 					}));
 				}
 				const problemTypes: NativePluginProblemContribution[] = [];
@@ -499,7 +501,9 @@ export function createPluginHost(deps: PluginHostDependencies) {
 						signal: AbortSignal.any([activation.controller.signal, problemControllers.get(definition)!.signal]),
 						requireActive() {
 							if (!live(pkg, activation) || activation.problems.get(definition.id) !== definition) throw new PluginHostError(409, `Plugin ${pkg.info.id} is disabled or unavailable`);
-						} }));
+						},
+						asked: rememberAskedQuestion,
+					}));
 				}
 				if (!live(pkg, activation)) continue;
 				for (const name of packageNames) names.add(name);

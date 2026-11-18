@@ -10,6 +10,10 @@ import { activeProblemOf, toLlmMessages, type LhMessage } from "../src/core/nati
 import { inputAppends, parseChatInput } from "../src/core/input-events.ts";
 import { preparePluginSubmission, type PluginSubmissionTarget } from "../src/core/plugin-submissions.ts";
 import { SessionModel } from "../components/session-core.ts";
+import { rememberAskedQuestion } from "../src/store/asked-questions.ts";
+
+// The fixtures stand for questions this device asked (src/store/asked-questions.ts).
+rememberAskedQuestion("problem-one");
 
 const image = { type: "image" as const, mimeType: "image/png", data: "YQ==" };
 const input = { statement: "Code", mode: "composition", modelSolution: "solution", payload: {} };

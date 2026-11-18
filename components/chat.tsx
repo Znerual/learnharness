@@ -112,6 +112,7 @@ import {
 } from "@/components/compaction-divider";
 import { CoverageRing } from "@/components/extraction-coverage";
 import { Button } from "@/components/ui/button";
+import { OtherDeviceQuestionNotice } from "@/components/other-device-question";
 import {
 	activeProblemOf,
 	pendingQuestionOf,
@@ -631,6 +632,13 @@ export function Chat({
 	// replaces the composer. Computed from the NATIVE record (the fold is
 	// the gate the tools themselves read), not the projected view.
 	const activeProblem = activeProblemOf(nativeMessages);
+	// A graded question or processed problem that this device's agent did not ask: its checks run
+	// plugin code (the coding plugin starts a program), so the learner allows them here first.
+	const otherDeviceQuestion = pendingPlugin && pluginQuestionAvailability?.questionId === pendingPlugin.questionId && pluginQuestionAvailability.otherDevice
+		? { id: pendingPlugin.questionId, details: pendingPlugin.input }
+		: activeProblem?.pluginProblem && pluginProblemAvailability?.problemId === activeProblem.pluginProblem.problemId && pluginProblemAvailability.otherDevice
+			? { id: activeProblem.pluginProblem.problemId, details: activeProblem.pluginProblem.input }
+			: undefined;
 	const activeProblemOccurrence = activeProblemOccurrenceOf(nativeMessages);
 	const activeProblemRef = useRef(activeProblem);
 	activeProblemRef.current = activeProblem;
@@ -2164,6 +2172,7 @@ export function Chat({
 					preparing={submissionRunner.occupied}
 					preparationStatus={<>
 						{preparationError && <p role="alert" className="px-4 py-2 text-sm text-destructive">{preparationError}</p>}
+						{otherDeviceQuestion && <OtherDeviceQuestionNotice chatId={chatId} id={otherDeviceQuestion.id} details={otherDeviceQuestion.details} onAllowed={() => { void reconcile(); }} />}
 					</>}
 					pluginQuestion={pendingPlugin}
 					pluginDraft={pendingPlugin ? pluginQuestionDraft(pendingPlugin) : undefined}

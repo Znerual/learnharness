@@ -17,6 +17,8 @@ globalThis.fetch = async () => { throw new Error("Unexpected network in isolated
 after(() => { globalThis.fetch = originalFetch; fs.rmSync(root, { recursive: true, force: true }); });
 const { pendingPluginQuestionOf, toLlmMessages } = await import("../src/core/native-messages.ts");
 const { preparePluginQuestionSubmission, preparePluginQuestionAnswer, pluginQuestionAvailabilityOf } = await import("../src/server/plugin-questions.ts");
+// The fixtures stand for questions this device asked (src/store/asked-questions.ts).
+(await import("../src/store/asked-questions.ts")).rememberAskedQuestion("question");
 
 function fixture(grader: (context: any) => unknown = () => false, protocolVersion: 1 | 2 = 2) {
 	const snapshot = {

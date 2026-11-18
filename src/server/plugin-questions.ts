@@ -1,6 +1,6 @@
 import type { ToolResultMessage } from "@earendil-works/pi-ai";
 import { ChatInputError } from "../core/input-events.ts";
-import { newMessageId, nativeAnswerContent, pendingPluginQuestionOf, pluginQuestionCallsOf, type LhMessage } from "../core/native-messages.ts";
+import { activeProblemOf, newMessageId, nativeAnswerContent, pendingPluginQuestionOf, pluginQuestionCallsOf, type LhMessage } from "../core/native-messages.ts";
 import { validatePluginSubmissionImages, type PluginSubmissionImages } from "../core/plugin-submissions.ts";
 import {
 	samePluginQuestionOccurrence, validatePluginQuestionAnswer, clonePluginQuestionJson, freezePluginQuestionValue,
@@ -12,6 +12,7 @@ import type { ChatStore } from "../core/ports.ts";
 import { emit } from "../core/events.ts";
 import { isTurnRunning } from "./turn-liveness.ts";
 import { getPluginHost } from "./plugins.ts";
+import { askedOnThisDevice, rememberAskedQuestion } from "../store/asked-questions.ts";
 
 export type QuestionTypeResolution =
 	| { status: "available"; definition: NativePluginQuestionDefinition; signal: AbortSignal; requireActive(): void }
@@ -67,6 +68,24 @@ function gradingError(error: unknown): string {
 	return "An error occurred.";
 }
 
+/** Shown when a submission would run the checks of a question this device did not ask. */
+export const OTHER_DEVICE_MESSAGE = "This question was not asked on this device. Allow its checks on this device before you submit.";
+
+/**
+ * The learner allows the checks of the pending graded question or active processed problem `id`
+ * on this device. Only an id that is pending in this record can be allowed.
+ */
+export function allowOtherDeviceQuestion(record: { messages: LhMessage[] }, id: unknown): boolean {
+	if (typeof id !== "string" || !id) return false;
+	const question = pendingPluginQuestionOf(record.messages);
+	const problem = activeProblemOf(record.messages)?.pluginProblem;
+	if ((question && question.questionId === id && requiresGrading(question)) || (problem && problem.problemId === id && problem.requiresProcessing)) {
+		rememberAskedQuestion(id);
+		return true;
+	}
+	return false;
+}
+
 export interface PreparedPluginQuestionSubmission {
 	snapshot: PluginQuestionSnapshot;
 	signal: AbortSignal;
@@ -89,6 +108,9 @@ export function preparePluginQuestionSubmission(record: { id: string; messages: 
 		if (activationSignal.aborted || signal?.aborted) throw new ChatInputError("Question unavailable");
 	};
 	requireAuthority();
+	// Grading runs plugin code on the saved question. A question that came in from another device
+	// does that only after the learner allowed it here (POST /api/chats/[id]/allow-question).
+	if (requiresGrading(snapshot) && !askedOnThisDevice(snapshot.questionId)) throw new ChatInputError(OTHER_DEVICE_MESSAGE);
 	const readingApplicable = snapshot.variant === "teach" && snapshot.input.type === "check";
 	let images: PluginSubmissionImages | undefined;
 	try { images = input.images === undefined ? undefined : validatePluginSubmissionImages(input.images); }
@@ -200,9 +222,11 @@ export function preparePluginQuestionDismissal(record: { messages: LhMessage[] }
 }
 
 /** Response-only readiness. Never persisted and never grants authority independently. */
-export function pluginQuestionAvailabilityOf(record: { messages: LhMessage[] }, resolve?: QuestionTypeResolver): { questionId: string; status: "available" | "unavailable" } | undefined {
+export function pluginQuestionAvailabilityOf(record: { messages: LhMessage[] }, resolve?: QuestionTypeResolver): { questionId: string; status: "available" | "unavailable"; otherDevice?: true } | undefined {
 	const pending = pendingPluginQuestionOf(record.messages);
 	if (!pending) return undefined;
+	// A graded question this device did not ask waits for the learner (src/store/asked-questions.ts).
+	if (requiresGrading(pending) && !askedOnThisDevice(pending.questionId)) return { questionId: pending.questionId, status: "unavailable", otherDevice: true };
 	let available = false;
 	try {
 		const current = resolve?.(pending.pluginId, pending.typeId, pending.contractVersion);

@@ -37,6 +37,8 @@ const { pendingPluginQuestionOf, newUserMessage, danglingQuestionOf, activeProbl
 const { dismissedAnswer } = await import("../src/core/index.ts");
 const { subscribe } = await import("../src/core/events.ts");
 const { handleChatInput } = await import("../src/server/chat-handler.ts");
+// The fixtures stand for questions this device asked (src/store/asked-questions.ts).
+const { rememberAskedQuestion } = await import("../src/store/asked-questions.ts");
 
 function deferred<T>() {
 	let resolve!: (value: T) => void;
@@ -46,6 +48,7 @@ function deferred<T>() {
 let serial = 0;
 function question(protocolVersion: 1 | 2 = 1) {
 	const key = `dismiss-${++serial}`;
+	rememberAskedQuestion(`${key}-question`);
 	const occurrence = { messageId: `${key}-pose`, contentIndex: 0, toolCallId: `${key}-call`, toolName: "plugin_code" };
 	const snapshot: PluginQuestionSnapshot = {
 		protocolVersion, pluginId: "fixture", typeId: "code", label: "Code", variant: "probe", questionId: `${key}-question`, occurrence, contractVersion: 1,

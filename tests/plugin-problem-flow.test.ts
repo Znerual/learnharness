@@ -32,6 +32,8 @@ async function fixture(t: TestContext, processSubmission: (context: PluginProble
   chatStore.saveSettings(chat.id, { model: { provider: "openrouter", id: "z-ai/glm-5.3-flash" } });
   const input = { statement: "Implement f", mode: "composition", modelSolution: "The committed solution", payload: {} };
   const occurrence = { messageId: `${id}-pose`, contentIndex: 0, toolCallId: `${id}-call`, toolName };
+  // The fixture stands for a problem this device posed (src/store/asked-questions.ts).
+  (await import("../src/store/asked-questions.ts")).rememberAskedQuestion(`${id}-problem`);
   const snapshot = { protocolVersion: 1, problemId: `${id}-problem`, pluginId: "problem-fixture", typeId: id, label: "Code", contractVersion: 1,
     input, problemSchema: { type: "object", properties: {} }, submissionSchema: { type: "string", minLength: 1 }, requiresSubmissionRefinement: false, requiresProcessing: true };
   chatStore.saveMessages(chat.id, [newUserMessage("Start"), { ...fauxAssistantMessage([fauxToolCall(toolName, input, { id: occurrence.toolCallId })], { stopReason: "toolUse" }), id: occurrence.messageId },

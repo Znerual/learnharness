@@ -73,6 +73,8 @@ for (const practice of [false, true]) test(`${practice ? "plugin practice submis
 		canonical = chatStore.getChat(chat.id)!.messages;
 		const question = pendingPluginQuestionOf(canonical), problem = activeProblemOf(canonical)?.pluginProblem;
 		if (practice) assert.ok(problem); else assert.ok(question);
+		// The test's own contributions carry no host recorder; the question counts as asked on this device (src/store/asked-questions.ts).
+		(await import("../src/store/asked-questions.ts")).rememberAskedQuestion(practice ? problem!.problemId : question!.questionId);
 		const input: ChatInput = practice ? { type: "plugin-problem-submission", problemId: problem!.problemId, occurrence: activeProblemOccurrenceOf(canonical)!, submission: "code", thinking: "Host Thinking" }
 			: { type: "plugin-question-answer", questionId: question!.questionId, occurrence: question!.occurrence, answer: "code", thinking: "Host Thinking" };
 		const at = "2026-11-05T00:00:00Z";

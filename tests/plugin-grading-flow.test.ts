@@ -43,6 +43,8 @@ async function fixture(t: TestContext, grade: (context: PluginQuestionGradingCon
 	chatStore.saveSettings(chat.id, { model: { provider: "openrouter", id: "z-ai/glm-5.3-flash" } });
 	const assistantId = `${id}-assistant`;
 	const occurrence = { messageId: assistantId, contentIndex: 0, toolCallId: `${id}-call`, toolName };
+	// The fixture stands for a question this device asked (src/store/asked-questions.ts).
+	(await import("../src/store/asked-questions.ts")).rememberAskedQuestion(`${id}-question`);
 	const snapshot = { protocolVersion: 2, pluginId: "grading-fixture", typeId: id, label: "Code", variant: "probe", questionId: `${id}-question`, occurrence, contractVersion: 1,
 		input: { question: "Write code", payload: {} }, questionSchema: { type: "object", properties: {} }, answerSchema: { type: "string", minLength: 1 }, showThinking: false, requiresAnswerRefinement: false, requiresGrading: true };
 	const calls = [fauxToolCall(toolName, snapshot.input, { id: occurrence.toolCallId })];

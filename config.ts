@@ -120,6 +120,13 @@ export const RENDER_SETTINGS_FILE = path.join(/* turbopackIgnore: true */ LOCAL_
 /** The device identity (multi-device): {id, name} — src/store/device.ts. */
 export const DEVICE_FILE = path.join(/* turbopackIgnore: true */ LOCAL_ROOT, "device.json");
 
+/**
+ * Ids of the plugin questions and practice problems this device's own agent asked, plus those the
+ * learner allowed by hand: src/store/asked-questions.ts. Device-local on purpose: the list says
+ * which pending questions did NOT come in from another device.
+ */
+export const ASKED_QUESTIONS_FILE = path.join(/* turbopackIgnore: true */ LOCAL_ROOT, "asked-questions.json");
+
 /** Conflict copies the learner chose NOT to keep (multi-device, ADR 0002):
  *  moved here instead of deleted, so they stay recoverable by hand. */
 export const CONFLICTS_DIR = path.join(/* turbopackIgnore: true */ LOCAL_ROOT, "conflicts");

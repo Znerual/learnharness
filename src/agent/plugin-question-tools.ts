@@ -23,6 +23,12 @@ export interface NativePluginQuestionContribution {
 	variant: PluginQuestionVariant;
 	signal: AbortSignal;
 	requireActive(): void;
+	/**
+	 * Called with the id of a graded question when this device's agent asks it. The host records
+	 * it, so the question's checks may run on this device without a confirmation (the server's
+	 * asked-questions store; the agent layer imports no storage).
+	 */
+	asked?(questionId: string): void;
 }
 interface Pose {
 	questionId: string;
@@ -62,7 +68,10 @@ export class PluginQuestionLedger {
 					if (variant === "teach" && (!accepted.value.nodeId || !this.nodeExists?.(accepted.value.nodeId)))
 						return invalidInputResult(spec.toolName, ["nodeId must identify a live node in this session's plan map."]);
 					contribution.requireActive();
-					call.epoch.poses.set(call.index, { questionId: crypto.randomUUID(), input: accepted.value, contribution });
+					const questionId = crypto.randomUUID();
+					// This device's agent asks the question: its checks may run here without a confirmation.
+					if (definition.gradeAnswer) contribution.asked?.(questionId);
+					call.epoch.poses.set(call.index, { questionId, input: accepted.value, contribution });
 					const ack = { ...questionResult(), details: {} };
 					this.acknowledgments.add(ack.details);
 					return ack;

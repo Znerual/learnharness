@@ -13,6 +13,8 @@ export interface NativePluginProblemContribution {
   definition: NativePluginProblemDefinition;
   signal: AbortSignal;
   requireActive(): void;
+  /** Called with the id of a processed problem when this device's agent poses it (see the question contribution). */
+  asked?(problemId: string): void;
 }
 export function pluginProblemTools(contributions: readonly NativePluginProblemContribution[], chatId: string,
   gate: PracticeGate, graphNodes?: PracticeToolContext["graphNodes"]): AgentTool<any>[] {
@@ -34,8 +36,11 @@ export function pluginProblemTools(contributions: readonly NativePluginProblemCo
         if (signal?.aborted || contribution.signal.aborted) throw new Error("Operation aborted");
         const accepted = validatePluginProblemInput(definition, { chatId, input });
         if (!accepted.ok) return invalidInputResult(definition.tool.toolName, accepted.problems);
+        const problemId = randomUUID();
+        // This device's agent poses the problem: its processing may run here without a confirmation.
+        if (definition.processSubmission) contribution.asked?.(problemId);
         const pluginProblem: PluginProblemSnapshot = freezePluginQuestionValue({
-          protocolVersion: 1, problemId: randomUUID(), pluginId, typeId: definition.id, label: definition.label,
+          protocolVersion: 1, problemId, pluginId, typeId: definition.id, label: definition.label,
           contractVersion: definition.contractVersion, input: accepted.value,
           problemSchema: definition.problemSchema, submissionSchema: definition.submissionSchema,
           requiresSubmissionRefinement: !!definition.validateSubmission, requiresProcessing: !!definition.processSubmission,

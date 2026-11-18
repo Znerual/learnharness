@@ -44,9 +44,9 @@ import { pluginQuestionOccurrenceKey, samePluginQuestionOccurrence, type PluginQ
 
 import type { PluginProblemSnapshot, PluginProblemSubmissionState } from "../src/core/index.ts";
 
-export interface PluginProblemAvailability { problemId: string; status: "available" | "unavailable" }
+export interface PluginProblemAvailability { problemId: string; status: "available" | "unavailable"; /** Not posed on this device: the learner must allow its checks first. */ otherDevice?: true }
 export interface PluginProblemDraft { submission: PluginProblemSubmissionState; thinking: string }
-export interface PluginQuestionAvailability { questionId: string; status: "available" | "unavailable" }
+export interface PluginQuestionAvailability { questionId: string; status: "available" | "unavailable"; /** Not asked on this device: the learner must allow its checks first. */ otherDevice?: true }
 export interface SessionRecordSnapshot {
 	pluginProblemAvailability?: PluginProblemAvailability;
 	messages: LhMessage[];

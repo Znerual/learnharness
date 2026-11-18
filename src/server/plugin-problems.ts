@@ -3,6 +3,7 @@ import { activeProblemOf, activeProblemOccurrenceOf, newMessageId, type LhMessag
 import { clonePluginQuestionJson, freezePluginQuestionValue, samePluginQuestionOccurrence } from "../core/plugin-questions.ts";
 import { preparePluginProblemSubmissionImages } from "../core/plugin-submissions.ts";
 import { validatePluginProblemSubmission, readPluginProblemSubmission, type PluginProblemSnapshot, type PluginProblemProcessingOutcome, type PluginProblemSubmission } from "../core/plugin-problems.ts";
+import { askedOnThisDevice } from "../store/asked-questions.ts";
 import type { PluginProblemResolution } from "./plugin-host.ts";
 
 export type ProblemTypeResolver = (pluginId: string, typeId: string, contractVersion: number) => PluginProblemResolution;
@@ -30,6 +31,8 @@ export function preparePluginProblemSubmission(record: { id: string; kind?: stri
     if (activationSignal.aborted || signal?.aborted) throw new ChatInputError("Problem unavailable");
   };
   requireAuthority();
+  // Processing runs plugin code on the saved problem; see the same check in plugin-questions.ts.
+  if (snapshot.requiresProcessing && !askedOnThisDevice(snapshot.problemId)) throw new ChatInputError("This problem was not posed on this device. Allow its checks on this device before you submit.");
   const accepted = validatePluginProblemSubmission(snapshot, { chatId, submission: input.submission }, definition);
   if (!accepted.ok) throw new ChatInputError(accepted.problems.join("\n"));
   if (input.thinking !== undefined && typeof input.thinking !== "string") throw new ChatInputError("Problem thinking must be text");
@@ -77,9 +80,11 @@ export function preparePluginProblemSubmission(record: { id: string; kind?: stri
   };
 }
 /** Response-only readiness; disabled/missing/incompatible types never fall back to native thinking. */
-export function pluginProblemAvailabilityOf(record: { messages: readonly LhMessage[] }, resolve?: ProblemTypeResolver): { problemId: string; status: "available" | "unavailable" } | undefined {
+export function pluginProblemAvailabilityOf(record: { messages: readonly LhMessage[] }, resolve?: ProblemTypeResolver): { problemId: string; status: "available" | "unavailable"; otherDevice?: true } | undefined {
   const snapshot = activeProblemOf(record.messages)?.pluginProblem;
   if (!snapshot) return undefined;
+  // A processed problem this device did not pose waits for the learner (src/store/asked-questions.ts).
+  if (snapshot.requiresProcessing && !askedOnThisDevice(snapshot.problemId)) return { problemId: snapshot.problemId, status: "unavailable", otherDevice: true };
   let available = false;
   try {
     const current = resolve?.(snapshot.pluginId, snapshot.typeId, snapshot.contractVersion);
