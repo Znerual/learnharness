@@ -462,6 +462,7 @@ export const strings = {
 		turnOffConfirm: "Stop syncing and remove this plugin's data from this device? The vault keeps its copy; turning sync on again brings it back.",
 		deleteData: "Delete data in the vault",
 		deleteConfirm: "Delete this plugin's data from the vault? Devices that still sync the plugin upload their copy again.",
+		deleteReauth: "Confirm it is you to delete the data. We email you a notice.",
 		confirm: "Yes, continue",
 		cancel: "Cancel",
 		identityMismatch: "The plugin installed here has a different name or author than the one whose data is in the vault. Only import its data if you trust it with that data.",

@@ -21,6 +21,7 @@ export const MAX_SEGMENT_BYTES = 1 << 20;
 const MAX_BATCH_WRITES = 100;
 const MAX_BATCH_BYTES = 48 << 20; // below the 64 MiB server limit, leaving room for overhead
 const POLL_MS = 60_000;
+const MAX_CYCLES = 8;
 
 /**
  * Sync features this client supports, reported to the server once per change of the list
@@ -312,13 +313,14 @@ export class SyncEngine {
 	}
 
 	/**
-	 * Deletes a plugin's data from the vault (a confirmed action in Settings). Local files stay;
-	 * the plugin stops syncing on this device until it is activated again.
+	 * Deletes a plugin's data from the vault (Settings, after re-authentication). The grant is
+	 * spent first (ADR 0013); local files stay.
 	 */
-	async deletePluginData(p: PluginRef): Promise<number> {
+	async deletePluginData(p: PluginRef, grant: string): Promise<number> {
 		const chains = this.chains;
 		if (!chains) return 0;
 		while (this.running) await this.running.catch(() => undefined);
+		await this.o.vault.consumeGrant("delete_plugin_data", grant);
 		return chains.deletePluginData(p);
 	}
 
@@ -365,11 +367,13 @@ export class SyncEngine {
 		this.running = (async () => {
 			let report: SyncReport = { pulled: 0, pushed: 0, conflicts: [] };
 			try {
+				// Repeat cycles (a lost slot race, a rotation) are bounded: the next poll continues.
+				let cycles = 0;
 				do {
 					this.again = false;
 					const r = await this.cycle();
 					report = { pulled: report.pulled + r.pulled, pushed: report.pushed + r.pushed, conflicts: [...report.conflicts, ...r.conflicts] };
-				} while (this.again);
+				} while (this.again && ++cycles < MAX_CYCLES);
 				return report;
 			} finally {
 				this.running = null;
@@ -483,7 +487,16 @@ export class SyncEngine {
 	}
 
 	private async applyChange(c: ChangeRow, pendingDocs: Set<string>): Promise<AppliedChange | null> {
-		const { header, body } = await this.openRecord(c);
+		let opened: { header: RecordHeader; body: Uint8Array };
+		try {
+			opened = await this.openRecord(c);
+		} catch (e) {
+			// A record in an envelope version this client does not know was written by a newer client:
+			// skip it like an unknown path, instead of stopping the whole pull.
+			if (e instanceof ProtocolError && e.code === "bad_format" && /^unknown envelope version/.test(e.message)) return this.skip();
+			throw e;
+		}
+		const { header, body } = opened;
 		if (header.kind === "doc" && this.chains && parseSlotPath(header.path)) {
 			await this.chains.receive(c, header, body);
 			return null;

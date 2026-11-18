@@ -8,6 +8,12 @@ import { hash } from "./unlock.ts";
 import { sodium } from "./sodium.ts";
 
 export const ENVELOPE_VERSION = 0x01;
+/**
+ * Version 2 (ADR 0014): a document header that carries `chain` (a delta-chain slot). It uses the
+ * associated-data label `lhv2/rec/`, so a version byte changed in transit fails to decrypt.
+ */
+export const ENVELOPE_VERSION_CHAINS = 0x02;
+const KNOWN_VERSIONS = new Set([ENVELOPE_VERSION, ENVELOPE_VERSION_CHAINS]);
 const ENVELOPE_OVERHEAD = 1 + 4 + NONCE_BYTES + 16;
 /** Largest record plaintext (ADR 0009: 32 MiB maximum record size). */
 export const MAX_RECORD_BYTES = 32 * 1024 * 1024;
@@ -56,7 +62,7 @@ export function recordId(ik: Bytes, path: string): string {
 
 /** Throws unless `path` is a valid record path. The `lhv1/` prefix is reserved for key-derivation labels. */
 export function checkPath(path: string): void {
-	if (path.length === 0 || path.startsWith("lhv1/") || utf8(path).length > 1024 || path.startsWith("/") || path.includes("\\") || path.split("/").some((p) => p === "" || p === "." || p === "..")) {
+	if (path.length === 0 || path.startsWith("lhv1/") || path.startsWith("lhv2/") || utf8(path).length > 1024 || path.startsWith("/") || path.includes("\\") || path.split("/").some((p) => p === "" || p === "." || p === "..")) {
 		throw new ProtocolError("bad_format", `bad record path: ${JSON.stringify(path)}`);
 	}
 }
@@ -152,9 +158,15 @@ export function decodePlaintext(plain: Bytes): RecordPlaintext {
 	return { header: checkHeader(parsed), body: plain.slice(4 + len) };
 }
 
-export function recordAd(accountId: string, id: string, kind: RecordKind): Bytes {
+export function recordAd(accountId: string, id: string, kind: RecordKind, version: number = ENVELOPE_VERSION): Bytes {
 	if (!/^[0-9a-f]{64}$/.test(id)) throw new ProtocolError("bad_format", "record id must be 64 lowercase hex characters");
-	return concat("lhv1/rec/", checkAccountId(accountId), "/", id, "/", checkRecordKind(kind));
+	if (!KNOWN_VERSIONS.has(version)) throw new ProtocolError("bad_format", `unknown envelope version ${version}`);
+	return concat(version === ENVELOPE_VERSION ? "lhv1/rec/" : "lhv2/rec/", checkAccountId(accountId), "/", id, "/", checkRecordKind(kind));
+}
+
+/** The envelope version a header needs: 2 for a delta-chain slot, else 1. */
+export function envelopeVersionFor(header: RecordHeader): number {
+	return header.kind === "doc" && header.chain ? ENVELOPE_VERSION_CHAINS : ENVELOPE_VERSION;
 }
 
 export interface SealedRecord {
@@ -171,15 +183,16 @@ export function encryptRecord(accountId: string, ik: Bytes, epoch: number, vk: B
 	const kind = p.header.kind;
 	const n = nonce ?? randomBytes(NONCE_BYTES);
 	const plain = encodePlaintext(p);
-	const ct = sodium.crypto_aead_xchacha20poly1305_ietf_encrypt(plain, recordAd(accountId, id, kind), null, n, vk);
+	const version = envelopeVersionFor(p.header);
+	const ct = sodium.crypto_aead_xchacha20poly1305_ietf_encrypt(plain, recordAd(accountId, id, kind, version), null, n, vk);
 	sodium.memzero(plain);
-	return { recordId: id, kind, epoch, envelope: concat(new Uint8Array([ENVELOPE_VERSION]), u32be(checkCounter(epoch, "epoch")), n, ct) };
+	return { recordId: id, kind, epoch, envelope: concat(new Uint8Array([version]), u32be(checkCounter(epoch, "epoch")), n, ct) };
 }
 
 /** The epoch an envelope claims, read without decrypting. */
 export function envelopeEpoch(envelope: Bytes): number {
 	if (envelope.length < ENVELOPE_OVERHEAD) throw new ProtocolError("bad_format", "envelope truncated");
-	if (envelope[0] !== ENVELOPE_VERSION) throw new ProtocolError("bad_format", `unknown envelope version ${envelope[0]}`);
+	if (!KNOWN_VERSIONS.has(envelope[0] as number)) throw new ProtocolError("bad_format", `unknown envelope version ${envelope[0]}`);
 	return checkCounter(readU32be(envelope, 1), "epoch");
 }
 
@@ -193,12 +206,13 @@ export function decryptRecord(accountId: string, ik: Bytes, id: string, kind: Re
 	if (!vk) throw new ProtocolError("decrypt_failed", `no vault key for epoch ${epoch}`);
 	let plain: Bytes;
 	try {
-		plain = sodium.crypto_aead_xchacha20poly1305_ietf_decrypt(null, envelope.subarray(5 + NONCE_BYTES), recordAd(accountId, id, kind), envelope.subarray(5, 5 + NONCE_BYTES), vk);
+		plain = sodium.crypto_aead_xchacha20poly1305_ietf_decrypt(null, envelope.subarray(5 + NONCE_BYTES), recordAd(accountId, id, kind, envelope[0] as number), envelope.subarray(5, 5 + NONCE_BYTES), vk);
 	} catch {
 		throw new ProtocolError("decrypt_failed", `cannot decrypt record ${id}`);
 	}
 	const p = decodePlaintext(plain);
 	sodium.memzero(plain);
+	if (envelopeVersionFor(p.header) !== envelope[0]) throw new ProtocolError("bad_format", `record ${id}: envelope version ${envelope[0]} does not match its header`);
 	if (p.header.kind !== kind) throw new ProtocolError("wrong_record", `record ${id} claims kind ${p.header.kind}, expected ${kind}`);
 	if (recordId(ik, p.header.path) !== id) throw new ProtocolError("wrong_record", `record ${id} does not match its header path`);
 	return p;

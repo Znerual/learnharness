@@ -2,7 +2,7 @@
 
 Status: implemented on `main` (2026-11-18), not released; see "Implementation status" at the end. Design: [ADR 0007](adr/0007-plugin-data-syncs-without-plugin-changes.md) in this repo and learnharness-vault ADR 0014 (delta chains). Work spans this repo (the app and `packages/vault-client`) and learnharness-vault (server, spec, vectors, `lhv-decrypt`).
 
-The phases are ordered by dependency. Phase 0 ships alone, before everything else, because today's client reports every unknown record path as an error. Phases 1 to 3 and 6 ship together in one release. Each device syncs plugin data as soon as it runs that release; a device on an older release gets no plugin data, like a device where the plugin is not active, and nothing else changes for the account. Phases 4 and 5 are upstream changes and need an explicit go before any PR.
+The phases are ordered by dependency. Phase 0 ships alone, before everything else, because today's client reports every unknown record path as an error. Phases 1 to 3 and 6 ship together in one release. Each device syncs plugin data as soon as it runs that release; a device on an older release gets no plugin data, like a device where the plugin is not active, and nothing else changes for the account. Phases 4 and 5 stay in the fork (owner, 2026-11-18).
 
 ## Phase 0: compatibility release
 
@@ -77,7 +77,7 @@ Goal: the app side of ADR 0007.
 - `src/server/plugin-host.ts`: create it at activation through the same safe resolver, under `LH_LOCAL_DIR/plugin-local/<id>/` in the fork; upstream, a sibling of the data folder.
 - Authoring types (`scripts/build-plugin-types.mjs`), `docs/plugin-authoring.md`, `tests/plugin-api-reference.test.ts`.
 - Coding Questions manifest: `sync.exclude: ["test-runs/"]`. The fork carries it until upstream takes it (owner, 2026-11-18).
-- Upstream PR only after an explicit go.
+- Fork only (owner, 2026-11-18): no upstream PR for now.
 
 ## Phase 5: Flashcards (upstream PR)
 
@@ -87,7 +87,7 @@ Goal: the app side of ADR 0007.
 - `modelOverride` moves to `ctx.localDataDirectory/settings.json`.
 - Replay uses the current settings. The daily new-card limit counts the reviews of every install (owner, 2026-11-18).
 - Tests in `plugins/flashcards/tests/`: replay equals the old stored schedule for existing data with unchanged settings; two installs' reviews merge; the daily limit counts both installs; migration is idempotent.
-- Upstream PR only after an explicit go.
+- Fork only (owner, 2026-11-18): no upstream PR for now.
 
 ## Phase 6: export
 
@@ -123,10 +123,15 @@ Deploying stays with the owner; no phase deploys or pushes by itself.
 | 5 Flashcards | learnharness `70a9695` | `plugins/flashcards/tests` (store and backend) |
 | 6 export | vault `c7c24f6` | Go export vectors, `lhv-decrypt` tests |
 
-Not done, or different from the plan:
+Owner decisions after the first implementation (2026-11-18), done:
+
+- Delta-chain slots are a new spec version: envelope version `0x02` with the label `lhv2/rec/`, export manifest version 2 (spec sections 8 to 10, vectors). Clients skip envelope versions they do not know.
+- "Delete data in the vault" needs re-authentication; the grant is spent with the new `POST /v1/reauth/consume`, which emails a notice.
+- One release: devices on clients up to 0.3.0 stop syncing until they update (accepted).
+- `ctx.localDataDirectory` and the Flashcards change stay in the fork; no upstream PR.
+
+Not done:
 
 - No end-to-end test runs two app processes with Flashcards against a real vault; the engine is tested end to end with a test plugin host, and the app side with unit tests.
-- "Delete data in the vault" asks for confirmation only; ADR 0007's re-authentication is not implemented.
-- The record header gained the optional `chain` field without a new version label. Older readers ignore it (phase 0 skips the paths); spec section 10 asks for a new label or version on any format change, so the owner should confirm this reading.
 - Plugin sync status reaches the UI through Settings → Vault → Plugin data only; the sync status banner does not mention plugins.
-- Upstream PRs for phases 4 and 5 are not opened (they need the owner's go). Nothing is pushed, released or deployed.
+- Nothing is pushed, released or deployed.

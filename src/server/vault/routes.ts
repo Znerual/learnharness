@@ -150,7 +150,7 @@ export interface VaultRouteDeps {
 	plugins?: {
 		list(): Promise<PluginSyncDto>;
 		setCommunitySync(id: string, enabled: boolean, confirmIdentity: boolean): Promise<void>;
-		deleteSyncedData(origin: "core" | "community", id: string): Promise<void>;
+		deleteSyncedData(origin: "core" | "community", id: string, grant: string): Promise<void>;
 	};
 	now?: () => number;
 	randomId?: () => string;
@@ -672,7 +672,8 @@ export function createVaultRoutes(deps: VaultRouteDeps): VaultRoutes {
 			const p = needPlugins();
 			const origin = str(req, "origin");
 			if (origin !== "core" && origin !== "community") throw new RouteError(400, "bad_request", "origin must be core or community");
-			await pluginAction(() => p.deleteSyncedData(origin, str(req, "id")));
+			const grant = takeGrant(str(req, "reauthId"));
+			await pluginAction(() => p.deleteSyncedData(origin, str(req, "id"), grant));
 			return p.list();
 		},
 	};

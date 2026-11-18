@@ -354,14 +354,14 @@ export function createPluginSync(deps: PluginSyncDeps) {
 				deps.engine()?.pluginsChanged();
 			}
 		},
-		async deleteSyncedData(origin, id) {
+		async deleteSyncedData(origin, id, grant) {
 			const engine = deps.engine();
 			if (!engine) throw new Error("the vault is not syncing");
 			if (!(await engine.pluginRegistry()).some((r) => r.origin === origin && r.id === id)) throw Object.assign(new Error("The vault holds no data of this plugin"), { code: "not_found" });
 			if ((await filesHost.activePlugins()).some((p) => p.origin === origin && p.id === id)) {
 				throw Object.assign(new Error("This device still syncs the plugin: disable it or turn its sync off first"), { code: "plugin_active" });
 			}
-			await engine.deletePluginData({ origin, id });
+			await engine.deletePluginData({ origin, id }, grant);
 		},
 	};
 

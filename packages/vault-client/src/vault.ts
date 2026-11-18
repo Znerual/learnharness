@@ -422,6 +422,14 @@ export class Vault {
 		return (await this.api.get<{ devices: DeviceRow[] }>("/v1/devices", this.auth())).devices;
 	}
 
+	/**
+	 * Spends a re-authentication grant on a sensitive action the device carries out itself, with
+	 * records the server cannot read (ADR 0013); the server sends the notice email.
+	 */
+	async consumeGrant(action: "delete_plugin_data", grant: string): Promise<void> {
+		await this.api.post("/v1/reauth/consume", { action }, this.auth(grant));
+	}
+
 	/** Replaces this device's list of supported sync features on the server (ADR 0014 rollout). */
 	async reportCapabilities(capabilities: readonly string[]): Promise<void> {
 		await this.api.json("PUT", "/v1/devices/self/capabilities", { capabilities: [...capabilities] }, this.auth());

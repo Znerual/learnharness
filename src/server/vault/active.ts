@@ -47,7 +47,8 @@ export interface PluginSyncHooks {
 	afterRefresh(): Promise<void>;
 	list(): Promise<PluginSyncDto>;
 	setCommunitySync(id: string, enabled: boolean, confirmIdentity: boolean): Promise<void>;
-	deleteSyncedData(origin: "core" | "community", id: string): Promise<void>;
+	/** Needs a re-authentication grant (ADR 0013). */
+	deleteSyncedData(origin: "core" | "community", id: string, grant: string): Promise<void>;
 }
 
 const SYNC_KEY = Symbol.for("learnharness.vault.pluginSync");

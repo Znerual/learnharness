@@ -276,7 +276,7 @@ export async function createVaultRuntime(serverUrl: string): Promise<VaultRoutes
 		plugins: {
 			list: () => pluginSync.hooks.list(),
 			setCommunitySync: (id, enabled, confirm) => pluginSync.hooks.setCommunitySync(id, enabled, confirm),
-			deleteSyncedData: (origin, id) => pluginSync.hooks.deleteSyncedData(origin, id),
+			deleteSyncedData: (origin, id, grant) => pluginSync.hooks.deleteSyncedData(origin, id, grant),
 		},
 		exportReminder: {
 			get: () => readPrefs().exportReminder ?? true,

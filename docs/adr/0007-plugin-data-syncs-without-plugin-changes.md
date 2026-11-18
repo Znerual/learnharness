@@ -18,7 +18,7 @@ A plugin syncs only on a device where it is **active**: installed, enabled, and,
 - An inactive plugin receives nothing. Its records stay in the vault; the device skips them without downloading (ADR 0014's plugin index).
 - When the plugin becomes active (installed, enabled, or sync turned on), the device downloads all of the plugin's current data from the vault before starting the plugin's backend. This also applies to a disabled core plugin that is enabled later.
 - Disabling a plugin stops its sync in both directions and keeps its local data. Enabling it again catches up from the vault.
-- Uninstalling a community plugin, or turning off its sync, removes its local data (data folder and `ctx.localDataDirectory`) and keeps the vault's copy: no tombstones are written. Installing it again downloads everything from the vault. Deleting the vault's copy is a separate action in Settings → Vault, with confirmation.
+- Uninstalling a community plugin, or turning off its sync, removes its local data (data folder and `ctx.localDataDirectory`) and keeps the vault's copy: no tombstones are written. Installing it again downloads everything from the vault. Deleting the vault's copy is a separate action in Settings → Vault, with confirmation and re-authentication (vault ADR 0013; the grant is spent with `POST /v1/reauth/consume`, which sends the notice email).
 - The vault index carries each community plugin's identity (manifest name and source). When the installed plugin's identity differs from the one in the vault, the device asks before importing, because another plugin with the same id would otherwise read the data.
 
 ## Finding local changes
@@ -48,11 +48,11 @@ A file is one record chain (ADR 0014). When two devices change the same file bef
 
 ## Device-local plugin data
 
-The host gives each plugin `ctx.localDataDirectory`, a folder that never syncs (in the fork under `LH_LOCAL_DIR/plugin-local/<id>/`; upstream, a sibling of the data folder). It is the place for per-device values such as an install id or a model override. This API addition is proposed upstream.
+The host gives each plugin `ctx.localDataDirectory`, a folder that never syncs (in the fork under `LH_LOCAL_DIR/plugin-local/<id>/`; upstream, a sibling of the data folder). It is the place for per-device values such as an install id or a model override. It stays in the fork for now (owner, 2026-11-18: no upstream PR).
 
 ## Flashcards
 
-Follow-up, as an upstream PR after an explicit go:
+In the fork only for now (owner, 2026-11-18: no upstream PR):
 
 - Each install keeps an install id in `ctx.localDataDirectory` and appends its reviews to `reviews/<installId>.jsonl`. Only that install writes the file, so reviews made offline on two devices never meet in a merge, and each upload is a small append delta.
 - The schedule of a proposition is rebuilt by replaying all installs' reviews in time order, with the current settings (owner, 2026-11-18).

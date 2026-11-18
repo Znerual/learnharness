@@ -188,7 +188,7 @@ export interface VaultContract {
 	// plugin data (ADR 0007)
 	pluginSyncList: { req: Empty; res: PluginSyncDto };
 	pluginSyncSet: { req: { id: string; enabled: boolean; confirmIdentity?: boolean }; res: PluginSyncDto };
-	pluginSyncDeleteData: { req: { origin: "core" | "community"; id: string }; res: PluginSyncDto };
+	pluginSyncDeleteData: { req: { origin: "core" | "community"; id: string; reauthId: string }; res: PluginSyncDto };
 }
 
 export type RouteName = keyof VaultContract;

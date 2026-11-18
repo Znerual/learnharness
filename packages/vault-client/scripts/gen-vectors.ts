@@ -6,7 +6,7 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
 	applyDelta, approveTag, boxKeyPairFromSeed, commitKey, commitment, concat, confirmationCode, crockfordEncode, encodeHeader, encodePairingQr,
-	encodePairingText, encodePlaintext, encodeDelta, encryptRecord, fromUtf8, hash, ikTag, joinTag, type KeySet, METHOD_KINDS, type MethodKind,
+	encodePairingText, encodePlaintext, encodeDelta, encryptRecord, recordAd, fromUtf8, hash, ikTag, joinTag, type KeySet, METHOD_KINDS, type MethodKind,
 	parseRecoverySecret, passkeySeed, passwordSeed, pkTag, recordId, recoveryChallengeMessage, recoveryMaterial, type RecordHeader,
 	sealRootKeyDeterministic, signRecoveryChallenge, sodium, toHex, u32be, vkName, wrapAd, wrapKey, type Wrap, SECRET_FORMATS,
 } from "../src/crypto/index.ts";
@@ -192,14 +192,24 @@ const wrongKind = (() => {
 	const ad = concat("lhv1/rec/", ACCOUNT, "/", id, "/doc");
 	return { id, env: concat(new Uint8Array([1]), u32be(1), n, sodium.crypto_aead_xchacha20poly1305_ietf_encrypt(plain, ad, null, n, VK1)) };
 })();
-const badVersion = docEnv.slice(); badVersion[0] = 2;
+const badVersion = docEnv.slice(); badVersion[0] = 3;
+// Envelope version 2 (ADR 0014): chain headers only, under the lhv2/rec/ label.
+const sealRaw = (version: number, header: RecordHeader, body: Uint8Array, label: string) => {
+	const plain = encodePlaintext({ header, body });
+	const n = det(`nonce/rec/${label}`, 24);
+	const id = recordId(IK, header.path);
+	return { id, env: concat(new Uint8Array([version]), u32be(1), n, sodium.crypto_aead_xchacha20poly1305_ietf_encrypt(plain, recordAd(ACCOUNT, id, "doc", version), null, n, VK1)) };
+};
+const chainV1Mislabeled = sealRaw(1, fullSlotHeader, chainV1, "chain-in-v1");
+const plainV2 = sealRaw(2, docHeader, docBody, "plain-in-v2");
+const downgraded = sodium.from_hex((recValid[1] as (typeof recValid)[number]).envelope); downgraded[0] = 1;
 write("record.json", {
-	description: "Record ids, record plaintext and envelopes (ADR 0002, Records). vaultKeys maps epoch to VK.",
+	description: "Record ids, record plaintext and envelopes (ADR 0002, Records). vaultKeys maps epoch to VK. Envelope version 1 uses the label lhv1/rec/, version 2 (delta-chain slots, ADR 0014) lhv2/rec/.",
 	accountId: ACCOUNT,
 	ik: hx(IK),
 	vaultKeys: { "1": hx(VK1), "2": hx(VK2) },
 	recordIds: ["chats/a.json", "graph/sources.json", "prompts/switches.json", "ledger/nodes/dev_ab12cd34/000000000000", "notes/Küche.md"].map((p) => ({ path: p, recordId: recordId(IK, p) })),
-	invalidPaths: ["", "/abs.json", "a//b", "a/./b", "a/../b", "a\\b", "trailing/", "lhv1/pk-tag-key", "lhv1/anything"],
+	invalidPaths: ["", "/abs.json", "a//b", "a/./b", "a/../b", "a\\b", "trailing/", "lhv1/pk-tag-key", "lhv1/anything", "lhv2/anything"],
 	valid: recValid,
 	invalidHeaders: [
 		{ why: "full slot with baseSha256", header: { ...docHeader, chain: { type: "full", size: 1, sha256: "a".repeat(64), baseSha256: "b".repeat(64) } } },
@@ -237,6 +247,9 @@ write("record.json", {
 		{ why: "epoch the device does not hold", accountId: ACCOUNT, recordId: docId, kind: "doc", envelope: hx(concat(docEnv.subarray(0, 1), u32be(9), docEnv.subarray(5))), error: "decrypt_failed" },
 		{ why: "header path does not match the record id", accountId: ACCOUNT, recordId: otherPathId, kind: "doc", envelope: hx(mislabeled), error: "wrong_record" },
 		{ why: "header kind does not match", accountId: ACCOUNT, recordId: wrongKind.id, kind: "doc", envelope: hx(wrongKind.env), error: "wrong_record" },
+		{ why: "chain header in a version 1 envelope", accountId: ACCOUNT, recordId: chainV1Mislabeled.id, kind: "doc", envelope: hx(chainV1Mislabeled.env), error: "bad_format" },
+		{ why: "version 2 envelope without a chain header", accountId: ACCOUNT, recordId: docId, kind: "doc", envelope: hx(plainV2.env), error: "bad_format" },
+		{ why: "version byte changed from 2 to 1", accountId: ACCOUNT, recordId: (recValid[1] as (typeof recValid)[number]).recordId, kind: "doc", envelope: hx(downgraded), error: "decrypt_failed" },
 	],
 });
 
@@ -375,7 +388,7 @@ const blobs = [...exportRecords.map((r) => ({ recordId: r.recordId, kind: r.kind
 const b64 = (b: Uint8Array) => sodium.to_base64(b, sodium.base64_variants.URLSAFE_NO_PADDING);
 const manifest = {
 	format: "lhv-export",
-	version: 1,
+	version: 2,
 	accountId: ACCOUNT,
 	createdAt: "2026-11-01T12:00:00Z",
 	serverUrl: "https://vault.learnharness.example",
@@ -391,7 +404,7 @@ const manifest = {
 	records: blobs.map((b, i) => ({ recordId: b.recordId, kind: b.kind, seq: 100 + i, epoch: b.epoch, blob: `blobs/${sha(b.env)}` })),
 };
 write("export.json", {
-	description: "Export archive contents (ADR 0010). The tar holds manifest.json and blobs/<sha256>. Decrypting with recoveryKey or backupCode must produce `files`.",
+	description: "Export archive contents (ADR 0010; manifest version 2 since delta chains, ADR 0014; readers also accept version 1). The tar holds manifest.json and blobs/<sha256>. Decrypting with recoveryKey or backupCode must produce `files`.",
 	recoveryKey: recoveryKeyText,
 	backupCode: backupCodeText,
 	manifest,

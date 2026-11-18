@@ -1,13 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { errorCode, type PluginSyncDto, type PluginSyncEntryDto, type VaultApi } from "@/src/core";
+import { useCallback, useEffect, useReducer, useState, type ReactNode } from "react";
+import { errorCode, initialReauth, reduceReauth, type PluginSyncDto, type PluginSyncEntryDto, type ReauthEvent, type VaultApi } from "@/src/core";
 import { strings } from "@/src/core";
+import { ReauthForm } from "./ReauthForm.tsx";
 import { Button, ErrorLine, Notice } from "./ui.tsx";
 
 const t = strings.pluginSync;
 
-type Pending = { kind: "off" | "delete"; plugin: PluginSyncEntryDto } | null;
+/** "delete" asks to confirm; "reauth" then asks the learner to confirm it is them (ADR 0013). */
+type Pending = { kind: "off" | "delete" | "reauth"; plugin: PluginSyncEntryDto } | null;
 
 /** One plugin's row: what syncs, and the actions that apply to it (ADR 0007). */
 export function PluginSyncRow({ plugin, busy, onSync, onDelete }: { plugin: PluginSyncEntryDto; busy: boolean; onSync: (enabled: boolean) => void; onDelete: () => void }) {
@@ -45,7 +47,7 @@ export function PluginSyncRow({ plugin, busy, onSync, onDelete }: { plugin: Plug
 }
 
 /** Settings → Vault → Plugin data. */
-export function PluginSyncView({ data, busy, error, pending, mismatch, onSync, onDelete, onConfirm, onCancel, onImportAnyway }: {
+export function PluginSyncView({ data, busy, error, pending, mismatch, onSync, onDelete, onConfirm, onCancel, onImportAnyway, reauthSlot }: {
 	data: PluginSyncDto | null;
 	busy: boolean;
 	error: string | undefined;
@@ -56,6 +58,7 @@ export function PluginSyncView({ data, busy, error, pending, mismatch, onSync, o
 	onConfirm: () => void;
 	onCancel: () => void;
 	onImportAnyway: () => void;
+	reauthSlot?: () => ReactNode;
 }) {
 	return (
 		<section data-testid="plugin-sync" className="flex flex-col gap-3">
@@ -72,7 +75,15 @@ export function PluginSyncView({ data, busy, error, pending, mismatch, onSync, o
 					</div>
 				</Notice>
 			) : null}
-			{pending ? (
+			{pending?.kind === "reauth" ? (
+				<Notice tone="warning" testid="plugin-sync-reauth">
+					<p>{t.deleteReauth}</p>
+					{reauthSlot?.()}
+					<div className="mt-2 flex gap-2">
+						<Button variant="secondary" onClick={onCancel}>{t.cancel}</Button>
+					</div>
+				</Notice>
+			) : pending ? (
 				<Notice tone="warning" testid="plugin-sync-confirm">
 					<p>{pending.kind === "off" ? t.turnOffConfirm : t.deleteConfirm}</p>
 					<div className="mt-2 flex gap-2">
@@ -91,8 +102,10 @@ export function PluginSyncView({ data, busy, error, pending, mismatch, onSync, o
 	);
 }
 
-export function PluginSync({ api }: { api: VaultApi }) {
+export function PluginSync({ api, passkeys = 0 }: { api: VaultApi; passkeys?: number }) {
 	const [data, setData] = useState<PluginSyncDto | null>(null);
+	// Each deletion needs a fresh grant: "reset" starts the form again.
+	const [reauth, reauthDispatch] = useReducer((s: ReturnType<typeof initialReauth> | Parameters<typeof reduceReauth>[0], e: ReauthEvent | { type: "reset" }) => (e.type === "reset" ? initialReauth(passkeys) : reduceReauth(s, e)), undefined, () => initialReauth(passkeys));
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | undefined>();
 	const [pending, setPending] = useState<Pending>(null);
@@ -112,6 +125,15 @@ export function PluginSync({ api }: { api: VaultApi }) {
 	useEffect(() => {
 		void run(() => api.pluginSyncList()).catch(() => undefined);
 	}, [api, run]);
+	// Re-authenticated: delete the plugin's data in the vault with the grant.
+	const reauthId = pending?.kind === "reauth" && reauth.step === "granted" ? reauth.reauthId : null;
+	useEffect(() => {
+		if (!reauthId || pending?.kind !== "reauth") return;
+		const p = pending.plugin;
+		setPending(null);
+		reauthDispatch({ type: "reset" });
+		void run(() => api.pluginSyncDeleteData({ origin: p.origin, id: p.id, reauthId })).catch(() => undefined);
+	}, [reauthId]);
 	const turnOn = (id: string, confirmIdentity = false) =>
 		run(() => api.pluginSyncSet({ id, enabled: true, confirmIdentity })).then(
 			() => setMismatch(null),
@@ -133,15 +155,20 @@ export function PluginSync({ api }: { api: VaultApi }) {
 			onDelete={(p) => setPending({ kind: "delete", plugin: p })}
 			onCancel={() => {
 				setPending(null);
+				reauthDispatch({ type: "reset" });
 				setMismatch(null);
 			}}
 			onImportAnyway={() => mismatch && void turnOn(mismatch, true)}
+			reauthSlot={() => (reauth.step === "form" ? <ReauthForm api={api} state={reauth} dispatch={(event: ReauthEvent) => reauthDispatch(event)} /> : null)}
 			onConfirm={() => {
 				const p = pending;
-				setPending(null);
 				if (!p) return;
-				const f = p.kind === "off" ? () => api.pluginSyncSet({ id: p.plugin.id, enabled: false }) : () => api.pluginSyncDeleteData({ origin: p.plugin.origin, id: p.plugin.id });
-				void run(f).catch(() => undefined);
+				if (p.kind === "delete") {
+					setPending({ kind: "reauth", plugin: p.plugin });
+					return;
+				}
+				setPending(null);
+				void run(() => api.pluginSyncSet({ id: p.plugin.id, enabled: false })).catch(() => undefined);
 			}}
 		/>
 	);

@@ -133,7 +133,7 @@ export function VaultSection() {
 							<ExportSettings api={api} account={account} />
 						</SettingsGroup>
 						<SettingsGroup label="Plugin data">
-							<PluginSync api={api} />
+							<PluginSync api={api} passkeys={reauthPasskeys(account)} />
 						</SettingsGroup>
 						<MovedAside api={api} Group={SettingsGroup} />
 						<SettingsGroup label="Leave">

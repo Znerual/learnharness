@@ -228,6 +228,11 @@ function world(over: Partial<VaultStatics> = {}, migration?: VaultRouteDeps["mig
 		leaveVault: async (o) => ({ unpushed: o.dryRun ? 3 : 0 }),
 		exportReminder: { get: () => reminder, set: (b) => void (reminder = b) },
 		passkeys,
+		plugins: {
+			list: async () => ({ plugins: [], conflicts: 0, outdatedDevices: [] }),
+			setCommunitySync: async (id, enabled) => void log.push(`pluginSync ${id} ${enabled}`),
+			deleteSyncedData: async (origin, id, grant) => void log.push(`pluginDelete ${origin}/${id} ${grant}`),
+		},
 		now: () => clock.t,
 	};
 	return { routes: createVaultRoutes(deps), vault, log, sync, clock, passkeys, plan, starts };
@@ -715,4 +720,20 @@ test("migration routes: report and Syncthing set-aside work signed out; merge ne
 test("a newer app's data answers data_newer", () => {
 	const e = Object.assign(new Error("newer"), { name: "MigrationRefusedError" });
 	assert.deepEqual([toRouteError(e).status, toRouteError(e).code], [409, "data_newer"]);
+});
+
+test("plugin data: deleting a plugin's vault data needs a fresh re-authentication grant", async () => {
+	const w = world();
+	await call(w, "POST", "/sign-in/password", { email: "learner@example.org", password: "pw" });
+	assert.equal((await call(w, "GET", "/plugins")).status, 200);
+	assert.equal((await call(w, "POST", "/plugins/core/flashcards/delete-data", {})).status, 400, "no reauthId");
+	assert.equal((await call(w, "POST", "/plugins/core/flashcards/delete-data", { reauthId: "nope" })).status, 403);
+	const { reauthId } = (await call(w, "POST", "/reauth/password", { password: "good" })).body as { reauthId: string };
+	assert.equal((await call(w, "POST", "/plugins/elsewhere/flashcards/delete-data", { reauthId })).status, 400, "bad origin");
+	const { reauthId: second } = (await call(w, "POST", "/reauth/password", { password: "good" })).body as { reauthId: string };
+	assert.equal((await call(w, "POST", "/plugins/core/flashcards/delete-data", { reauthId: second })).status, 200);
+	assert.ok(w.log.includes("pluginDelete core/flashcards grant-pw"));
+	assert.equal((await call(w, "POST", "/plugins/core/flashcards/delete-data", { reauthId: second })).status, 403, "a grant is used once");
+	assert.equal((await call(w, "PUT", "/plugins/notes/sync", { enabled: true })).status, 200);
+	assert.ok(w.log.includes("pluginSync notes true"));
 });

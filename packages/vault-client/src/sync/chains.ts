@@ -231,6 +231,8 @@ interface Item {
 	envelope: Uint8Array;
 	onAccepted: (seq: number) => Promise<void> | void;
 	onConflict?: () => void;
+	/** The slot this write creates; a 409 on it may mean the number is taken by a tombstone. */
+	slot?: { chain: string; slot: number; meta: boolean };
 }
 
 export class ChainSync {
@@ -373,7 +375,7 @@ export class ChainSync {
 		const at = Date.parse(header.writtenAt) || this.o.now().getTime();
 		if (parsed.kind === "file" && !this.backfilling.has(keyOf(parsed.plugin)) && !(await this.activePlugin(parsed.plugin))) return; // arrives with the backfill on activation
 		if (header.deleted) {
-			this.noteTombstone(parsed, c.seq);
+			await this.noteTombstone(parsed, c.seq);
 			return;
 		}
 		const chain = header.chain;
@@ -401,9 +403,13 @@ export class ChainSync {
 		return p.kind === "file" ? this.state.files[p.chain] : this.state.meta[p.chain];
 	}
 
-	private noteTombstone(p: ParsedSlot, _seq: number): void {
+	private async noteTombstone(p: ParsedSlot, _seq: number): Promise<void> {
 		const head = this.chainHead(p);
-		if (!head) return;
+		if (!head || (head.deleted && head.head < p.slot)) {
+			// Only the tombstone is known (the chain was deleted before this device saw it).
+			await this.placeholder(p.chain, p.slot, p.kind !== "file");
+			return;
+		}
 		head.slots = head.slots.filter((s) => s.slot !== p.slot);
 		// The sweep never tombstones a head, so a tombstoned head means the file was deleted.
 		if (p.slot === head.head && p.kind === "file" && !head.deleted) {
@@ -776,6 +782,7 @@ export class ChainSync {
 				const isDelta = delta !== null;
 				fileItems.push({
 					...sealed,
+					slot: { chain, slot, meta: false },
 					onAccepted: async (seq) => {
 						const prev = this.state.files[chain];
 						const at = nowMs;
@@ -841,6 +848,7 @@ export class ChainSync {
 			const isDelta = delta !== null;
 			metaItems.push({
 				...sealed,
+				slot: { chain, slot, meta: true },
 				onAccepted: async (seq) => {
 					const prev = this.state.meta[chain];
 					this.state.meta[chain] = {
@@ -887,6 +895,31 @@ export class ChainSync {
 		this.state.lastSweep = nowMs;
 	}
 
+	/**
+	 * A slot write answered 409. When the slot is a tombstone this device never saw (a deleted
+	 * file or plugin), the chain continues after it: the next write uses the following number.
+	 * A live slot arrives with the next pull and is merged as usual.
+	 */
+	private async slotTaken(at: { chain: string; slot: number; meta: boolean }, id: string): Promise<void> {
+		const vault = this.o.vault;
+		let head: ChangeRow | undefined;
+		try {
+			head = (await vault.api.get<{ versions: ChangeRow[] }>(`/v1/history/${id}`, vault.auth())).versions[0];
+		} catch {
+			return;
+		}
+		if (head?.tombstone) await this.placeholder(at.chain, at.slot, at.meta);
+	}
+
+	/** Records that slot `slot` of a chain exists only as a tombstone, so numbering continues after it. */
+	private async placeholder(chain: string, slot: number, meta: boolean): Promise<void> {
+		const table = meta ? this.state.meta : this.state.files;
+		const h = table[chain];
+		if (h && h.head >= slot) return;
+		table[chain] = { head: slot, headSha: "", size: 0, full: slot, deltaBytes: 0, deltaCount: 0, slots: [], deleted: true };
+		await rm(this.shadowPath(chain), { force: true });
+	}
+
 	private async post(items: Item[]): Promise<number> {
 		const vault = this.o.vault;
 		let accepted = 0;
@@ -909,6 +942,7 @@ export class ChainSync {
 					accepted++;
 					await it.onAccepted(r.seq);
 				} else if (r.status === "conflict" || r.status === "exists") {
+					if (it.slot) await this.slotTaken(it.slot, it.meta.recordId);
 					it.onConflict?.();
 				} else if (r.status === "stale_epoch") {
 					this.needsCycle = true;
