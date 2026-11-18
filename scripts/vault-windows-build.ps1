@@ -8,6 +8,9 @@ public, no login):
 
 or, from a checkout: powershell -ExecutionPolicy Bypass -File scripts\vault-windows-build.ps1 -Version 0.4.2112 -Here
 
+The vault host's download page shows the command for its current version, pinned to the release
+tag vault-<version> with -Ref. The full guide is docs/build/windows.md.
+
 Parameters:
   -Version X.Y.Z    required; the same number as the Linux, Android and Mac vault builds of the release
   -VaultHost NAME   vault host built in as https://NAME (default learn-vault.ddns.net)

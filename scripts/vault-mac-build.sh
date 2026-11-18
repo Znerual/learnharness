@@ -7,6 +7,7 @@
 #   curl -fsSLO https://raw.githubusercontent.com/Znerual/learnharness/vault-0.4.2112/scripts/vault-mac-build.sh && bash vault-mac-build.sh --version 0.4.2112 --ref vault-0.4.2112
 #
 # or, from a checkout, scripts/vault-mac-build.sh --version 0.4.2112 --here.
+# The full guide is docs/build/macos.md.
 #
 # Options:
 #   --version X.Y.Z   required; the same number as the Linux and Android vault builds of the release
@@ -41,7 +42,7 @@ while [ $# -gt 0 ]; do
 		--here) here=1; shift ;;
 		--out) out="${2:-}"; shift 2 ;;
 		--copy-to) copy_to="${2:-}"; shift 2 ;;
-		-h | --help) sed -n '2,30p' "$0"; exit 0 ;;
+		-h | --help) sed -n '2,28p' "$0"; exit 0 ;;
 		*) fail "unknown option: $1 (see --help)" ;;
 	esac
 done
