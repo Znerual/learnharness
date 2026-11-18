@@ -2,7 +2,7 @@
 
 Status: implemented on `main` (2026-11-18), not released; see "Implementation status" at the end. Design: [ADR 0007](adr/0007-plugin-data-syncs-without-plugin-changes.md) in this repo and learnharness-vault ADR 0014 (delta chains). Work spans this repo (the app and `packages/vault-client`) and learnharness-vault (server, spec, vectors, `lhv-decrypt`).
 
-The phases are ordered by dependency. Phase 0 ships alone, before everything else, because today's client reports every unknown record path as an error. Phases 1 to 3 and 6 ship together in one release. Each device syncs plugin data as soon as it runs that release; a device on an older release gets no plugin data, like a device where the plugin is not active, and nothing else changes for the account. Phases 4 and 5 stay in the fork (owner, 2026-11-18).
+The phases are ordered by dependency, but all of them ship in one release (owner, 2026-11-18): client 0.5.0 with the server. Each device syncs plugin data as soon as it runs that release. A device on client 0.3.0 or older cannot read the version-2 slot records and stops syncing once any device writes plugin data, until it updates. Phases 4 and 5 stay in the fork (owner, 2026-11-18).
 
 ## Phase 0: compatibility release
 
@@ -97,9 +97,11 @@ Goal: the app side of ADR 0007.
 
 ## Release order
 
-1. Phase 0: vault release and fork release. All devices update.
-2. Phases 1, 2, 3 and 6 in one release. Each device syncs plugin data once it runs it.
-3. Phases 4 and 5 after the owner's go for the upstream PRs; the fork carries them until upstream merges.
+One release (owner, 2026-11-18), on the owner's go:
+
+1. Deploy the server. It still accepts version-1 records and the old endpoints, so clients on 0.3.0 keep syncing.
+2. Publish client 0.5.0 (desktop and Android) and update every device. A device left on 0.3.0 stops syncing as soon as an updated device writes plugin data; Settings → Vault → Plugin data names it.
+3. Phases 4 and 5 stay in the fork; no upstream PR.
 
 Deploying stays with the owner; no phase deploys or pushes by itself.
 
@@ -122,6 +124,7 @@ Deploying stays with the owner; no phase deploys or pushes by itself.
 | 4 `ctx.localDataDirectory` | learnharness `013c5d2` | `tests/plugin-sync.test.ts` |
 | 5 Flashcards | learnharness `70a9695` | `plugins/flashcards/tests` (store and backend) |
 | 6 export | vault `c7c24f6` | Go export vectors, `lhv-decrypt` tests |
+| Owner decisions: envelope version 2, re-authenticated deletion, slot numbering after tombstones | learnharness `3219116`, vault `c52e3be` | record and export vectors (version 2 cases), Go `TestReauthConsume`, `tests/vault-routes.test.ts` (plugin data deletion), vault `e2e/plugins.e2e.test.ts` (deletion with a grant, recreated file) |
 
 Owner decisions after the first implementation (2026-11-18), done:
 

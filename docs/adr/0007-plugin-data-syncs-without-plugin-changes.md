@@ -1,6 +1,6 @@
 # Plugin data syncs without plugin changes
 
-Status: Proposed (2026-11-18). The vault side is learnharness-vault ADR 0014 (delta chains).
+Status: Accepted (2026-11-18), implemented in the fork (vault client 0.5.0), not released. The vault side is learnharness-vault ADR 0014 (delta chains).
 
 Plugins keep writing plain files in their data folder (`ctx.dataDirectory`): `core-plugin-data/<id>/` for core plugins, `local/plugins/<id>/data/` for community plugins. With the vault on, the host syncs those files itself, so an existing plugin syncs without any change to its code or manifest. Until now the vault synced no plugin data at all (`isDocumentPath` in `packages/vault-client/src/sync/mapping.ts`), so Flashcards progress stayed on the device where it was made.
 
