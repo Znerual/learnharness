@@ -30,6 +30,7 @@ const { createChatGPT, fileStore } = require("./chatgpt.cjs");
 const { attachChatGPTChild, trustedSender, chatGPTControl } = require("./chatgpt-ipc.cjs");
 const { createSubscriptions, loadSubscriptionSDK } = require("./subscriptions.cjs");
 const { attachSubscriptionChild, subscriptionControl } = require("./subscription-ipc.cjs");
+const { flushVault } = require("./vault-flush.cjs");
 const { createKeyStorageService, attachKeyStorageChild } = require("./keystorage-main.cjs");
 const { changelogUrlFor, fetchChanges } = require("./changelog.cjs");
 const { passkeyHost, createPasskeyCeremony, attachPasskeyChild } = require("./passkey-window.cjs");
@@ -185,6 +186,10 @@ let passkeys = null;
 let passkeyChild = null;
 // Per-launch request capability, never OAuth tokens and never renderer state.
 let desktopAPISecret = null;
+// The packaged server child's port; null in dev mode (external server).
+let serverPort = null;
+// The vault had its chance to upload before this quit (vault-flush.cjs).
+let vaultFlushed = false;
 let reopenWindow = null;
 const trustedAppWindows = new Set();
 
@@ -257,6 +262,7 @@ function log(line) {
 }
 
 function startServer(port) {
+	serverPort = port;
 	return new Promise((resolve, reject) => {
 		const child = spawn(
 			process.execPath,
@@ -591,7 +597,25 @@ function checkForUpdates({ manual = false } = {}) {
 		});
 }
 
-function installUpdateNow() {
+/** Lets the vault upload pending changes (at most 2 s), once per quit. */
+async function flushVaultOnce() {
+	if (vaultFlushed || !serverProcess || !serverPort) return;
+	vaultFlushed = true;
+	await flushVault({ port: serverPort, secret: desktopAPISecret });
+}
+
+/** before-quit: hold the quit while the vault uploads, then quit for real and stop the server. */
+function quitAfterVaultFlush(event) {
+	if (vaultFlushed || !serverProcess || !serverPort) {
+		killServer();
+		return;
+	}
+	event.preventDefault();
+	void flushVaultOnce().finally(() => app.quit());
+}
+
+async function installUpdateNow() {
+	await flushVaultOnce();
 	// Kill the server BEFORE the quit-and-install (see block comment).
 	try {
 		killServer();
@@ -759,7 +783,7 @@ async function main() {
 	});
 
 	// The child must not outlive us — cover every quit path.
-	app.on("before-quit", killServer);
+	app.on("before-quit", quitAfterVaultFlush);
 	process.on("exit", killServer);
 	process.on("SIGHUP", killServer);
 
@@ -880,7 +904,7 @@ async function main() {
 	// interval fire after it below. setupAutoUpdater's contract: failures
 	// are log lines — this can never block boot.
 	setupAutoUpdater();
-	ipcMain.on("lh:update-install", () => installUpdateNow());
+	ipcMain.on("lh:update-install", () => void installUpdateNow());
 	ipcMain.handle("lh:update:get", (event) => {
 		if (!trustedAppWindows.has(BrowserWindow.fromWebContents(event.sender)) || !trustedSender(event, new URL(url).origin, BrowserWindow)) throw new Error("Untrusted desktop request.");
 		return updateState;

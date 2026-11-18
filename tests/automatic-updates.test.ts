@@ -77,7 +77,7 @@ function fixture({ packaged = true, updaterMissing = false } = {}) {
 		getPath: () => userData,
 		setPath: (_: string, value: string) => { userData = value; },
 		requestSingleInstanceLock: () => false,
-		quit() {},
+		quit() { order.push("quit"); },
 		whenReady: async () => {},
 	});
 	const electron = {
@@ -93,6 +93,7 @@ function fixture({ packaged = true, updaterMissing = false } = {}) {
 			// The actual dev readiness helper is tested separately; keep this
 			// updater shell fixture entirely offline and already ready.
 			if (id === "./dev-server-readiness.cjs") return { waitForDevServer: async () => {} };
+			if (id === "./vault-flush.cjs") return { flushVault: async (o: { port: number }) => { order.push(`flush:${o.port}`); } };
 			if (id === "electron-updater") {
 				if (updaterMissing) throw new Error("missing updater");
 				return { autoUpdater: updater };
@@ -260,8 +261,32 @@ describe("status observation never controls the updater", () => {
 		f.updater.emit("update-downloaded", { version: "0.3.8" }); await f.check();
 		assert.equal(f.state().status, "downloaded"); assert.equal(f.updater.checks, 0);
 		assert.equal(f.updater.autoDownload, true); assert.equal(f.updater.autoInstallOnAppQuit, true);
-		f.run("serverProcess = fixtureChild; installUpdateNow()");
-		assert.deepEqual(f.order, ["SIGTERM", "install"]);
+		f.order.length = 0; // the fixture's single-instance quit
+		await f.run("serverProcess = fixtureChild; serverPort = 4321; installUpdateNow()");
+		assert.deepEqual(f.order, ["flush:4321", "SIGTERM", "install"], "the vault uploads first, then the server stops");
+	});
+
+	it("quit holds once for the vault upload, then quits again and stops the server", async () => {
+		const f = fixture(); await f.run("main()");
+		f.run("serverProcess = fixtureChild; serverPort = 4321");
+		f.order.length = 0; // the fixture's single-instance quit
+		let prevented = 0;
+		f.app.emit("before-quit", { preventDefault: () => prevented++ });
+		await new Promise((resolve) => setImmediate(resolve));
+		assert.equal(prevented, 1);
+		assert.deepEqual(f.order, ["flush:4321", "quit"]);
+		f.app.emit("before-quit", { preventDefault: () => prevented++ });
+		assert.equal(prevented, 1, "the second quit is not held");
+		assert.deepEqual(f.order, ["flush:4321", "quit", "SIGTERM"]);
+	});
+
+	it("quit without a server child (dev mode) stops nothing and does not wait", async () => {
+		const f = fixture(); await f.run("main()");
+		f.order.length = 0; // the fixture's single-instance quit
+		let prevented = 0;
+		f.app.emit("before-quit", { preventDefault: () => prevented++ });
+		assert.equal(prevented, 0);
+		assert.deepEqual(f.order, []);
 	});
 });
 

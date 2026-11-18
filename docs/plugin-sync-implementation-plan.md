@@ -128,6 +128,8 @@ Deploying stays with the owner; no phase deploys or pushes by itself.
 
 End-to-end test (2026-11-18): `tests/vault-sync-e2e.test.ts` runs two app processes with Flashcards against a real vault (a disabled plugin receives nothing, enabling it backfills the deck before the backend starts, concurrent deck edits on both devices merge). It needs the built core plugins (`npm run plugins:build-core`). It found that "Sync now" did not upload a plugin file pushed less than 60 s earlier, so the other device missed the edit; `POST /sync/now` now flushes plugin files (`engine.flushPluginFiles()`).
 
+Upload on close (owner, 2026-11-18): before the desktop app quits, Electron posts "Sync now" to its server child and waits at most 2 s (`electron/vault-flush.cjs`; the update install does the same before it stops the server). The Android shell posts it in the background when the app leaves the screen (`MainActivity.onStop`, learnharness-android). An upload that does not finish in time goes up at the next start.
+
 Owner decisions after the first implementation (2026-11-18), done:
 
 - Delta-chain slots are a new spec version: envelope version `0x02` with the label `lhv2/rec/`, export manifest version 2 (spec sections 8 to 10, vectors). Clients skip envelope versions they do not know.
@@ -138,5 +140,4 @@ Owner decisions after the first implementation (2026-11-18), done:
 Not done:
 
 - Plugin sync status reaches the UI through Settings → Vault → Plugin data only; the sync status banner does not mention plugins.
-- The app does not flush plugin files at shutdown (ADR 0007 says it does): `engine.flushPluginFiles()` has no caller there. An edit made less than 60 s before quitting goes up at the next start instead.
 - Release order step 1 is done: the server runs on the Pi (`lan-82f939e`, 2026-11-18). Step 2, the app release with vault client 0.5.0, is open.
