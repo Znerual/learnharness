@@ -101,7 +101,7 @@ function pack(graph, ids, state) {
 
 function activate(ctx) {
   if (!ctx.workers?.register || !ctx.learning?.graph) fail('This app build does not provide the plugin capabilities required by Flashcards.');
-  const store = openStore(ctx.dataDirectory);
+  const store = openStore(ctx.dataDirectory, { localDirectory: ctx.localDataDirectory ?? null });
   const preflights = new Map(), tickets = new Map(), observers = new Map(), applicationErrors = new Map();
   let disposed = false, sourceCleanupError = null;
   const alive = () => { if (disposed || ctx.signal.aborted) fail('Flashcards is disabled.'); };

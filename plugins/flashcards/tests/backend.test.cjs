@@ -85,7 +85,7 @@ function harness(t, initialGraph = graph('p1')) {
   h.dispose = () => { for (const cleanup of cleanups.splice(0).reverse()) cleanup(); controller?.abort(); };
   h.activate = () => {
     h.dispose(); handlers = new Map(); controller = new AbortController();
-    activate({ dataDirectory: directory, signal: controller.signal,
+    activate({ dataDirectory: directory, ...(h.localDataDirectory ? { localDataDirectory: h.localDataDirectory } : {}), signal: controller.signal,
       workers: workers.service, learning: { graph: () => structuredClone(h.graph) },
       inference: { catalog: async () => { h.catalogReads++; return h.resolveCatalog ? h.resolveCatalog() : structuredClone(h.catalog); } },
       events: { emit() {} }, handle: (name, handler) => handlers.set(name, handler),
@@ -94,7 +94,14 @@ function harness(t, initialGraph = graph('p1')) {
   };
   h.call = async (name, input = {}) => { assert.ok(handlers.has(name), name); return handlers.get(name)(input); };
   h.state = () => handlers.get('get-state')({});
-  h.disk = () => JSON.parse(fs.readFileSync(path.join(directory, 'flashcards.json'), 'utf8'));
+  // flashcards.json plus every install's reviews (reviews/<install>.jsonl), in time order.
+  h.disk = () => {
+    const disk = JSON.parse(fs.readFileSync(path.join(directory, 'flashcards.json'), 'utf8'));
+    const dir = path.join(directory, 'reviews');
+    const reviews = fs.existsSync(dir) ? fs.readdirSync(dir).flatMap(n => fs.readFileSync(path.join(dir, n), 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l))) : [];
+    disk.reviews = disk.reviews ?? reviews.sort((a, b) => a.at - b.at || (a.id < b.id ? -1 : 1));
+    return disk;
+  };
   h.start = async (ids, requestId = randomUUID()) => {
     const plan = await h.call('preflight', { propositionIds: ids });
     await h.call('start-generation', { preflightId: plan.id, requestId });
@@ -1232,4 +1239,28 @@ test('settings validate atomically and model resolution fails explicitly without
   await assert.rejects(h.call('preflight', { propositionIds: ['p1'] }), /Configure the cheap model slot/);
   assert.equal(h.workers.starts, 0);
   assert.deepEqual(h.state().propositions, []);
+});
+
+test('the daily new-card limit counts every install, and model choices stay on their device', async t => {
+  const h = harness(t, graph('p1', 'p2', 'p3'));
+  h.localDataDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'flashcards-local-a-'));
+  t.after(() => fs.rmSync(h.localDataDirectory, { recursive: true, force: true }));
+  h.activate();
+  await h.generate(cards('p1', 'Q1'), cards('p2', 'Q2'), cards('p3', 'Q3'));
+  const deckId = h.state().decks[0].id;
+  await h.call('save-settings', { modelOverride: { provider: 'mock', id: 'cheap' } });
+  const { ticket } = await h.call('next-review');
+  await h.call('reveal-review', { ticketId: ticket.id });
+  await h.call('rate-review', { ticketId: ticket.id, rating: 3, requestId: 'device-a' });
+  // A second device on the synced folder: its own install id and settings.
+  const localB = fs.mkdtempSync(path.join(os.tmpdir(), 'flashcards-local-b-'));
+  t.after(() => fs.rmSync(localB, { recursive: true, force: true }));
+  h.localDataDirectory = localB; h.activate();
+  assert.equal(h.state().decks.find(d => d.id === deckId).newToday, 1, 'the introduction on device a counts on device b');
+  assert.equal(h.state().settings.modelOverride, null, 'device a\'s model choice is not device b\'s');
+  const next = await h.call('next-review');
+  await h.call('reveal-review', { ticketId: next.ticket.id });
+  await h.call('rate-review', { ticketId: next.ticket.id, rating: 3, requestId: 'device-b' });
+  assert.equal(fs.readdirSync(path.join(h.directory, 'reviews')).length, 2, 'one review file per install');
+  assert.equal(h.state().decks.find(d => d.id === deckId).newToday, 2);
 });

@@ -6,6 +6,12 @@ A Core LearnHarness plugin: generate fact-recall cues from your graph or uploade
 
 Enable Flashcards in **Settings → Core plugins**. The app supplies and updates its code;
 its writable records live under `<learning data>/core-plugin-data/flashcards/`.
+Decks, cards and schedules are in `flashcards.json`; each installation appends its review
+ratings to its own `reviews/<install id>.jsonl`, and the schedules are rebuilt from all of
+them, in time order and with the current settings, whenever Flashcards starts. So two
+devices that share the data folder never overwrite each other's reviews, and the daily
+new-card limit counts the reviews of every device. The install id and the model and
+thinking choices stay on the device, in `ctx.localDataDirectory`.
 This source project is reference material, not an installable Community copy:
 `flashcards` is a reserved Core ID even when the Core plugin is disabled or missing.
 A Community fork needs its own manifest/folder ID and a review of contribution, tool
