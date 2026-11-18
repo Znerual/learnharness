@@ -10,6 +10,7 @@ The server and the other devices of an account are not trusted to send sane data
 - Pull: a page of changes must move the cursor forward (`checkChangesPage`); a record that does not decrypt or is malformed is refused and counted in `SyncStatus.rejected` instead of stopping every later pull. Network and disk failures still stop the pull.
 - Documents: a path syncs only when every name in it can be created on every system (`isPortableName`: no control characters, no characters Windows forbids, no Windows device name, no leading dot, no trailing dot or space, at most 200 bytes).
 - Plugin sync: registry and index entries from other devices are validated (`parseRegistry`, `parseIndex`): at most 1,000 plugins, 10,000 files per plugin and 10,000 slots between a file's full slot and its head.
+- Plugin sync, receiving: a slot from another device is kept only within the plugin's limits (file size, number of files), when this device's own exclusion rules accept the file (`PluginFilesHost.acceptsPluginFile`), and while fewer than 1,000 slots of that file (20,000 in all) wait for their predecessors (vault finding H-021).
 - Merge: bounded memory for the sequence matcher (64 MiB), arrays merge by id up to 5,000 elements, JSON nesting up to 64 levels; beyond that the remote version is taken and the file is reported as a conflict. A key named `__proto__` stays a key.
 
 ## 0.3.0 (unreleased)

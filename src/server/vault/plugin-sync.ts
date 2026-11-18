@@ -229,6 +229,15 @@ export function createPluginSync(deps: PluginSyncDeps) {
 			return result;
 		},
 
+		async acceptsPluginFile(p, rel) {
+			// The same rule as listPluginFiles: what this device would not send, it does not take.
+			const exclude = (await infoOf(p.id))?.manifest?.sync?.exclude;
+			if (rel.split("/").some((name) => name.startsWith(".") || name.endsWith(".tmp"))) return false;
+			const parts = rel.split("/");
+			for (let i = 1; i < parts.length; i++) if (isSyncExcluded(`${parts.slice(0, i).join("/")}/`, exclude) || isSyncExcluded(parts.slice(0, i).join("/"), exclude)) return false;
+			return !isSyncExcluded(rel, exclude);
+		},
+
 		async writePluginConflict(p, rel, data) {
 			const d = (deps.now?.() ?? new Date()).toISOString().replace(/[-:]/g, "").replace("T", "-").slice(0, 15);
 			const file = join(deps.localDir, "conflicts", "plugins", p.origin, p.id, `${rel}.${d}`);

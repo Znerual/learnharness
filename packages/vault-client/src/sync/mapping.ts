@@ -60,7 +60,6 @@ const WINDOWS_DEVICE_RE = /^(con|prn|aux|nul|conin\$|conout\$|com[0-9¹²³]|lpt
  */
 export function isPortableName(name: string): boolean {
 	if (!name || name.startsWith(".") || /[. ]$/.test(name)) return false;
-	// eslint-disable-next-line no-control-regex
 	if (/[\u0000-\u001f\u007f<>:"|?*\\/]/.test(name)) return false;
 	if (new TextEncoder().encode(name).length > 200) return false;
 	return !WINDOWS_DEVICE_RE.test(name);

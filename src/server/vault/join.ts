@@ -57,8 +57,9 @@ export async function fetchOwnLedgerBytes(vault: Vault, deviceId: string): Promi
 			if (sha256Hex(env) !== c.sha256) throw new Error(`blob ${c.sha256} does not match its hash`);
 			const { header, body } = vaultCrypto.decryptRecord(keys.accountId, keys.ik, c.recordId, "seg", env, (e: number) => vaultCrypto.vaultKeyFor(keys, e));
 			if (header.kind !== "seg") continue;
-			const m = /^ledger\/([a-z][a-z0-9_-]*)\/(dev_[a-z0-9]{8})\/\d{12}$/.exec(header.path);
-			if (!m || m[2] !== deviceId) continue;
+			const m = /^ledger\/([a-z][a-z0-9_-]*)\/(dev_[a-z0-9]{8})\/(\d{12})$/.exec(header.path);
+			// The offset in the path and the offset in the header must agree, as the sync engine requires.
+			if (!m || m[2] !== deviceId || Number(m[3]) !== header.offset) continue;
 			const file = `graph/${m[1]}.${deviceId}.jsonl`;
 			parts.set(file, [...(parts.get(file) ?? []), { offset: header.offset, body }]);
 		}

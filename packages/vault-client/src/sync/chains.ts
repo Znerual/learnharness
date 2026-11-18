@@ -71,6 +71,12 @@ export interface PluginFilesHost {
 	pluginBusy?(p: PluginRef): boolean | Promise<boolean>;
 	/** Stores a device-local conflict copy of a plugin file; it never syncs. */
 	writePluginConflict(p: PluginRef, rel: string, data: Uint8Array): Promise<void>;
+	/**
+	 * False for a file this device's rules keep out of sync (the plugin manifest's `sync.exclude`).
+	 * The sender applies its own rules when it lists files; the receiver applies its own here, so
+	 * another device cannot write a file that this device would never have sent (ADR 0007).
+	 */
+	acceptsPluginFile?(p: PluginRef, rel: string): boolean | Promise<boolean>;
 }
 
 export const DEFAULT_LIMITS: Record<PluginOrigin, PluginLimits> = {
@@ -92,6 +98,9 @@ const PUSH_INTERVAL_MS = 60_000;
 const HISTORY_DAYS = 90;
 const DAY_MS = 86_400_000;
 const MAX_META_BYTES = 8 << 20;
+/** Slots that may wait for their predecessors: per chain, and for all chains together. */
+export const MAX_PENDING_PER_CHAIN = 1000;
+export const MAX_PENDING_TOTAL = 20_000;
 
 /** Throws unless `rel` is a syncable plugin file path (ADR 0007). */
 export function isSyncablePluginPath(rel: string): boolean {
@@ -383,6 +392,13 @@ export class ChainSync {
 			this.statusValue.refused++;
 			return;
 		}
+		// Limits on what another device can make this one keep (ADR 0007). The sender checks them
+		// before it pushes; a device that was taken over does not, so the receiver checks again
+		// before anything is written.
+		if (!(await this.withinReceiveLimits(parsed, chain.size, body.length))) {
+			this.statusValue.refused++;
+			return;
+		}
 		const known = this.chainHead(parsed);
 		if (known && (known.slots.some((s) => s.slot === parsed.slot) || (parsed.slot <= known.head && !known.deleted))) {
 			// Already applied (our own write or seen before): remember its seq.
@@ -397,6 +413,24 @@ export class ChainSync {
 			chain: parsed.chain, slot: parsed.slot, seq: c.seq, at, type: chain.type, size: chain.size, sha256: chain.sha256,
 			...(chain.type === "delta" ? { baseSha256: chain.baseSha256 } : {}), recordId: c.recordId,
 		});
+	}
+
+	/** The receive-side checks of `receive`: size, the device's own exclusion rules, file count, pending slots. */
+	private async withinReceiveLimits(parsed: ParsedSlot, declaredSize: number, bodyBytes: number): Promise<boolean> {
+		if (parsed.kind !== "file") return declaredSize <= MAX_META_BYTES && bodyBytes <= MAX_META_BYTES;
+		const limits = (await this.activePlugin(parsed.plugin))?.limits ?? DEFAULT_LIMITS[parsed.plugin.origin];
+		if (declaredSize > limits.maxFileBytes || bodyBytes > limits.maxFileBytes) return false;
+		if (this.o.host.acceptsPluginFile && !(await this.o.host.acceptsPluginFile(parsed.plugin, parsed.rel))) return false;
+		const pendingOfChain = this.state.pending.filter((p) => p.chain === parsed.chain).length;
+		if (pendingOfChain >= MAX_PENDING_PER_CHAIN || this.state.pending.length >= MAX_PENDING_TOTAL) return false;
+		// A file this device does not know yet counts against the plugin's file limit.
+		if (!this.state.files[parsed.chain]) {
+			const prefix = `pf/${parsed.plugin.origin}/${parsed.plugin.id}/`;
+			const chains = new Set(Object.entries(this.state.files).filter(([c, f]) => c.startsWith(prefix) && !f.deleted).map(([c]) => c));
+			for (const p of this.state.pending) if (p.chain.startsWith(prefix)) chains.add(p.chain);
+			if (!chains.has(parsed.chain) && chains.size >= limits.maxFiles) return false;
+		}
+		return true;
 	}
 
 	private chainHead(p: ParsedSlot): ChainHead | undefined {
@@ -466,13 +500,26 @@ export class ChainSync {
 		if (cur && content === null) cur = undefined; // the shadow is gone: start again from a full slot
 		let changed = false;
 		const used: PendingSlot[] = [];
+		const usedSet = new Set<PendingSlot>();
+		const bySlot = new Map(pending.map((x) => [x.slot, x] as const));
 		for (;;) {
 			const nextSlot = cur ? cur.head + 1 : -1;
-			let p = pending.find((x) => x.slot === nextSlot && !used.includes(x));
-			const fulls = pending.filter((x) => x.type === "full" && (!cur || x.slot > cur.head) && !used.includes(x));
-			if (!p && fulls.length > 0) p = fulls[fulls.length - 1];
+			const next = bySlot.get(nextSlot);
+			let p = next && !usedSet.has(next) ? next : undefined;
+			if (!p) {
+				// The newest full slot after the head that was not tried yet (pending is sorted by slot).
+				for (let i = pending.length - 1; i >= 0; i--) {
+					const x = pending[i] as PendingSlot;
+					if (cur && x.slot <= cur.head) break;
+					if (x.type === "full" && !usedSet.has(x)) {
+						p = x;
+						break;
+					}
+				}
+			}
 			if (!p) break;
 			used.push(p);
+			usedSet.add(p);
 			let body: Uint8Array;
 			try {
 				body = new Uint8Array(await readFile(this.pendingPath(p.recordId)));
