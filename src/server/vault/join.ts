@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
-import { crypto as vaultCrypto, parseLedgerFile, type ChangesResponse, type SyncEngine, type SyncReport, type Vault } from "@znerual/learnharness-vault-client";
+import { checkChangesPage, crypto as vaultCrypto, parseLedgerFile, type ChangesResponse, type SyncEngine, type SyncReport, type Vault } from "@znerual/learnharness-vault-client";
 
 import type { LearnHarnessHost } from "./host.ts";
 
@@ -48,6 +48,7 @@ export async function fetchOwnLedgerBytes(vault: Vault, deviceId: string): Promi
 	let since = 0;
 	for (;;) {
 		const ch = (await vault.api.get(`/v1/changes?since=${since}&limit=500`, vault.auth())) as ChangesResponse;
+		checkChangesPage(ch, since);
 		if (ch.generation !== vault.keys.generation) await vault.refreshKeys();
 		for (const c of ch.changes) {
 			if (c.kind !== "seg") continue;

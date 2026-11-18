@@ -152,3 +152,50 @@ describe("text and binary", () => {
 		assert.deepEqual(both.conflicts, ["(file)"]);
 	});
 });
+
+describe("merging hostile input stays bounded", () => {
+	test("deeply nested JSON falls back to the remote version with a conflict", () => {
+		const deep = (leaf: string, n: number) => "[".repeat(n) + JSON.stringify(leaf) + "]".repeat(n);
+		const res = merge3(enc.encode(deep("b", 3000)), enc.encode(deep("l", 3000)), enc.encode(deep("r", 3000)), "json");
+		assert.equal(dec.decode(res.merged), deep("r", 3000));
+		assert.ok(res.conflicts.length > 0);
+		const objects = (leaf: string, n: number) => '{"a":'.repeat(n) + JSON.stringify(leaf) + "}".repeat(n);
+		const res2 = merge3(enc.encode(objects("b", 200)), enc.encode(objects("l", 200)), enc.encode(objects("r", 200)), "json");
+		assert.equal(dec.decode(res2.merged), objects("r", 200));
+		assert.ok(res2.conflicts.length > 0);
+	});
+
+	test("a key named __proto__ stays a key of the merged file", () => {
+		const base = '{"a":1}';
+		const local = '{"a":1,"x":2}';
+		const remote = '{"a":1,"__proto__":{"polluted":true}}';
+		const res = merge3(enc.encode(base), enc.encode(local), enc.encode(remote), "json");
+		const text = dec.decode(res.merged);
+		assert.ok(text.includes('"__proto__"'), text);
+		assert.ok(text.includes('"x":2'), text);
+		assert.equal(({} as Record<string, unknown>)["polluted"], undefined);
+	});
+
+	test("two large files that differ everywhere do not exhaust memory or time", () => {
+		const lines = (tag: string) => enc.encode(Array.from({ length: 150_000 }, (_, i) => `${tag}${i}`).join("\n") + "\n");
+		const t0 = Date.now();
+		const res = merge3(lines("b"), lines("l"), lines("r"), "text");
+		assert.ok(Date.now() - t0 < 20_000, "bounded time");
+		assert.ok(res.conflicts.length > 0);
+		assert.ok(res.merged.length > 0);
+	});
+
+	test("a large array of ids merges in bounded time", () => {
+		const arr = (n: number, extra: string) => Array.from({ length: n }, (_, i) => ({ id: `${extra}${i}` }));
+		const t0 = Date.now();
+		const res = merge3(j(arr(10, "b")), j(arr(40_000, "l")), j(arr(40_000, "r")), "json");
+		assert.ok(Date.now() - t0 < 20_000, "bounded time");
+		assert.ok(res.merged.length > 0);
+	});
+
+	test("matchSequences gives up instead of growing its trace without bound", () => {
+		const a = Array.from({ length: 300_000 }, (_, i) => i);
+		const b = Array.from({ length: 300_000 }, (_, i) => i + 1_000_000);
+		assert.equal(matchSequences(a, b), null);
+	});
+});

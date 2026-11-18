@@ -40,14 +40,23 @@ function bytesEq(a: Uint8Array | null, b: Uint8Array | null): boolean {
 export function merge3(base: Uint8Array | null, local: Uint8Array, remote: Uint8Array, kind: MergeKind): MergeResult {
 	if (bytesEq(local, remote) || bytesEq(base, remote)) return { merged: local, conflicts: [] };
 	if (bytesEq(base, local)) return { merged: remote, conflicts: [] };
-	if (kind === "json") {
-		const r = mergeJsonBytes(base, local, remote);
-		if (r) return r;
-		return mergeTextBytes(base, local, remote);
+	// The remote version comes from another device of the account, and a device that was taken over
+	// can send any bytes. A merge never fails and never runs away on them: when a file is too large
+	// or too deeply nested to merge within the bounds below, the remote version is taken whole and
+	// the file is reported as a conflict, so the caller keeps the local version as a conflict copy.
+	try {
+		if (kind === "json") return mergeJsonBytes(base, local, remote) ?? mergeTextBytes(base, local, remote);
+		if (kind === "text") return mergeTextBytes(base, local, remote);
+	} catch {
+		// A stack overflow from deep nesting, or an allocation that failed.
 	}
-	if (kind === "text") return mergeTextBytes(base, local, remote);
 	return { merged: remote, conflicts: ["(file)"] };
 }
+
+/** Memory the matcher may use for its trace, and elements an array merged by id may hold. */
+const MAX_TRACE_BYTES = 64 << 20;
+const MAX_ID_ELEMENTS = 5000;
+const MAX_JSON_DEPTH = 64;
 
 // ---------------------------------------------------------------- sequences (diff3)
 
@@ -76,6 +85,9 @@ export function matchSequences(a: readonly number[], b: readonly number[], maxD 
 		const trace: Int32Array[] = [];
 		let found = -1;
 		for (let d = 0; d <= Math.min(max, maxD); d++) {
+			// One copy of v per step: maxD bounds the time, this bounds the memory (two files of
+			// 200,000 lines each would otherwise need gigabytes before maxD stops the search).
+			if ((trace.length + 1) * v.byteLength > MAX_TRACE_BYTES) return null;
 			trace.push(v.slice());
 			for (let k = -d; k <= d; k += 2) {
 				let x = k === -d || (k !== d && (v[off + k - 1] as number) < (v[off + k + 1] as number)) ? (v[off + k + 1] as number) : (v[off + k - 1] as number) + 1;
@@ -267,36 +279,42 @@ function pointer(path: string, key: string): string {
 	return `${path}/${key.replace(/~/g, "~0").replace(/\//g, "~1")}`;
 }
 
-function mergeValue(b: Slot, l: Slot, r: Slot, path: string, conflicts: string[]): Slot {
+function mergeValue(b: Slot, l: Slot, r: Slot, path: string, conflicts: string[], depth = 0): Slot {
+	if (depth > MAX_JSON_DEPTH) throw new RangeError("JSON nested too deeply to merge");
 	if (eq(l, r)) return l;
 	if (eq(b, l)) return r;
 	if (eq(b, r)) return l;
 	// Deleted on one side, changed on the other: the change wins.
 	if (l === ABSENT) return r;
 	if (r === ABSENT) return l;
-	if (isObject(l) && isObject(r)) return mergeObject(isObject(b) ? b : {}, l, r, path, conflicts);
+	if (isObject(l) && isObject(r)) return mergeObject(isObject(b) ? b : {}, l, r, path, conflicts, depth);
 	if (Array.isArray(l) && Array.isArray(r)) {
 		const ba = Array.isArray(b) ? b : [];
-		if (idKeyed(ba, l, r)) return mergeById(ba, l, r, path, conflicts);
+		// Merging by id places every element by searching the order built so far. Larger arrays
+		// merge as sequences, which is bounded.
+		if (ba.length + l.length + r.length <= MAX_ID_ELEMENTS && idKeyed(ba, l, r)) return mergeById(ba, l, r, path, conflicts, depth);
 		return mergeSequence(ba, l, r, canon, path || "/", conflicts);
 	}
 	conflicts.push(path || "/");
 	return r;
 }
 
-function mergeObject(b: { [k: string]: Json }, l: { [k: string]: Json }, r: { [k: string]: Json }, path: string, conflicts: string[]): { [k: string]: Json } {
+function mergeObject(b: { [k: string]: Json }, l: { [k: string]: Json }, r: { [k: string]: Json }, path: string, conflicts: string[], depth: number): { [k: string]: Json } {
 	const keys = [...Object.keys(r), ...Object.keys(l).filter((k) => !Object.hasOwn(r, k))];
-	for (const k of Object.keys(b)) if (!keys.includes(k)) keys.push(k);
+	const have = new Set(keys);
+	for (const k of Object.keys(b)) if (!have.has(k)) keys.push(k);
 	const out: { [k: string]: Json } = {};
 	for (const k of keys) {
-		const v = mergeValue(Object.hasOwn(b, k) ? (b[k] as Json) : ABSENT, Object.hasOwn(l, k) ? (l[k] as Json) : ABSENT, Object.hasOwn(r, k) ? (r[k] as Json) : ABSENT, pointer(path, k), conflicts);
-		if (v !== ABSENT) out[k] = v;
+		const v = mergeValue(Object.hasOwn(b, k) ? (b[k] as Json) : ABSENT, Object.hasOwn(l, k) ? (l[k] as Json) : ABSENT, Object.hasOwn(r, k) ? (r[k] as Json) : ABSENT, pointer(path, k), conflicts, depth + 1);
+		// defineProperty, not assignment: a key named "__proto__" must stay a plain key of the
+		// merged file (JSON.parse makes it one), not become the object's prototype.
+		if (v !== ABSENT) Object.defineProperty(out, k, { value: v, enumerable: true, writable: true, configurable: true });
 	}
 	return out;
 }
 
 /** Arrays of objects with unique string ids: a set by id, in remote order, then local-only elements in local order. */
-function mergeById(b: Json[], l: Json[], r: Json[], path: string, conflicts: string[]): Json[] {
+function mergeById(b: Json[], l: Json[], r: Json[], path: string, conflicts: string[], depth: number): Json[] {
 	const byId = (arr: Json[]) => new Map(arr.map((e) => [(e as { id: string }).id, e]));
 	const bm = byId(b);
 	const lm = byId(l);
@@ -319,7 +337,7 @@ function mergeById(b: Json[], l: Json[], r: Json[], path: string, conflicts: str
 	for (const idv of bm.keys()) if (!order.includes(idv)) order.push(idv);
 	const out: Json[] = [];
 	for (const idv of order) {
-		const v = mergeValue(bm.has(idv) ? (bm.get(idv) as Json) : ABSENT, lm.has(idv) ? (lm.get(idv) as Json) : ABSENT, rm.has(idv) ? (rm.get(idv) as Json) : ABSENT, pointer(path, idv), conflicts);
+		const v = mergeValue(bm.has(idv) ? (bm.get(idv) as Json) : ABSENT, lm.has(idv) ? (lm.get(idv) as Json) : ABSENT, rm.has(idv) ? (rm.get(idv) as Json) : ABSENT, pointer(path, idv), conflicts, depth + 1);
 		if (v !== ABSENT) out.push(v as Json);
 	}
 	return out;

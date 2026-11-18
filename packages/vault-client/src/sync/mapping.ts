@@ -45,7 +45,25 @@ const PROMPT_FILE_RE = /^prompts\/(?:[A-Za-z0-9_-]+\/)*[A-Za-z0-9_.-]+\.(?:md|js
 /** Document files that sync (ADR 0007 table). Device-local files under local/ never sync. */
 export function isDocumentPath(path: string): boolean {
 	if (path.startsWith("local/") || path.includes(".sync-conflict-")) return false;
+	if (!path.split("/").every(isPortableName)) return false;
 	return /^chats\/[^/]+\.json$/.test(path) || /^jobs\/[^/]+\.json$/.test(path) || path === "graph/sources.json" || path === "graph/format.json" || PROMPT_FILE_RE.test(path);
+}
+
+const WINDOWS_DEVICE_RE = /^(con|prn|aux|nul|conin\$|conout\$|com[0-9¹²³]|lpt[0-9¹²³])(\..*)?$/i;
+
+/**
+ * A file or folder name that every device can create: no control characters, none of the characters
+ * Windows forbids, no Windows device name, no leading dot, no trailing dot or space, at most 200
+ * bytes. Record paths come from other devices of the account. A name this device cannot write
+ * would fail on every sync and stop the pull for good, and on Windows a name such as "nul.json" or
+ * "x.json:stream" opens a device or an alternate data stream instead of a file.
+ */
+export function isPortableName(name: string): boolean {
+	if (!name || name.startsWith(".") || /[. ]$/.test(name)) return false;
+	// eslint-disable-next-line no-control-regex
+	if (/[\u0000-\u001f\u007f<>:"|?*\\/]/.test(name)) return false;
+	if (new TextEncoder().encode(name).length > 200) return false;
+	return !WINDOWS_DEVICE_RE.test(name);
 }
 
 function stamp(d: Date): { date: string; time: string } {

@@ -455,14 +455,27 @@ export class SyncEngine {
 		const appliedChanges: AppliedChange[] = [];
 		const pendingDocs = new Set(this.outbox.filter((e) => e.t === "doc").map((e) => (e as { p: string }).p));
 		for (;;) {
-			const ch = await this.fetchChanges(this.state.lastSeq);
+			const since = this.state.lastSeq;
+			const ch = await this.fetchChanges(since);
+			checkChangesPage(ch, since);
 			if (ch.generation !== vault.keys.generation) await vault.refreshKeys();
 			for (const c of ch.changes) {
 				if (this.chains && (await this.chains.skipWithoutDownload(c))) {
 					this.skip();
 					continue;
 				}
-				const a = await this.applyChange(c, pendingDocs);
+				let a: AppliedChange | null;
+				try {
+					a = await this.applyChange(c, pendingDocs);
+				} catch (e) {
+					// A record that does not decrypt or is malformed stays that way: retrying it on every
+					// sync would stop this device from ever pulling anything after it. It is refused,
+					// reported, and the pull goes on. Failures that may pass (network, disk) still stop
+					// the pull, so nothing is skipped because of them.
+					if (!(e instanceof ProtocolError)) throw e;
+					this.reject(`record ${String(c.recordId).slice(0, 12)} was refused: ${e.message}`);
+					continue;
+				}
 				if (a) {
 					appliedChanges.push(a);
 					applied++;
@@ -906,3 +919,15 @@ export class SyncEngine {
 }
 
 export { toHex };
+
+/**
+ * Checks one page of GET /v1/changes before the pull trusts it. The server is not trusted: a page
+ * that says "more" without moving the cursor forward would make the pull loop forever, and a
+ * cursor that moves backwards would make it apply the same records again and again.
+ */
+export function checkChangesPage(ch: ChangesResponse, since: number): void {
+	if (!ch || !Array.isArray(ch.changes) || !Number.isSafeInteger(ch.cursor)) throw new Error("the vault server sent a malformed change list");
+	if (ch.changes.length > 1000) throw new Error("the vault server sent more changes than a page holds");
+	if (ch.cursor < since) throw new Error("the vault server moved the change cursor backwards");
+	if (ch.more && ch.cursor <= since) throw new Error("the vault server did not move the change cursor forward");
+}

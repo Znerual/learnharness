@@ -35,3 +35,13 @@ describe("isDocumentPath", () => {
 		for (const p of ["chats/chat_a.sync-conflict-20261101-101010-dev_aaaaaaaa.json", "graph/source-organization.json", "chats/a.json.tmp-x"]) assert.ok(!isDocumentPath(p), p);
 	});
 });
+
+describe("names every device can write", () => {
+	test("refuses names that fail or mean something else on some system", () => {
+		for (const p of ["chats/nul.json", "chats/CON.json", "jobs/com1.json", "chats/a:b.json", "chats/a\u0000.json", "chats/a\nb.json", "chats/.hidden.json",
+			"chats/a?.json", "chats/a*.json", "chats/a\\b.json", `chats/${"x".repeat(250)}.json`, "prompts/aux.md", "prompts/nul/a.md"])
+			assert.ok(!isDocumentPath(p), JSON.stringify(p));
+		for (const p of ["chats/chat_a.json", "chats/2026-11-18 Über Graphen.json", "chats/console.json", "jobs/job-1.json", "prompts/teacher/20-teaching.md"])
+			assert.ok(isDocumentPath(p), p);
+	});
+});

@@ -314,11 +314,11 @@ export class ChainSync {
 	// ---------------------------------------------------------------- registry and indexes
 
 	async registry(): Promise<RegistryEntry[]> {
-		return parseJsonl<RegistryEntry>(await this.readShadow(REGISTRY));
+		return parseRegistry(await this.readShadow(REGISTRY));
 	}
 
 	async index(p: PluginRef): Promise<IndexEntry[]> {
-		return parseJsonl<IndexEntry>(await this.readShadow(indexChain(p)));
+		return parseIndex(await this.readShadow(indexChain(p)));
 	}
 
 	private async buildIndex(p: PluginRef): Promise<Uint8Array> {
@@ -952,6 +952,54 @@ export class ChainSync {
 		}
 		return accepted;
 	}
+}
+
+// The registry and the indexes are written by other devices of the account. A device that was
+// taken over holds valid keys, so these files decrypt and authenticate and can still say anything.
+// Their numbers drive loops (one record id, or one request, per slot between `full` and `head`), so
+// an entry such as {"full":1,"head":4000000000} would hang or exhaust every device that reads it,
+// on every sync. Entries that are not what an honest device writes are dropped.
+
+/** Plugins a registry may list, files an index may list, and slots one file may span. */
+export const MAX_REGISTRY_ENTRIES = 1000;
+export const MAX_INDEX_ENTRIES = 10_000;
+export const MAX_SLOT_SPAN = 10_000;
+const MAX_SLOT = 10 ** SLOT_DIGITS - 1 - PREDICT;
+const SHA_RE = /^[0-9a-f]{64}$/;
+
+const isCount = (v: unknown, min: number, max: number): v is number => typeof v === "number" && Number.isSafeInteger(v) && v >= min && v <= max;
+
+export function parseIndex(b: Uint8Array | null): IndexEntry[] {
+	const out: IndexEntry[] = [];
+	const seen = new Set<string>();
+	for (const e of parseJsonl<Record<string, unknown> | null>(b)) {
+		if (out.length >= MAX_INDEX_ENTRIES) break;
+		if (!e || typeof e !== "object" || Array.isArray(e)) continue;
+		const { path, full, head, size, sha256 } = e;
+		if (typeof path !== "string" || !isSyncablePluginPath(path) || seen.has(path)) continue;
+		if (!isCount(full, 1, MAX_SLOT) || !isCount(head, full, MAX_SLOT) || head - full > MAX_SLOT_SPAN) continue;
+		if (!isCount(size, 0, MAX_META_BYTES * 4) || typeof sha256 !== "string" || !SHA_RE.test(sha256)) continue;
+		seen.add(path);
+		out.push({ path, full, head, size, sha256 });
+	}
+	return out;
+}
+
+export function parseRegistry(b: Uint8Array | null): RegistryEntry[] {
+	const out: RegistryEntry[] = [];
+	const seen = new Set<string>();
+	for (const e of parseJsonl<Record<string, unknown> | null>(b)) {
+		if (out.length >= MAX_REGISTRY_ENTRIES) break;
+		if (!e || typeof e !== "object" || Array.isArray(e)) continue;
+		const { origin, id, name, source } = e;
+		if ((origin !== "core" && origin !== "community") || typeof id !== "string" || id.length > 128 || !PLUGIN_ID_RE.test(id)) continue;
+		if (typeof name !== "string" || name.length > 200 || typeof source !== "string" || source.length > 2000) continue;
+		const key = `${origin}/${id}`;
+		if (seen.has(key)) continue;
+		seen.add(key);
+		out.push({ origin, id, name, source });
+	}
+	return out;
 }
 
 function parseJsonl<T>(b: Uint8Array | null): T[] {
