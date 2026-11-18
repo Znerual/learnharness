@@ -4,6 +4,7 @@
 import { mkdir, open, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join, relative, sep } from "node:path";
 
+import type { PluginFilesHost } from "./chains.ts";
 import { writeFileAtomic } from "./fsutil.ts";
 
 export interface AppliedChange {
@@ -31,6 +32,8 @@ export interface SyncHost {
 	listFiles?(): Promise<string[]>;
 	/** Called after a pull applied changes, so open views refresh (ADR 0007). */
 	applied?(changes: AppliedChange[]): void;
+	/** Plugin data folders that sync as delta chains (ADR 0014). Without it, plugin records are skipped. */
+	plugins?: PluginFilesHost;
 }
 
 function safeJoin(root: string, path: string): string {

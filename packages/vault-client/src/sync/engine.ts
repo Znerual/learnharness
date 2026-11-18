@@ -13,6 +13,7 @@ import type { ChangeRow, ChangesResponse, WriteMeta, WriteResult } from "../api/
 import { bytesEqual, decryptRecord, encryptRecord, type RecordHeader, toHex, vaultKeyFor, ProtocolError } from "../crypto/index.ts";
 import type { Vault } from "../vault.ts";
 import { appendFsyncSync, appendSync, writeFileAtomic, writeFileAtomicSync } from "./fsutil.ts";
+import { ChainSync, type ChainStatus, parseSlotPath, type PluginRef } from "./chains.ts";
 import type { AppliedChange, SyncHost } from "./host.ts";
 import { conflictPath, isDocumentPath, parseLedgerFile, parseSegmentPath, segmentPath } from "./mapping.ts";
 
@@ -24,9 +25,9 @@ const POLL_MS = 60_000;
 /**
  * Sync features this client supports, reported to the server once per change of the list
  * (ADR 0014 rollout). `skip-unknown-1`: records at paths this client does not sync are skipped
- * quietly instead of reported as errors.
+ * quietly instead of reported as errors. `chains-1`: plugin files sync as delta chains (ADR 0014).
  */
-export const CLIENT_CAPABILITIES: readonly string[] = ["skip-unknown-1"];
+export const CLIENT_CAPABILITIES: readonly string[] = ["skip-unknown-1", "chains-1"];
 
 type OutboxEntry = { t: "doc"; p: string } | { t: "led"; f: string; o: number };
 
@@ -111,9 +112,17 @@ export class SyncEngine {
 	private stopped = true;
 	private backoffMs = 0;
 	private lock: Promise<void> = Promise.resolve();
+	private readonly chains: ChainSync | null;
+	private flushPlugins = false;
 
 	constructor(o: SyncEngineOptions) {
 		this.o = o;
+		this.chains = o.host.plugins
+			? new ChainSync({
+					vault: o.vault, host: o.host.plugins, stateDir: o.stateDir, deviceId: o.deviceId, now: () => this.now(),
+					openRecord: (c) => this.openRecord(c), onStatus: () => this.setStatus({}),
+				})
+			: null;
 	}
 
 	private get outboxPath(): string {
@@ -138,6 +147,7 @@ export class SyncEngine {
 			if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
 		}
 		this.outbox = await this.readOutbox();
+		await this.chains?.init();
 		this.statusValue = { ...this.statusValue, pendingChanges: this.outbox.length, lastSuccess: this.state.lastSuccess };
 	}
 
@@ -260,6 +270,48 @@ export class SyncEngine {
 		return { ...this.statusValue };
 	}
 
+	// ---------------------------------------------------------------- plugin data (ADR 0014)
+
+	/** Plugin sync status: plugins over a limit, merge conflict copies, refused slots. */
+	pluginStatus(): ChainStatus | null {
+		return this.chains?.status() ?? null;
+	}
+
+	/**
+	 * Brings a plugin that just became active up to date from the vault, in a sync cycle (its push
+	 * step fetches the files of every newly active plugin first). The host calls it before the
+	 * plugin's backend starts (LearnHarness ADR 0007); the host's activePlugins() must list it.
+	 */
+	async activatePlugin(_p: PluginRef): Promise<void> {
+		if (!this.chains) return;
+		this.chains.invalidate();
+		await this.sync();
+	}
+
+	/** A plugin was disabled: it stops syncing and keeps its local data and sync state. */
+	deactivatePlugin(_p: PluginRef): void {
+		this.chains?.invalidate();
+	}
+
+	/** A plugin was uninstalled or its sync turned off: its local sync state goes; the vault keeps its data. */
+	async forgetPlugin(p: PluginRef): Promise<void> {
+		const chains = this.chains;
+		if (!chains) return;
+		while (this.running) await this.running.catch(() => undefined);
+		await chains.forget(p);
+	}
+
+	/** The host's set of active plugins changed. */
+	pluginsChanged(): void {
+		this.chains?.invalidate();
+	}
+
+	/** Runs a cycle that pushes every changed plugin file, ignoring the per-file upload interval (shutdown). */
+	flushPluginFiles(): Promise<SyncReport> {
+		this.flushPlugins = true;
+		return this.sync();
+	}
+
 	private setStatus(s: Partial<SyncStatus>): void {
 		this.statusValue = { ...this.statusValue, ...s, pendingChanges: this.outbox.length, lastSuccess: this.state.lastSuccess };
 		this.o.onStatus?.(this.status());
@@ -316,7 +368,16 @@ export class SyncEngine {
 		try {
 			report.pulled += await this.pull();
 			await this.reportCapabilities();
-			const pushed = await this.push(report);
+			let pushed = await this.push(report);
+			if (this.chains) {
+				const flush = this.flushPlugins;
+				this.flushPlugins = false;
+				pushed += await this.chains.push(flush);
+				if (this.chains.needsCycle) {
+					this.chains.needsCycle = false;
+					this.again = true;
+				}
+			}
 			report.pushed += pushed;
 			if (pushed > 0) report.pulled += await this.pull();
 			this.state.lastSuccess = this.now().toISOString();
@@ -372,12 +433,17 @@ export class SyncEngine {
 			const ch = await this.fetchChanges(this.state.lastSeq);
 			if (ch.generation !== vault.keys.generation) await vault.refreshKeys();
 			for (const c of ch.changes) {
+				if (this.chains && (await this.chains.skipWithoutDownload(c))) {
+					this.skip();
+					continue;
+				}
 				const a = await this.applyChange(c, pendingDocs);
 				if (a) {
 					appliedChanges.push(a);
 					applied++;
 				}
 			}
+			await this.chains?.resolve();
 			this.state.lastSeq = ch.cursor;
 			await this.retryPendingSegments(appliedChanges);
 			await this.saveState();
@@ -397,6 +463,10 @@ export class SyncEngine {
 
 	private async applyChange(c: ChangeRow, pendingDocs: Set<string>): Promise<AppliedChange | null> {
 		const { header, body } = await this.openRecord(c);
+		if (header.kind === "doc" && this.chains && parseSlotPath(header.path)) {
+			await this.chains.receive(c, header, body);
+			return null;
+		}
 		if (header.kind === "doc") {
 			// A path this client does not sync was written by a newer client (for example plugin files,
 			// ADR 0014). The header authenticated it as this account's record, so it is skipped, not an error.

@@ -31,7 +31,7 @@ Plugins keep state in memory (Flashcards reads `flashcards.json` once in `openSt
 
 1. waits until the plugin has no running bridge operation and no live worker task (a long generation defers the apply until it ends);
 2. stops the plugin's backend through its normal cleanup;
-3. writes the files: inside `safePluginDataDirectory` only, path segments matching `[a-z0-9][a-z0-9._-]*`, at most three levels deep, no symlink on the path, temporary file opened exclusively and then renamed; JSON and JSONL must parse and text must be valid UTF-8, otherwise the record is refused and reported;
+3. writes the files: inside `safePluginDataDirectory` only, path segments matching `[A-Za-z0-9_][A-Za-z0-9._-]{0,127}`, at most three levels deep, no symlink on the path, temporary file opened exclusively and then renamed; JSON and JSONL must parse and text must be valid UTF-8, otherwise the record is refused and reported;
 4. starts the backend again and tells open plugin views to refresh.
 
 The receiver applies its own rules, not the sender's: a record is accepted only if its path is allowed by the receiver's installed manifest and the rules above. The plugin still checks its own format version, as Flashcards does ("Unsupported or invalid Flashcards data. No data was changed.").
@@ -43,7 +43,7 @@ A file is one record chain (ADR 0014). When two devices change the same file bef
 - JSON objects merge key by key. Arrays whose elements are all objects with a unique string `id` merge as sets by `id`, keeping order. Other arrays merge element by element; appends on both sides are both kept.
 - A key or element deleted on one device and changed on the other is kept with the change (as for sessions in ADR 0002).
 - The same value changed differently on both devices takes the vault's value. The local value is kept in a conflict copy, `local/conflicts/plugins/<origin>/<id>/<path>.<yyyymmdd>-<hhmmss>`, which Settings → Vault lists.
-- Text files (`md`, `txt`) merge by lines; overlapping changes are handled like the same value changed on both devices. Images take the vault's version.
+- Text files (`md`, `txt`, `jsonl`) merge by lines, like other arrays: lines inserted at the same place on both devices are both kept (the vault's first); other overlapping changes are handled like the same value changed on both devices. Images take the vault's version.
 - If the plugin refuses the merged file when it restarts (its format check throws or activation fails), the host writes the vault's version instead, keeps the local version as a conflict copy, and starts the plugin again.
 
 ## Device-local plugin data
