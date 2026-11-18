@@ -23,11 +23,12 @@ function compareVersions(a, b) {
 	return 0;
 }
 
-/** The changelog URL beside a generic update feed ("https://host/updates/" → "https://host/download/changelog.json"), or null. */
+/** The changelog URL beside a generic update feed ("https://host/updates/2/" → "https://host/download/changelog.json"), or null. */
 function changelogUrlFor(feed) {
 	if (typeof feed !== "string" || !/^https?:\/\//.test(feed)) return null;
 	try {
-		return new URL("../download/changelog.json", feed.endsWith("/") ? feed : `${feed}/`).toString();
+		// Absolute on the feed's host: the feed moved from /updates/ to /updates/2/, the changelog did not.
+		return new URL("/download/changelog.json", feed).toString();
 	} catch {
 		return null;
 	}

@@ -24,7 +24,7 @@ Parameters:
 Result in -Out: LearnHarness-<version>-x64-setup.exe, latest.yml and version.txt, the shape
 learnharness-vault's deploy/lan/release-vault-build.sh takes (--win-dir DIR). The installer goes to
 the download page as learnharness-windows.exe, and the installer with latest.yml to the update feed
-https://<host>/updates/, so installed apps update themselves.
+https://<host>/updates/2/, so installed apps update themselves.
 
 Needs: Windows x64, Node 26 with npm, git (and OpenSSH's scp for -CopyTo, built into Windows). The
 installer is not code-signed (electron-builder.yml): SmartScreen warns on the first install, and
@@ -125,13 +125,13 @@ Run node scripts/smoke-provider-runtime.mjs
 Run node scripts/build-server.mjs
 Run node scripts/smoke-server.mjs --electron
 
-Write-Host "== package (NSIS installer, not code-signed, update feed https://$VaultHost/updates/)"
+Write-Host "== package (NSIS installer, not code-signed, update feed https://$VaultHost/updates/2/)"
 # The packaged app reads learnharnessBuild from its package.json (electron/main.cjs); extraMetadata
 # sets it there without touching the checkout, as release-vault-build.sh does for Linux.
 Run npx electron-builder --win nsis --x64 --publish never `
 	"-c.extraMetadata.version=$Version" `
 	"-c.extraMetadata.learnharnessBuild.vaultUrl=https://$VaultHost" `
-	"-c.extraMetadata.learnharnessBuild.updateFeed=https://$VaultHost/updates/"
+	"-c.extraMetadata.learnharnessBuild.updateFeed=https://$VaultHost/updates/2/"
 
 $unpacked = "dist\win-unpacked"
 Run node scripts/smoke-provider-runtime.mjs --standalone "$unpacked\resources\server\standalone"
@@ -146,7 +146,7 @@ try { Run npx --yes "@electron/asar@3.4.1" extract-file $asar package.json } fin
 $env:PACKAGED = Join-Path $check "package.json"
 $env:VERSION = $Version
 $env:VAULT_URL = "https://$VaultHost"
-$env:UPDATE_FEED = "https://$VaultHost/updates/"
+$env:UPDATE_FEED = "https://$VaultHost/updates/2/"
 # The check runs from a file: Windows PowerShell 5.1 drops the double quotes of a native argument.
 $checkScript = Join-Path $check "check.cjs"
 Write-Utf8 $checkScript @'

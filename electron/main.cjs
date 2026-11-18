@@ -33,6 +33,7 @@ const { attachSubscriptionChild, subscriptionControl } = require("./subscription
 const { flushVault } = require("./vault-flush.cjs");
 const { createKeyStorageService, attachKeyStorageChild } = require("./keystorage-main.cjs");
 const { changelogUrlFor, fetchChanges } = require("./changelog.cjs");
+const { findSuccessor, startSuccessor } = require("./identity-handover.cjs");
 const { passkeyHost, createPasskeyCeremony, attachPasskeyChild } = require("./passkey-window.cjs");
 const { desktopAPIHeaders } = require("./desktop-api.cjs");
 const { openWebSubscriptionBrowser } = require("./web-subscription-browser.cjs");
@@ -157,7 +158,9 @@ if (process.argv.includes("--browser-service")) {
 	// The whole normal boot — lock included — lives in this else: a helper is
 	// a SECOND instance of this very binary on purpose (the running app owns
 	// the lock), so it must never reach this check.
-	if (!app.requestSingleInstanceLock()) {
+	if (handOverToSuccessor()) {
+		app.quit();
+	} else if (!app.requestSingleInstanceLock()) {
 		app.quit();
 	} else {
 		app.on("second-instance", () => {
@@ -168,6 +171,29 @@ if (process.argv.includes("--browser-service")) {
 			}
 		});
 		main();
+	}
+}
+
+/** The successor install ("LearnHarness Vault", electron/identity-handover.cjs) is on this machine:
+ * start it instead of this build. Packaged builds only; false on any failure, so this build boots.
+ * A function declaration: it runs from the boot branch above, before this line is reached. */
+function handOverToSuccessor() {
+	try {
+		if (!app.isPackaged || process.env.LH_DEV_URL) return false;
+		const successor = findSuccessor({
+			platform: process.platform,
+			env: process.env,
+			home: require("node:os").homedir(),
+			execPath: process.execPath,
+			exists: fs.existsSync,
+		});
+		if (!successor) return false;
+		const started = startSuccessor(successor, { spawn, env: process.env });
+		// log() appends to userData/logs; its own state is initialised later, so write to stdout only.
+		console.log(`[electron] handover: successor install at ${successor.file} ${started ? "started, this build quits" : "did not start, this build continues"}`);
+		return started;
+	} catch {
+		return false;
 	}
 }
 

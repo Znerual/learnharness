@@ -22,7 +22,7 @@ const releases = [
 describe("update changelog", () => {
 	it("lives beside the feed on the vault host; GitHub feeds have none", () => {
 		assert.equal(changelogUrlFor("https://learn-vault.ddns.net/updates/"), "https://learn-vault.ddns.net/download/changelog.json");
-		assert.equal(changelogUrlFor("https://learn-vault.ddns.net/updates"), "https://learn-vault.ddns.net/download/changelog.json");
+		assert.equal(changelogUrlFor("https://learn-vault.ddns.net/updates/2/"), "https://learn-vault.ddns.net/download/changelog.json");
 		assert.equal(changelogUrlFor(undefined), null);
 	});
 	it("picks the versions after the installed one, up to the offered one, newest first", () => {

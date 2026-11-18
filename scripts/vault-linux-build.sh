@@ -20,7 +20,7 @@
 #   --out DIR         where the result goes (default <checkout>/dist-vault)
 #   --deb             also build the .deb package (Debian, Ubuntu and derivatives)
 #   --no-updates      turn in-app updates off; without it the app updates itself from the vault
-#                     host's feed https://NAME/updates/, that is to the published builds
+#                     host's feed https://NAME/updates/2/, that is to the published builds
 #
 # Result in --out: learnharness-linux.AppImage, with --deb also learnharness-linux.deb, and
 # version.txt.
@@ -105,8 +105,8 @@ targets=(AppImage)
 # sets it there without touching the checkout, as release-vault-build.sh does.
 meta=(-c.extraMetadata.version="$version" -c.extraMetadata.learnharnessBuild.vaultUrl="https://$host")
 if [ -n "$updates" ]; then
-	meta+=(-c.extraMetadata.learnharnessBuild.updateFeed="https://$host/updates/")
-	echo "== package (${targets[*]}, update feed https://$host/updates/)"
+	meta+=(-c.extraMetadata.learnharnessBuild.updateFeed="https://$host/updates/2/")
+	echo "== package (${targets[*]}, update feed https://$host/updates/2/)"
 else
 	meta+=(-c.extraMetadata.learnharnessBuild.autoUpdate=false)
 	echo "== package (${targets[*]}, in-app updates off)"
@@ -125,7 +125,7 @@ PACKAGED="$check/package.json" VERSION="$version" VAULT_URL="https://$host" UPDA
 	const b = pkg.learnharnessBuild ?? {};
 	if (pkg.version !== process.env.VERSION) throw new Error(`packaged version ${pkg.version}, expected ${process.env.VERSION}`);
 	const updatesOk = process.env.UPDATES
-		? b.updateFeed === `${process.env.VAULT_URL}/updates/` && b.autoUpdate !== false
+		? b.updateFeed === `${process.env.VAULT_URL}/updates/2/` && b.autoUpdate !== false
 		: b.autoUpdate === false && b.updateFeed === undefined;
 	if (b.vaultUrl !== process.env.VAULT_URL || !updatesOk) throw new Error(`packaged learnharnessBuild ${JSON.stringify(b)}`);
 	console.log("packaged:", pkg.version, JSON.stringify(b));
