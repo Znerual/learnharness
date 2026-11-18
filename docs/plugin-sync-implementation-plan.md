@@ -2,7 +2,7 @@
 
 Status: implemented on `main` (2026-11-18), not released; see "Implementation status" at the end. Design: [ADR 0007](adr/0007-plugin-data-syncs-without-plugin-changes.md) in this repo and learnharness-vault ADR 0014 (delta chains). Work spans this repo (the app and `packages/vault-client`) and learnharness-vault (server, spec, vectors, `lhv-decrypt`).
 
-The phases are ordered by dependency, but all of them ship in one release (owner, 2026-11-18): client 0.5.0 with the server. Each device syncs plugin data as soon as it runs that release. A device on client 0.3.0 or older cannot read the version-2 slot records and stops syncing once any device writes plugin data, until it updates. Phases 4 and 5 stay in the fork (owner, 2026-11-18).
+The phases are ordered by dependency, but all of them ship in one release (owner, 2026-11-18): the next app release, which carries vault client 0.5.0 (`packages/vault-client`; the app itself is 0.6.x), with the server. Each device syncs plugin data as soon as it runs that release. A device whose vault client is 0.3.0 or older cannot read the version-2 slot records and stops syncing once any device writes plugin data, until it updates. Phases 4 and 5 stay in the fork (owner, 2026-11-18).
 
 ## Phase 0: compatibility release
 
@@ -100,7 +100,7 @@ Goal: the app side of ADR 0007.
 One release (owner, 2026-11-18), on the owner's go:
 
 1. Deploy the server. It still accepts version-1 records and the old endpoints, so clients on 0.3.0 keep syncing.
-2. Publish client 0.5.0 (desktop and Android) and update every device. A device left on 0.3.0 stops syncing as soon as an updated device writes plugin data; Settings → Vault → Plugin data names it.
+2. Publish the app release with vault client 0.5.0 (desktop and Android) and update every device. A device left on vault client 0.3.0 or older stops syncing as soon as an updated device writes plugin data; Settings → Vault → Plugin data names it.
 3. Phases 4 and 5 stay in the fork; no upstream PR.
 
 Deploying stays with the owner; no phase deploys or pushes by itself.
