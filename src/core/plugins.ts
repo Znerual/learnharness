@@ -143,6 +143,9 @@ export interface PluginBackendContext {
 	readonly directory: string;
 	/** Writable records: core-plugin-data/<id> or community plugins/<id>/data. */
 	readonly dataDirectory: string;
+	/** Writable, never synced to other devices: per-device values such as an install id or
+	 * a model choice. Created at activation; `plugin-local/<id>` beside the plugin packages. */
+	readonly localDataDirectory: string;
 	/** Aborted when this backend activation ends. Recheck after awaits before
 	 * plugin-owned side effects; abort does not force-stop arbitrary code. */
 	readonly signal: AbortSignal;

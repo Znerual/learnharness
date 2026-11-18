@@ -74,7 +74,8 @@ The included no-build examples can be copied directly; they do not need npm setu
   `dist/` or misplaced `dist/data/` before deletion.
 - Core code loads directly from app `core-plugins/<id>/`; writable core records are in
   `<learning data>/core-plugin-data/<id>/`. Always use `ctx.directory`/`ctx.dataDirectory`,
-  never infer sibling paths. Core updates with the app; both origins start disabled and
+  never infer sibling paths. Per-device values go in `ctx.localDataDirectory`, which never
+  syncs. Core updates with the app; both origins start disabled and
   retain explicit choices. Core IDs are reserved; community copies are skipped with a
   diagnostic, not replacements. Use Settings → Community plugins for installations and
   Settings → Core plugins for shipped features. `plugins:build-core` stages the four

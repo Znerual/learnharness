@@ -39,6 +39,8 @@ export interface PluginHostDependencies {
 	/** App-owned flat built packages and a separate writable data root. */
 	core?: { directory: string; dataDirectory: string; ids: readonly string[] };
 	appVersion: string;
+	/** Root of the per-plugin device-local folders (`ctx.localDataDirectory`); default `<directory>/../plugin-local`. */
+	localDataDirectory?: string;
 	createServices(info: { manifest: PluginManifest; directory: string; dataDirectory: string; signal: AbortSignal; cleanup: (fn: PluginCleanup) => void }): {
 		learning: PluginLearningData; inference: PluginInference; agents: PluginAgentService; workers: PluginWorkerService;
 		createBackgroundTool: PluginBackendContext["createBackgroundTool"];
@@ -193,6 +195,20 @@ export function createPluginHost(deps: PluginHostDependencies) {
 		if (relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative))) throw new Error("Core plugin data must be outside app-owned code");
 	}
 	const coreData = core ? { directory: core.dataDirectory, ids: core.ids } : undefined;
+	const localRoot = path.resolve(/* turbopackIgnore: true */ deps.localDataDirectory ?? path.join(directory, "..", "plugin-local"));
+	/** `<localRoot>/<id>`, created on demand; refuses symlinks and anything that is not a directory. */
+	function localPluginDirectory(id: string): string {
+		if (!PLUGIN_ID_PATTERN.test(id)) throw new Error("Invalid plugin id");
+		const target = path.join(/* turbopackIgnore: true */ localRoot, id);
+		fs.mkdirSync(localRoot, { recursive: true, mode: 0o700 });
+		for (const dir of [localRoot, target]) {
+			try { fs.mkdirSync(dir, { mode: 0o700 }); }
+			catch (e) { if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e; }
+			const stat = fs.lstatSync(dir);
+			if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error(`Unsafe plugin local directory: ${dir}`);
+		}
+		return target;
+	}
 	let conflicts: { id: string; error: string }[] = [];
 	const packages = new Map<string, Package>();
 	const questionControllers = new WeakMap<QuestionDefinition, AbortController>();
@@ -244,11 +260,12 @@ export function createPluginHost(deps: PluginHostDependencies) {
 			if (manifest.backend) {
 				pluginRoot(pkg.rootDirectory);
 				const dataDirectory = safePluginDataDirectory(directory, manifest.id, coreData, true)!;
+				const localDataDirectory = localPluginDirectory(manifest.id);
 				const services = deps.createServices({ manifest, directory: pkg.directory, dataDirectory, signal: activation.controller.signal, cleanup });
 				cleanup(() => services.agents.dispose());
 				cleanup(() => services.workers.dispose());
 				const ctx: PluginBackendContext = {
-					manifest, directory: pkg.directory, dataDirectory, signal: activation.controller.signal, cleanup, ...services,
+					manifest, directory: pkg.directory, dataDirectory, localDataDirectory, signal: activation.controller.signal, cleanup, ...services,
 					createBackgroundTool(context, definition) { requireLive(); return services.createBackgroundTool(context, definition); },
 					registerInstructions(contribution: PluginInstructions) {
 						requireLive();

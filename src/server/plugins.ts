@@ -56,6 +56,7 @@ function runtime(): Runtime {
 	const installationErrors: Record<string, string> = Object.create(null);
 	const host = createPluginHost({
 		directory: pluginDirectory, core, appVersion: packageJson.version, installationErrors,
+		localDataDirectory: path.join(/* turbopackIgnore: true */ PATHS.local, "plugin-local"),
 		// The process-global runtime owns one admission slot across all plugins
 		// and every separately compiled Next route module.
 		convertDocument: createPluginDocumentConverter().convert,

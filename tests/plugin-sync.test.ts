@@ -97,6 +97,19 @@ test("withStopped stops a running plugin, runs the change, restarts it and bumps
 	assert.deepEqual(history.slice(before), ["direct"]);
 });
 
+test("ctx.localDataDirectory is a per-plugin folder outside the synced data", async t => {
+	const { host, root, directory } = hostFixture(t);
+	fs.writeFileSync(path.join(directory, "notes", "dist", "backend.cjs"), `
+		const fs = require("node:fs"), path = require("node:path");
+		exports.activate = ctx => { ctx.handle("dirs", () => ({ data: ctx.dataDirectory, local: ctx.localDataDirectory, exists: fs.statSync(ctx.localDataDirectory).isDirectory() })); };`);
+	await host.initialize();
+	await host.setEnabled("notes", true);
+	const dirs = await host.call("notes", "dirs", undefined) as { data: string; local: string; exists: boolean };
+	assert.equal(dirs.local, path.join(root, "plugin-local", "notes"));
+	assert.equal(dirs.exists, true);
+	assert.ok(!dirs.local.startsWith(dirs.data), "never inside the synced data folder");
+});
+
 test("the PluginFilesHost lists, reads and writes plugin files safely", { skip: !hasVaultClient && "the vault client package is not installed" }, async t => {
 	const { createPluginSync, checkPluginFileContent } = await loadIfVaultClient<typeof import("../src/server/vault/plugin-sync.ts")>("../src/server/vault/plugin-sync.ts");
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), "plugin-sync-files-"));

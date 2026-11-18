@@ -513,6 +513,9 @@ Register JSON-compatible operations with `ctx.handle(name, handler)` and call th
 from the frontend with `await ctx.call(name, input)`. This routes only to that plugin,
 not arbitrary HTTP endpoints. Validate inputs, expose genuine errors, and use atomic
 writes for important plugin-owned state under `ctx.dataDirectory`.
+Per-device values that must never reach another device (an install id, a model
+choice) belong in `ctx.localDataDirectory`, a separate folder that is not part of the
+learning data.
 
 `ctx.learning` is read-only:
 

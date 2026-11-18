@@ -253,6 +253,7 @@ export interface PluginBackendContext {
     readonly manifest: PluginManifest;
     readonly directory: string;
     readonly dataDirectory: string;
+    readonly localDataDirectory: string;
     readonly signal: AbortSignal;
     cleanup(dispose: PluginCleanup): void;
     learning: PluginLearningData;
@@ -279,6 +280,7 @@ export interface PluginBackendContext {
 - [manifest](#pluginbackendcontext-manifest)
 - [directory](#pluginbackendcontext-directory)
 - [dataDirectory](#pluginbackendcontext-datadirectory)
+- [localDataDirectory](#pluginbackendcontext-localdatadirectory)
 - [signal](#pluginbackendcontext-signal)
 - [cleanup](#pluginbackendcontext-cleanup)
 - [learning](#pluginbackendcontext-learning)
@@ -315,6 +317,15 @@ Writable records: core-plugin-data/<id> or community plugins/<id>/data.
 
 ```ts
 readonly dataDirectory: string;
+```
+
+### PluginBackendContext localDataDirectory
+
+Writable, never synced to other devices: per-device values such as an install id or
+a model choice. Created at activation; `plugin-local/<id>` beside the plugin packages.
+
+```ts
+readonly localDataDirectory: string;
 ```
 
 ### PluginBackendContext signal
