@@ -53,6 +53,30 @@ export interface OneTimeSecrets {
 }
 
 /** A document that Settings, History can restore by itself, with a readable title (GET /history/documents). */
+// ---------------------------------------------------------------- plugin data sync (ADR 0007)
+
+export interface PluginSyncEntryDto {
+	id: string;
+	origin: "core" | "community";
+	name: string;
+	enabled: boolean;
+	/** Core plugins sync whenever enabled; community plugins when the learner turned sync on here. */
+	sync: boolean;
+	/** The vault holds data of this plugin. */
+	inVault: boolean;
+	/** The installed community plugin's name or author differs from the one whose data is in the vault. */
+	identityMismatch: boolean;
+	overLimit?: string;
+}
+
+export interface PluginSyncDto {
+	plugins: PluginSyncEntryDto[];
+	/** Merge conflict copies written since start (local/conflicts/plugins/). */
+	conflicts: number;
+	/** Devices whose app does not sync plugin data yet. */
+	outdatedDevices: string[];
+}
+
 export interface HistoryDocumentDto {
 	path: string;
 	kind: "chat" | "job" | "other";
@@ -160,6 +184,11 @@ export interface VaultContract {
 	exportDownload: { req: Empty; res: { filename: string; contentType: string; dataBase64: string } };
 	exportReminderGet: { req: Empty; res: { enabled: boolean } };
 	exportReminderSet: { req: { enabled: boolean }; res: { enabled: boolean } };
+
+	// plugin data (ADR 0007)
+	pluginSyncList: { req: Empty; res: PluginSyncDto };
+	pluginSyncSet: { req: { id: string; enabled: boolean; confirmIdentity?: boolean }; res: PluginSyncDto };
+	pluginSyncDeleteData: { req: { origin: "core" | "community"; id: string }; res: PluginSyncDto };
 }
 
 export type RouteName = keyof VaultContract;
@@ -230,6 +259,9 @@ export const routeTable: { [K in RouteName]: { method: HttpMethod; path: string 
 	exportDownload: { method: "POST", path: "/export" },
 	exportReminderGet: { method: "GET", path: "/export/reminder" },
 	exportReminderSet: { method: "PUT", path: "/export/reminder" },
+	pluginSyncList: { method: "GET", path: "/plugins" },
+	pluginSyncSet: { method: "PUT", path: "/plugins/:id/sync" },
+	pluginSyncDeleteData: { method: "POST", path: "/plugins/:origin/:id/delete-data" },
 };
 
 /** Error body of every failing route: a stable code the UI maps to text (strings.errors). */

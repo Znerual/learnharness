@@ -22,7 +22,10 @@ import { readJournal, scanDataFolder, upgradeDataFolder } from "../migration/upg
 import { emit } from "../../core/events.ts";
 import { promptOverrides as plainPromptOverrides } from "../../store/prompt-overrides.ts";
 import { plainStores, type Stores } from "../stores.ts";
-import { setActiveVaultStores } from "./active.ts";
+import { setActivePluginSync, setActiveVaultStores } from "./active.ts";
+import { createPluginSync } from "./plugin-sync.ts";
+import { getPluginHost, pluginCoreData, pluginDirectory } from "../plugins.ts";
+import { pluginWorkerActivities } from "../plugin-worker-activity.ts";
 import { LearnHarnessHost } from "./host.ts";
 import { joinWithExistingData, seedFirstDevice, vaultIsEmpty, VaultNotEmptyError } from "./join.ts";
 import { AndroidKeyStorage } from "./keystorage-android.ts";
@@ -190,8 +193,20 @@ export async function createVaultRuntime(serverUrl: string): Promise<VaultRoutes
 		return run;
 	};
 
+	const pluginSync = createPluginSync({
+		getHost: getPluginHost,
+		pluginDirectory,
+		core: pluginCoreData,
+		localDir: PATHS.local,
+		engine: () => wired?.engine ?? null,
+		hasLiveWork: (id) => pluginWorkerActivities().some((a) => a.pluginId === id),
+		notify: (id) => emit("plugin-message", { pluginId: id, topic: "data-synced" } as never),
+	});
+
 	const stopWired = async (): Promise<void> => {
 		setActiveVaultStores(null);
+		setActivePluginSync(null);
+		pluginSync.stop();
 		wired?.stop();
 		wired = null;
 	};
@@ -218,12 +233,15 @@ export async function createVaultRuntime(serverUrl: string): Promise<VaultRoutes
 						vault: vault as unknown as Vault,
 						emit: (type, payload) => emit(type, payload as never),
 						promptOverrides: plainPromptOverrides,
+						plugins: pluginSync.filesHost,
 					});
 					await bootstrap(next, vault as unknown as Vault, o?.choice);
 					await next.start();
 					wired = next;
 					// From here on, writes through `stores` note their intent first.
 					setActiveVaultStores({ ...next.stores, promptOverrides: next.promptOverrides });
+					await pluginSync.start();
+					setActivePluginSync(pluginSync.hooks);
 				}),
 			stop: () => serialized(stopWired),
 			status: () => wired?.engine.status() ?? { ...IDLE },
@@ -254,6 +272,11 @@ export async function createVaultRuntime(serverUrl: string): Promise<VaultRoutes
 		leaveVault: async ({ dryRun }) => {
 			if (dryRun) return { unpushed: wired?.pendingCount() ?? (await leaveLocalVault(PATHS.local, storage, { dryRun: true })).unpushed };
 			return leaveLocalVault(PATHS.local, storage);
+		},
+		plugins: {
+			list: () => pluginSync.hooks.list(),
+			setCommunitySync: (id, enabled, confirm) => pluginSync.hooks.setCommunitySync(id, enabled, confirm),
+			deleteSyncedData: (origin, id) => pluginSync.hooks.deleteSyncedData(origin, id),
 		},
 		exportReminder: {
 			get: () => readPrefs().exportReminder ?? true,

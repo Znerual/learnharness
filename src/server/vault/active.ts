@@ -7,6 +7,7 @@
  * different instance in the vault route and in the routes that read the stores.
  */
 
+import type { PluginSyncDto } from "../../core/vault/contract.ts";
 import type { ChatStore, GraphStore, JobStore, PromptOverrideStore, SettingsStore, SourceOrganizationStore } from "../../core/ports.ts";
 
 /** The store members the vault wraps; every other member of `stores` is never replaced. */
@@ -29,4 +30,33 @@ export function activeVaultStores(): VaultStores | null {
 
 export function setActiveVaultStores(stores: VaultStores | null): void {
 	(globalThis as Slot)[KEY] = stores;
+}
+
+// ---------------------------------------------------------------- plugin data sync (ADR 0007)
+
+export type { PluginSyncDto };
+
+/** What plugins.ts calls while the vault syncs; implemented by plugin-sync.ts. */
+export interface PluginSyncHooks {
+	/** Before a plugin is enabled: brings its data from the vault first (bounded wait; offline continues). */
+	beforeEnable(id: string): Promise<void>;
+	afterDisable(id: string): void;
+	/** A plugin operation or worker finished: sync soon. */
+	touched(id: string): void;
+	/** After the plugin list was refreshed: notices uninstalled community plugins. */
+	afterRefresh(): Promise<void>;
+	list(): Promise<PluginSyncDto>;
+	setCommunitySync(id: string, enabled: boolean, confirmIdentity: boolean): Promise<void>;
+	deleteSyncedData(origin: "core" | "community", id: string): Promise<void>;
+}
+
+const SYNC_KEY = Symbol.for("learnharness.vault.pluginSync");
+type SyncSlot = { [SYNC_KEY]?: PluginSyncHooks | null };
+
+export function activePluginSync(): PluginSyncHooks | null {
+	return (globalThis as SyncSlot)[SYNC_KEY] ?? null;
+}
+
+export function setActivePluginSync(hooks: PluginSyncHooks | null): void {
+	(globalThis as SyncSlot)[SYNC_KEY] = hooks;
 }

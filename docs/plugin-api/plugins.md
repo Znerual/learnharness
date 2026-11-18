@@ -1395,6 +1395,7 @@ export interface PluginInfo {
     status: "disabled" | "active" | "error";
     error?: string;
     revision: string;
+    dataGeneration?: number;
 }
 ```
 
@@ -1409,6 +1410,7 @@ export interface PluginInfo {
 - [status](#plugininfo-status)
 - [error](#plugininfo-error)
 - [revision](#plugininfo-revision)
+- [dataGeneration](#plugininfo-datageneration)
 
 ### PluginInfo id
 
@@ -1454,6 +1456,14 @@ Changes only after server restart, not merely after enable/disable.
 
 ```ts
 revision: string;
+```
+
+### PluginInfo dataGeneration
+
+Fork, multi-device (ADR 0007): increases when the vault replaced the plugin's data; open views remount.
+
+```ts
+dataGeneration?: number;
 ```
 
 ## PluginInstructions
@@ -1590,6 +1600,9 @@ export interface PluginManifest {
     main?: string;
     backend?: string;
     styles?: string;
+    sync?: {
+        exclude: string[];
+    };
 }
 ```
 
@@ -1605,6 +1618,8 @@ export interface PluginManifest {
 - [main](#pluginmanifest-main)
 - [backend](#pluginmanifest-backend)
 - [styles](#pluginmanifest-styles)
+- [sync](#pluginmanifest-sync)
+- [sync.exclude](#pluginmanifest-syncexclude)
 
 ### PluginManifest apiVersion
 
@@ -1668,6 +1683,22 @@ backend?: string;
 
 ```ts
 styles?: string;
+```
+
+### PluginManifest sync
+
+Fork, multi-device (ADR 0007): data-folder paths that never sync through the vault.
+
+```ts
+sync?: {
+    exclude: string[];
+};
+```
+
+### PluginManifest sync.exclude
+
+```ts
+exclude: string[];
 ```
 
 ## PluginNotification

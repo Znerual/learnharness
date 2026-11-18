@@ -4,7 +4,7 @@
 import { rm } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 
-import { leaveVault, SyncEngine, type KeyStorage, type SyncEngineOptions, type Vault } from "@znerual/learnharness-vault-client";
+import { leaveVault, type PluginFilesHost, SyncEngine, type KeyStorage, type SyncEngineOptions, type Vault } from "@znerual/learnharness-vault-client";
 
 import { wrapChatStore, wrapGraphStore, wrapJobStore, wrapSettingsStore, wrapSourceOrganizationStore, type AdapterContext, wrapPromptOverrideStore } from "./adapters.ts";
 import { LearnHarnessHost, type EmitFn } from "./host.ts";
@@ -34,6 +34,8 @@ export interface WireVaultOptions<S extends LearnHarnessStores> {
 	/** The prompt override store (src/store/prompt-overrides.ts `promptOverrides`), when the composition root has it. */
 	promptOverrides?: PromptOverrideStore;
 	engine?: Partial<Pick<SyncEngineOptions, "now" | "onStatus">>;
+	/** Plugin data folders that sync as delta chains (plugin-sync.ts, ADR 0007). */
+	plugins?: PluginFilesHost;
 }
 
 export interface WiredVault<S extends LearnHarnessStores> {
@@ -63,19 +65,19 @@ export interface LeaveResult<S extends LearnHarnessStores> {
 }
 
 /** The host and engine without the store wrappers (what wireVault builds first; the e2e tests use it directly). */
-export function createVaultSync(o: { dataDir: string; localDir?: string; vault: Vault; deviceId: string; emit: EmitFn; engine?: WireVaultOptions<LearnHarnessStores>["engine"] }): { host: LearnHarnessHost; engine: SyncEngine; localDir: string } {
+export function createVaultSync(o: { dataDir: string; localDir?: string; vault: Vault; deviceId: string; emit: EmitFn; engine?: WireVaultOptions<LearnHarnessStores>["engine"]; plugins?: PluginFilesHost }): { host: LearnHarnessHost; engine: SyncEngine; localDir: string } {
 	assertNotSyncthing(o.dataDir);
 	const localDir = o.localDir ?? `${o.dataDir}-local`;
 	if (o.vault.options.device.lhDeviceId !== o.deviceId) {
 		throw new Error(`the vault device (${o.vault.options.device.lhDeviceId}) is not this LearnHarness device (${o.deviceId})`);
 	}
-	const host = new LearnHarnessHost({ dataDir: o.dataDir, localDir, emit: o.emit });
+	const host = new LearnHarnessHost({ dataDir: o.dataDir, localDir, emit: o.emit, ...(o.plugins ? { plugins: o.plugins } : {}) });
 	const engine = new SyncEngine({ vault: o.vault, host, stateDir: join(localDir, "vault"), deviceId: o.deviceId, ...o.engine });
 	return { host, engine, localDir };
 }
 
 export function wireVault<S extends LearnHarnessStores>(o: WireVaultOptions<S>): WiredVault<S> {
-	const { host, engine, localDir } = createVaultSync({ dataDir: o.dataDir, ...(o.localDir ? { localDir: o.localDir } : {}), vault: o.vault, deviceId: o.stores.deviceStore.getDevice().id, emit: o.emit, ...(o.engine ? { engine: o.engine } : {}) });
+	const { host, engine, localDir } = createVaultSync({ dataDir: o.dataDir, ...(o.localDir ? { localDir: o.localDir } : {}), vault: o.vault, deviceId: o.stores.deviceStore.getDevice().id, emit: o.emit, ...(o.engine ? { engine: o.engine } : {}), ...(o.plugins ? { plugins: o.plugins } : {}) });
 	const ctx: AdapterContext = { sink: engine, dataDir: o.dataDir, deviceId: () => o.stores.deviceStore.getDevice().id };
 	const wrapped: S = {
 		...o.stores,

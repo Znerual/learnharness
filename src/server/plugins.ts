@@ -22,6 +22,7 @@ import type { AgentBuildOptions } from "../agent/teacher-agent.ts";
 import { stores } from "./stores.ts";
 import { isTurnRunning } from "./turn-liveness.ts";
 import { compactionInFlight } from "./compaction.ts";
+import { activePluginSync } from "./vault/active.ts";
 
 // Community plugins are device-local (multi-device): executable code never rides the synced data folder.
 export const pluginDirectory = PLUGINS_DIR;
@@ -32,6 +33,8 @@ const core = {
 	ids: corePluginIds,
 };
 const coreData = { directory: core.dataDirectory, ids: core.ids };
+/** Where core plugin data lives (vault plugin sync, ADR 0007). */
+export const pluginCoreData = coreData;
 type Host = ReturnType<typeof createPluginHost>;
 interface Runtime { host: Host; ready: Promise<void> }
 interface PluginGlobal { __lhPlugins?: Runtime }
@@ -63,10 +66,15 @@ function runtime(): Runtime {
 				engineFor: inference.engineFor, onUsage: inference.onUsage, signal, device: () => stores.deviceStore.getDevice(),
 				onChange: () => { if (!signal.aborted) emit("plugin-message", { pluginId: manifest.id, topic: "agents-changed" }); },
 			});
-			const workerActivity = registerPluginWorkerActivity({
+			const reportActivity = registerPluginWorkerActivity({
 				pluginId: manifest.id, pluginName: manifest.name, signal,
 				cancel: taskId => workers.cancel(taskId),
 			});
+			// A finished worker wrote plugin data: the vault syncs it soon (ADR 0007).
+			const workerActivity: typeof reportActivity = metadata => {
+				reportActivity(metadata);
+				if (metadata.status !== "queued" && metadata.status !== "running") activePluginSync()?.touched(manifest.id);
+			};
 			const workers = createPluginWorkerService({
 				store: createPluginTaskRecordStore(path.join(/* turbopackIgnore: true */ dataDirectory, "tasks")),
 				engineFor: inference.engineFor, onUsage: inference.onUsage, signal, device: () => stores.deviceStore.getDevice(),
@@ -118,4 +126,25 @@ export async function getPluginAgentContributions(): Promise<NonNullable<AgentBu
 export async function getPluginQuestionTypeResolver(): Promise<Host["resolveQuestionType"]> {
 	return (await getPluginHost()).resolveQuestionType;
 }
-export const pluginTransport = createPluginTransport({ getHost: getPluginHost, directory: pluginDirectory });
+/** The transport's host, with the vault's plugin sync around enable, disable, refresh and operations (ADR 0007). */
+async function syncedPluginHost(): Promise<Host> {
+	const host = await getPluginHost();
+	return {
+		...host,
+		async setEnabled(id: string, enabled: boolean) {
+			const sync = activePluginSync();
+			if (enabled && sync) await sync.beforeEnable(id);
+			await host.setEnabled(id, enabled);
+			if (!enabled) sync?.afterDisable(id);
+		},
+		async refresh() {
+			await host.refresh();
+			await activePluginSync()?.afterRefresh();
+		},
+		async call(id: string, operation: string, input?: unknown) {
+			try { return await host.call(id, operation, input); }
+			finally { activePluginSync()?.touched(id); }
+		},
+	};
+}
+export const pluginTransport = createPluginTransport({ getHost: syncedPluginHost, directory: pluginDirectory });

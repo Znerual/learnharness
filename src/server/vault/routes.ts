@@ -12,7 +12,7 @@
 // The module imports no runtime code from the client, so it can be tested against a fake Vault
 // and does not drag libsodium into anything that merely imports the contract.
 
-import { routeTable, type HistoryDocumentDto, type HttpMethod, type OneTimeSecrets, type ReauthStrength, type RotationDto, type RouteErrorBody, type RouteName, type SessionDto, type VaultContract } from "../../core/vault/contract.ts";
+import { routeTable, type HistoryDocumentDto, type HttpMethod, type OneTimeSecrets, type PluginSyncDto, type ReauthStrength, type RotationDto, type RouteErrorBody, type RouteName, type SessionDto, type VaultContract } from "../../core/vault/contract.ts";
 import type { AccountResponse, DeviceRow, EmergencyKit, SyncStatus } from "../../core/vault/deps.ts";
 import type { JoinChoice, MergeReport, MigrationStateDto } from "../../core/vault/migration.ts";
 import type { PasswordCheckResult } from "../../core/vault/models/password.ts";
@@ -146,6 +146,12 @@ export interface VaultRouteDeps {
 	leaveVault: (opts: { dryRun?: boolean }) => Promise<{ unpushed: number }>;
 	/** Local setting "Remind me to export every 90 days" (default on). */
 	exportReminder: { get(): boolean | Promise<boolean>; set(enabled: boolean): void | Promise<void> };
+	/** Plugin data sync (plugin-sync.ts, ADR 0007). Absent: the routes answer 503. */
+	plugins?: {
+		list(): Promise<PluginSyncDto>;
+		setCommunitySync(id: string, enabled: boolean, confirmIdentity: boolean): Promise<void>;
+		deleteSyncedData(origin: "core" | "community", id: string): Promise<void>;
+	};
 	now?: () => number;
 	randomId?: () => string;
 }
@@ -255,6 +261,23 @@ export function createVaultRoutes(deps: VaultRouteDeps): VaultRoutes {
 	function needVault(): VaultLike {
 		if (!vault) throw new RouteError(401, "no_session", "Not signed in");
 		return vault;
+	}
+
+	function needPlugins(): NonNullable<VaultRouteDeps["plugins"]> {
+		if (!deps.plugins) throw new RouteError(503, "unavailable", "Plugin sync is not available");
+		return deps.plugins;
+	}
+
+	/** Plugin sync errors with a code (identity_mismatch, plugin_active, not_found) become 409/404. */
+	async function pluginAction(f: () => Promise<void>): Promise<void> {
+		try {
+			await f();
+		} catch (e) {
+			const code = (e as { code?: unknown }).code;
+			if (code === "identity_mismatch" || code === "plugin_active") throw new RouteError(409, code, (e as Error).message);
+			if (code === "not_found") throw new RouteError(404, code, (e as Error).message);
+			throw e;
+		}
 	}
 
 	function needMigration(): NonNullable<VaultRouteDeps["migration"]> {
@@ -630,6 +653,27 @@ export function createVaultRoutes(deps: VaultRouteDeps): VaultRoutes {
 			const enabled = bool(req, "enabled");
 			await deps.exportReminder.set(enabled);
 			return { enabled };
+		},
+
+		// plugin data (ADR 0007)
+		async pluginSyncList() {
+			needVault();
+			return needPlugins().list();
+		},
+		async pluginSyncSet(req) {
+			needVault();
+			const p = needPlugins();
+			const confirm = (req as { confirmIdentity?: unknown }).confirmIdentity === true;
+			await pluginAction(() => p.setCommunitySync(str(req, "id"), bool(req, "enabled"), confirm));
+			return p.list();
+		},
+		async pluginSyncDeleteData(req) {
+			needVault();
+			const p = needPlugins();
+			const origin = str(req, "origin");
+			if (origin !== "core" && origin !== "community") throw new RouteError(400, "bad_request", "origin must be core or community");
+			await pluginAction(() => p.deleteSyncedData(origin, str(req, "id")));
+			return p.list();
 		},
 	};
 

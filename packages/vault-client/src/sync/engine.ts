@@ -9,11 +9,11 @@ import { join } from "node:path";
 import WebSocket from "ws";
 
 import { ApiError, NetworkError } from "../api/client.ts";
-import type { ChangeRow, ChangesResponse, WriteMeta, WriteResult } from "../api/types.ts";
+import type { ChangeRow, ChangesResponse, DeviceRow, WriteMeta, WriteResult } from "../api/types.ts";
 import { bytesEqual, decryptRecord, encryptRecord, type RecordHeader, toHex, vaultKeyFor, ProtocolError } from "../crypto/index.ts";
 import type { Vault } from "../vault.ts";
 import { appendFsyncSync, appendSync, writeFileAtomic, writeFileAtomicSync } from "./fsutil.ts";
-import { ChainSync, type ChainStatus, parseSlotPath, type PluginRef } from "./chains.ts";
+import { ChainSync, type ChainStatus, parseSlotPath, type PluginRef, type RegistryEntry } from "./chains.ts";
 import type { AppliedChange, SyncHost } from "./host.ts";
 import { conflictPath, isDocumentPath, parseLedgerFile, parseSegmentPath, segmentPath } from "./mapping.ts";
 
@@ -299,6 +299,27 @@ export class SyncEngine {
 		if (!chains) return;
 		while (this.running) await this.running.catch(() => undefined);
 		await chains.forget(p);
+	}
+
+	/** The plugins whose data is in the vault, with the identity they were synced under. */
+	async pluginRegistry(): Promise<RegistryEntry[]> {
+		return this.chains ? this.chains.registry() : [];
+	}
+
+	/** This account's devices with the sync features each reported (to name devices that need an update). */
+	devices(): Promise<DeviceRow[]> {
+		return this.o.vault.devices();
+	}
+
+	/**
+	 * Deletes a plugin's data from the vault (a confirmed action in Settings). Local files stay;
+	 * the plugin stops syncing on this device until it is activated again.
+	 */
+	async deletePluginData(p: PluginRef): Promise<number> {
+		const chains = this.chains;
+		if (!chains) return 0;
+		while (this.running) await this.running.catch(() => undefined);
+		return chains.deletePluginData(p);
 	}
 
 	/** The host's set of active plugins changed. */

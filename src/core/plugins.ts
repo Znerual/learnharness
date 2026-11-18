@@ -38,6 +38,8 @@ export interface PluginManifest {
 	/** Bundled Node CommonJS module. Node builtins are available. */
 	backend?: string;
 	styles?: string;
+	/** Fork, multi-device (ADR 0007): data-folder paths that never sync through the vault. */
+	sync?: { exclude: string[] };
 }
 export interface PluginInfo {
 	id: string;
@@ -49,6 +51,8 @@ export interface PluginInfo {
 	error?: string;
 	/** Changes only after server restart, not merely after enable/disable. */
 	revision: string;
+	/** Fork, multi-device (ADR 0007): increases when the vault replaced the plugin's data; open views remount. */
+	dataGeneration?: number;
 }
 export interface PluginNotification {
 	pluginId: string;
@@ -398,8 +402,36 @@ export function parsePluginManifest(value: unknown, folder: string, appVersion: 
 		if (m[key] !== undefined && (typeof m[key] !== "string" || !/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(m[key]) || !m[key].endsWith(ext))) throw new Error(`Manifest ${key} must name a root ${ext} file`);
 	}
 	if (!m.main && !m.backend) throw new Error("A plugin needs a main or backend entry");
+	let sync: { exclude: string[] } | undefined;
+	if (m.sync !== undefined) {
+		const exclude = (m.sync as { exclude?: unknown } | null)?.exclude;
+		if (!m.sync || typeof m.sync !== "object" || Array.isArray(m.sync) || !Array.isArray(exclude) || exclude.length > 32 || !exclude.every(isSyncExcludePattern)) {
+			throw new Error("Manifest sync.exclude must be at most 32 relative data paths (a trailing / names a folder, * matches within one segment)");
+		}
+		sync = { exclude: [...exclude] as string[] };
+	}
 	if (m.styles && !m.main) throw new Error("styles requires a frontend main entry");
 	return { apiVersion: 1, id: folder, name: m.name as string, version: m.version as string, minAppVersion: m.minAppVersion as string,
 		...(m.description !== undefined ? { description: m.description as string } : {}), ...(m.author !== undefined ? { author: m.author as string } : {}),
-		...(m.main ? { main: m.main as string } : {}), ...(m.backend ? { backend: m.backend as string } : {}), ...(m.styles ? { styles: m.styles as string } : {}) };
+		...(m.main ? { main: m.main as string } : {}), ...(m.backend ? { backend: m.backend as string } : {}), ...(m.styles ? { styles: m.styles as string } : {}),
+		...(sync ? { sync } : {}) };
+}
+
+/** A `sync.exclude` entry: a relative data path whose segments use letters, digits, `_ . - *`; a trailing `/` names a folder. */
+export function isSyncExcludePattern(value: unknown): value is string {
+	if (typeof value !== "string" || !value || value.length > 256 || value.startsWith("/")) return false;
+	const segments = (value.endsWith("/") ? value.slice(0, -1) : value).split("/");
+	return segments.every(s => /^[A-Za-z0-9_.*-]+$/.test(s) && s !== "." && s !== "..");
+}
+
+/** True when a data-folder path (`/`-separated) falls under one of the manifest's `sync.exclude` patterns. */
+export function isSyncExcluded(rel: string, patterns: readonly string[] | undefined): boolean {
+	if (!patterns) return false;
+	const parts = rel.split("/");
+	return patterns.some(pattern => {
+		const folder = pattern.endsWith("/");
+		const segs = (folder ? pattern.slice(0, -1) : pattern).split("/");
+		if (folder ? parts.length <= segs.length : parts.length !== segs.length) return false;
+		return segs.every((seg, i) => new RegExp(`^${seg.replace(/[.+?^${}()|[\]\\-]/g, "\\$&").replace(/\*/g, "[^/]*")}$`).test(parts[i]!));
+	});
 }

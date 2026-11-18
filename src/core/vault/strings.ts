@@ -448,6 +448,29 @@ export const strings = {
 
 	qr: { alt: "QR code" },
 
+	pluginSync: {
+		title: "Plugin data",
+		help: "Core plugins sync their data through the vault whenever they are enabled. A community plugin syncs only on devices where you turn its sync on. Plugin code never syncs.",
+		core: "Core",
+		community: "Community",
+		syncing: "Syncs",
+		notSyncing: "Does not sync on this device",
+		disabledHere: "Disabled on this device: its data arrives when you enable it.",
+		notInstalled: "Not installed on this device. The vault keeps its data for a reinstall.",
+		turnOn: "Sync on this device",
+		turnOff: "Stop syncing on this device",
+		turnOffConfirm: "Stop syncing and remove this plugin's data from this device? The vault keeps its copy; turning sync on again brings it back.",
+		deleteData: "Delete data in the vault",
+		deleteConfirm: "Delete this plugin's data from the vault? Devices that still sync the plugin upload their copy again.",
+		confirm: "Yes, continue",
+		cancel: "Cancel",
+		identityMismatch: "The plugin installed here has a different name or author than the one whose data is in the vault. Only import its data if you trust it with that data.",
+		importAnyway: "Import anyway",
+		overLimit: (reason: string) => `Not syncing: ${reason}.`,
+		conflicts: (n: number) => (n === 1 ? "1 plugin file had changes on two devices; your version was kept as a copy in the local conflicts folder." : `${n} plugin files had changes on two devices; your versions were kept as copies in the local conflicts folder.`),
+		outdated: (names: string) => `These devices need an app update before they receive plugin data: ${names}.`,
+	},
+
 	errors: {
 		generic: "Something went wrong. Try again.",
 		data_newer: "This data was saved by a newer LearnHarness. Update the app, then try again. Nothing was changed.",
@@ -482,6 +505,9 @@ export const strings = {
 		stronger_reauth_required: "Confirming needs your passkey or recovery material. A password is not enough.",
 		not_cancellable: "This action cannot be cancelled from this device.",
 		rate_limited: "Too many attempts. Wait a minute and try again.",
+		identity_mismatch: "The plugin installed here differs from the one whose data is in the vault.",
+		plugin_active: "This device still syncs the plugin. Disable it or stop its sync first.",
+		unavailable: "This is not available right now.",
 	} as Record<string, string>,
 } as const;
 

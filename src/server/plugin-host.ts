@@ -90,6 +90,8 @@ interface Package {
 	restart?: string;
 	blocked?: boolean;
 	contributionWarning?: string;
+	/** Bridge operations running now; `withStopped` waits for them (vault plugin sync). */
+	inflight?: number;
 }
 interface State { version: 1; enabled: Record<string, boolean> }
 const errorText = (e: unknown) => e instanceof Error ? e.message : String(e);
@@ -578,7 +580,37 @@ export function createPluginHost(deps: PluginHostDependencies) {
 			if (!operationId.test(operation)) throw new PluginHostError(400, "Invalid plugin operation id");
 			const handler = activation.handlers.get(operation);
 			if (!handler) throw new PluginHostError(404, `Unknown plugin operation: ${operation}`);
-			return handler(input);
+			pkg.inflight = (pkg.inflight ?? 0) + 1;
+			try { return await handler(input); }
+			finally { pkg.inflight = (pkg.inflight ?? 1) - 1; }
+		},
+		/**
+		 * Fork, multi-device (ADR 0007): runs `fn` while the plugin's backend is stopped, then starts it
+		 * again. A plugin that is not running runs `fn` directly. Answers "busy" without running `fn`
+		 * when `isBusy` reports live work or a bridge operation is still running after `waitMs`, and
+		 * false when the plugin failed to start again.
+		 */
+		withStopped(id: string, fn: () => Promise<void>, o: { isBusy?: () => boolean; waitMs?: number } = {}): Promise<boolean | "busy"> {
+			return enqueue(async () => {
+				assertOpen(); await initializeInternal();
+				const pkg = packages.get(id);
+				if (!pkg?.activation) { await fn(); return true; }
+				if (o.isBusy?.()) return "busy";
+				const deadline = Date.now() + (o.waitMs ?? 5_000);
+				while ((pkg.inflight ?? 0) > 0) {
+					if (Date.now() > deadline) return "busy";
+					await new Promise(resolve => setTimeout(resolve, 25));
+				}
+				await deactivate(pkg);
+				pkg.info.status = "disabled";
+				pkg.info.dataGeneration = (pkg.info.dataGeneration ?? 0) + 1;
+				try { await fn(); }
+				finally {
+					if (pkg.info.enabled && !pkg.blocked && !pkg.restart) await activate(pkg);
+					change();
+				}
+				return (pkg.info.status as PluginInfo["status"]) === "active";
+			});
 		},
 		async convertDocument(id: string, request: Request): ReturnType<PluginFrontendContext["documents"]["toMarkdown"]> {
 			assertOpen();

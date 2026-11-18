@@ -13,6 +13,7 @@ import { ChangePasswordEntry } from "@/components/vault/ChangePassword";
 import { Devices } from "@/components/vault/Devices";
 import { DeleteAccount } from "@/components/vault/DeleteAccount";
 import { ExportSettings } from "@/components/vault/ExportReminder";
+import { PluginSync } from "@/components/vault/PluginSync";
 import { History } from "@/components/vault/History";
 import { ManagePlan } from "@/components/vault/AccountNotices";
 import { Passkeys } from "@/components/vault/Passkeys";
@@ -130,6 +131,9 @@ export function VaultSection() {
 						</SettingsGroup>
 						<SettingsGroup label="Export">
 							<ExportSettings api={api} account={account} />
+						</SettingsGroup>
+						<SettingsGroup label="Plugin data">
+							<PluginSync api={api} />
 						</SettingsGroup>
 						<MovedAside api={api} Group={SettingsGroup} />
 						<SettingsGroup label="Leave">

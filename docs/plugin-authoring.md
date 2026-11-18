@@ -527,6 +527,16 @@ Read transcripts for learner answers/thinking/mistakes: the graph is extracted f
 teacher prose, not a complete learner-response record. Cross-file reads are not
 transactional. Write derived feature data to plugin state, never core learning files.
 
+In the multi-device fork, `ctx.dataDirectory` syncs through the vault without plugin
+changes (ADR 0007): files with the extensions `json`, `jsonl`, `md`, `txt`, `png` and
+`webp`, at most three folders deep, except names starting with a dot and `*.tmp`. The
+host stops the backend while it writes files from another device, then activates it
+again, so reading state once at activation is fine. Two devices' changes to one file
+merge (JSON key by key, text by lines). Keep machine-local scratch data out of sync with
+`"sync": { "exclude": ["test-runs/"] }` in `manifest.json` (a trailing `/` names a folder,
+`*` matches within one segment). A file written by only one install, such as
+`reviews/<install id>.jsonl`, never meets another device's changes.
+
 ## Existing agents and content renderers
 
 `registerInstructions({agents, text})` and `registerTools({agents, create(context)})`

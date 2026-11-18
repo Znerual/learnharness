@@ -4,7 +4,7 @@
 import { mkdirSync, readFileSync, readdirSync, renameSync } from "node:fs";
 import { join } from "node:path";
 
-import { FsHost, type AppliedChange, isDocumentPath, parseLedgerFile } from "@znerual/learnharness-vault-client";
+import { FsHost, type AppliedChange, isDocumentPath, parseLedgerFile, type PluginFilesHost } from "@znerual/learnharness-vault-client";
 
 import type { ServerEventType } from "../../core/events.ts";
 
@@ -70,6 +70,8 @@ export interface LearnHarnessHostOptions {
 	localDir: string;
 	/** `emit` from src/core/events.ts. */
 	emit: EmitFn;
+	/** Plugin data folders (plugin-sync.ts, ADR 0007); without it plugin records are skipped. */
+	plugins?: PluginFilesHost;
 }
 
 /**
@@ -79,12 +81,14 @@ export interface LearnHarnessHostOptions {
  */
 export class LearnHarnessHost extends FsHost {
 	readonly localDir: string;
+	readonly plugins?: PluginFilesHost;
 	private readonly local: FsHost;
 	private readonly emit: EmitFn;
 
 	constructor(o: LearnHarnessHostOptions) {
 		super(o.dataDir);
 		this.localDir = o.localDir;
+		if (o.plugins) this.plugins = o.plugins;
 		this.local = new FsHost(o.localDir);
 		this.emit = o.emit;
 	}

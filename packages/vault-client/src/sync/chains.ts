@@ -63,9 +63,12 @@ export interface PluginFilesHost {
 	readPluginFile(p: PluginRef, rel: string): Promise<Uint8Array | null>;
 	/**
 	 * Runs `fn` while the plugin's backend is stopped (no running operation, no live worker), then
-	 * starts it again. Resolves false when the plugin refused to start with the new files.
+	 * starts it again. Resolves false when the plugin refused to start with the new files, and
+	 * "busy" without running `fn` when the plugin has work in progress (the apply waits).
 	 */
-	withPluginStopped(p: PluginRef, fn: (io: PluginFileIO) => Promise<void>): Promise<boolean>;
+	withPluginStopped(p: PluginRef, fn: (io: PluginFileIO) => Promise<void>): Promise<boolean | "busy">;
+	/** True while the plugin has work in progress; received files then wait for a later sync. */
+	pluginBusy?(p: PluginRef): boolean | Promise<boolean>;
 	/** Stores a device-local conflict copy of a plugin file; it never syncs. */
 	writePluginConflict(p: PluginRef, rel: string, data: Uint8Array): Promise<void>;
 }
@@ -241,6 +244,8 @@ export class ChainSync {
 	private activeCache: ActivePlugin[] | null = null;
 	/** Plugins whose slots are being fetched by `activate`; their slots are accepted before they are active. */
 	private backfilling = new Set<string>();
+	/** Plugins whose vault data was deleted; the next registry slot leaves them out. */
+	private deletedPlugins = new Set<string>();
 
 	constructor(o: ChainSyncOptions) {
 		this.o = o;
@@ -325,7 +330,8 @@ export class ChainSync {
 
 	private async buildRegistry(plugins: ActivePlugin[]): Promise<Uint8Array> {
 		const map = new Map((await this.registry()).map((e) => [keyOf(e), e]));
-		for (const p of plugins) map.set(keyOf(p), { origin: p.origin, id: p.id, name: p.identity.name, source: p.identity.source });
+		for (const k of this.deletedPlugins) map.delete(k);
+		for (const p of plugins) if (!this.deletedPlugins.has(keyOf(p))) map.set(keyOf(p), { origin: p.origin, id: p.id, name: p.identity.name, source: p.identity.source });
 		const lines = [...map.values()].sort((a, b) => (keyOf(a) < keyOf(b) ? -1 : keyOf(a) > keyOf(b) ? 1 : 0));
 		return enc.encode(lines.map((l) => `${JSON.stringify({ origin: l.origin, id: l.id, name: l.name, source: l.source })}\n`).join(""));
 	}
@@ -422,6 +428,7 @@ export class ChainSync {
 			if (!next) continue;
 			this.state.meta[chain] = next.head;
 			await this.writeShadow(chain, next.content);
+			await next.commit();
 			this.skipDirty = true;
 		}
 		// Plugin files, grouped by plugin so each plugin stops once.
@@ -445,7 +452,7 @@ export class ChainSync {
 	 * Moves a chain forward over its pending slots: consecutive slots from the head, or a jump to
 	 * the newest pending full slot. Returns the new head and content, or null when nothing applies.
 	 */
-	private async advance(chain: string, head: ChainHead | undefined, maxSize: number): Promise<{ head: ChainHead; content: Uint8Array } | null> {
+	private async advance(chain: string, head: ChainHead | undefined, maxSize: number): Promise<{ head: ChainHead; content: Uint8Array; commit: () => Promise<void> } | null> {
 		const pending = this.state.pending.filter((p) => p.chain === chain).sort((a, b) => a.slot - b.slot);
 		if (pending.length === 0) return null;
 		let cur: ChainHead | undefined = head && !head.deleted ? { ...head, slots: [...head.slots] } : undefined;
@@ -487,17 +494,24 @@ export class ChainSync {
 				this.statusValue.refused++;
 			}
 		}
-		// Drop what was used or is now behind the head.
+		// Drop what was used or is now behind the head, once the caller has applied the result.
 		const done = new Set(used.map((u) => u.recordId));
-		const keep = (x: PendingSlot) => x.chain !== chain || (!done.has(x.recordId) && (!cur || x.slot > cur.head));
-		for (const x of this.state.pending.filter((x) => !keep(x))) await rm(this.pendingPath(x.recordId), { force: true });
-		this.state.pending = this.state.pending.filter(keep);
-		if (!changed || !cur || !content) return null;
-		return { head: cur, content };
+		const final = cur;
+		const keep = (x: PendingSlot) => x.chain !== chain || (!done.has(x.recordId) && (!final || x.slot > final.head));
+		const commit = async () => {
+			for (const x of this.state.pending.filter((x) => !keep(x))) await rm(this.pendingPath(x.recordId), { force: true });
+			this.state.pending = this.state.pending.filter(keep);
+		};
+		if (!changed || !cur || !content) {
+			await commit();
+			return null;
+		}
+		return { head: cur, content, commit };
 	}
 
 	private async applyFiles(plugin: ActivePlugin, chains: string[]): Promise<void> {
-		const updates: { chain: string; rel: string; head?: ChainHead; content?: Uint8Array; deleted?: boolean }[] = [];
+		if (await this.o.host.pluginBusy?.(plugin)) return; // the slots stay pending for a later sync
+		const updates: { chain: string; rel: string; head?: ChainHead; content?: Uint8Array; deleted?: boolean; commit?: () => Promise<void> }[] = [];
 		for (const chain of chains) {
 			const rel = chain.slice(`pf/${plugin.origin}/${plugin.id}/`.length);
 			const f = this.state.files[chain];
@@ -506,7 +520,7 @@ export class ChainSync {
 				continue;
 			}
 			const next = await this.advance(chain, f, plugin.limits.maxFileBytes);
-			if (next) updates.push({ chain, rel, head: next.head, content: next.content });
+			if (next) updates.push({ chain, rel, head: next.head, content: next.content, commit: next.commit });
 		}
 		if (updates.length === 0) return;
 		const merged = new Map<string, { remote: Uint8Array; local: Uint8Array }>();
@@ -548,6 +562,8 @@ export class ChainSync {
 				}
 			});
 		const ok = await run(false);
+		if (ok === "busy") return; // nothing was written; the slots stay pending
+		for (const u of updates) await u.commit?.();
 		if (!ok && merged.size > 0) {
 			// The plugin refused a merged file: write the vault's version, keep the local one as a conflict copy.
 			const retry = updates.filter((u) => merged.has(u.chain));
@@ -562,6 +578,52 @@ export class ChainSync {
 			if (!refused) this.statusValue.refused++;
 		}
 		this.o.onStatus?.();
+	}
+
+	/**
+	 * Deletes a plugin's data from the vault (Settings, "Delete synced data"): tombstones every
+	 * known slot of its files and its index, and removes it from the registry. Local files stay.
+	 */
+	async deletePluginData(p: PluginRef): Promise<number> {
+		const vault = this.o.vault;
+		const keys = vault.keys;
+		const epoch = vault.epoch;
+		const vk = vaultKeyFor(keys, epoch) as Uint8Array;
+		const writtenAt = this.o.now().toISOString();
+		const items: Item[] = [];
+		const tombstone = async (path: string) => {
+			const id = recordId(keys.ik, path);
+			let head: ChangeRow | undefined;
+			try {
+				head = (await vault.api.get<{ versions: ChangeRow[] }>(`/v1/history/${id}`, vault.auth())).versions[0];
+			} catch (err) {
+				if (err instanceof ApiError && err.status === 404) return;
+				throw err;
+			}
+			if (!head || head.tombstone) return;
+			const header: RecordHeader = { kind: "doc", path, baseSeq: head.seq, deleted: true, deviceId: this.o.deviceId, writtenAt };
+			const sealed = encryptRecord(keys.accountId, keys.ik, epoch, vk, { header, body: new Uint8Array(0) });
+			items.push({ meta: { recordId: sealed.recordId, kind: "doc", baseSeq: head.seq, epoch, tombstone: true, sha256: sha256Hex(sealed.envelope), size: sealed.envelope.length }, envelope: sealed.envelope, onAccepted: () => undefined });
+		};
+		const prefix = `pf/${p.origin}/${p.id}/`;
+		const files = new Map<string, number>();
+		for (const e of await this.index(p)) if (isSyncablePluginPath(e.path)) files.set(pluginFileChain(p, e.path), e.head);
+		for (const [chain, f] of Object.entries(this.state.files)) if (chain.startsWith(prefix)) files.set(chain, Math.max(files.get(chain) ?? 0, f.head));
+		for (const [chain, head] of files) for (let s = 1; s <= head; s++) await tombstone(`${chain}/${pad(s)}`);
+		const index = this.state.meta[indexChain(p)];
+		for (let s = 1; s <= (index?.head ?? 0); s++) await tombstone(`${indexChain(p)}/${pad(s)}`);
+		const n = await this.post(items);
+		for (const chain of files.keys()) {
+			delete this.state.files[chain];
+			await rm(this.shadowPath(chain), { force: true });
+		}
+		delete this.state.meta[indexChain(p)];
+		await rm(this.shadowPath(indexChain(p)), { force: true });
+		this.state.active = this.state.active.filter((k) => k !== keyOf(p));
+		this.deletedPlugins.add(keyOf(p));
+		this.invalidate();
+		await this.save();
+		return n;
 	}
 
 	// ---------------------------------------------------------------- activation (backfill)
@@ -799,7 +861,7 @@ export class ChainSync {
 			if (this.statusValue.overLimit[keyOf(p)] && !touched.has(keyOf(p))) continue;
 			await metaWrite(indexChain(p), await this.buildIndex(p));
 		}
-		if (plugins.length > 0) await metaWrite(REGISTRY, await this.buildRegistry(plugins));
+		if (plugins.length > 0 || this.deletedPlugins.size > 0) await metaWrite(REGISTRY, await this.buildRegistry(plugins));
 		pushed += await this.post(metaItems);
 		await this.sweep(tomb);
 		await this.save();

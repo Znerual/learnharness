@@ -43,6 +43,8 @@ export interface PluginSnapshot {
 interface Lifecycle {
 	id: string;
 	revision: string;
+	/** Fork, multi-device: the server's dataGeneration this lifecycle was mounted with. */
+	dataGeneration: number;
 	controller: AbortController;
 	cleanups: Set<PluginCleanup>;
 	/** Activation and every cooperative mount/cleanup must settle before reuse. */
@@ -245,12 +247,12 @@ export class PluginFrontendManager {
 		this.infos = infos;
 		for (const life of [...this.lives.values()]) {
 			const info = infos.find(item => item.id === life.id);
-			if (!info?.enabled || info.status !== "active" || !info.manifest?.main || info.revision !== life.revision) this.stop(life);
+			if (!info?.enabled || info.status !== "active" || !info.manifest?.main || info.revision !== life.revision || (info.dataGeneration ?? 0) !== life.dataGeneration) this.stop(life);
 		}
 		for (const info of infos) {
 			if (!info.enabled || info.status !== "active" || !info.manifest?.main || this.lives.has(info.id)) continue;
 			const life: Lifecycle = {
-				id: info.id, revision: info.revision, controller: new AbortController(), cleanups: new Set(),
+				id: info.id, revision: info.revision, dataGeneration: info.dataGeneration ?? 0, controller: new AbortController(), cleanups: new Set(),
 				activation: Promise.resolve(), tasks: new Set(),
 				views: new Map(), actions: new Map(), shortcuts: new Map(), placements: new Map(), actionBusy: new Set(), codeBlocks: new Map(), toolRenderers: new Map(), questionRenderers: new Map(), problemRenderers: new Map(), submissionInterceptors: new Map(),
 				notifications: new Set(), events: new Set(), resyncs: new Set(), phase: "loading",
