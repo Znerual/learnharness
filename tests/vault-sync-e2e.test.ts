@@ -206,6 +206,51 @@ describe("vault end to end: two data folders sync a session through the wired st
 		assert.ok(b.listMoved().some((f) => f.endsWith(`${mine}.json`)), `the local session is kept in pre-vault-<date>/: ${b.listMoved().join(", ")}`);
 	});
 
+	test("Flashcards: decks made on one device reach another when it enables the plugin, and edits on both merge", { skip: !existsSync(join(ROOT, "core-plugins", "flashcards")) && "the core plugins are not built (npm run plugins:build-core)" }, async () => {
+		type Deck = { id: string; name: string; propositionIds: string[] };
+		type State = { decks: Deck[]; propositions: { id: string; name: string; cues: { question: string }[] }[] | Record<string, { id: string; name: string; cues: { question: string }[] }> };
+		const flashcards = (d: Device, operation: string, input: Record<string, unknown> = {}) => d.call("pluginCall", { id: "flashcards", operation, input }) as Promise<State>;
+		const deckNames = (s: State) => s.decks.map((x) => x.name).sort();
+		const questions = (s: State) => Object.values(s.propositions).flatMap((p) => p.cues.map((c) => c.question)).sort();
+
+		const a = device("cards-desktop");
+		const b = device("cards-phone");
+		const email = addr("e2e-cards");
+		await a.route("POST", "/signup/start", { email });
+		await a.route("POST", "/signup/verify", { email, code: await signupCode(email) });
+		assert.equal((await a.route("POST", "/signup/finish", { password: PASSWORD })).status, 200);
+
+		// A uses Flashcards: a deck with a card. The sync picks up the plugin's files.
+		await a.call("setPluginEnabled", { id: "flashcards", enabled: true });
+		const made = await flashcards(a, "create-deck", { name: "Biology" });
+		const biology = made.decks.find((x) => x.name === "Biology") as Deck;
+		await a.call("pluginCall", { id: "flashcards", operation: "create-card", input: { requestId: "r-1", deckId: biology.id, name: "Chlorophyll", question: "What colour is chlorophyll?", answer: "Green" } });
+		assert.equal((await a.route("POST", "/sync/now")).status, 200);
+
+		// B signs in without Flashcards: the plugin's data is not downloaded while it is disabled.
+		assert.equal((await b.route("POST", "/sign-in/password", { email, password: PASSWORD })).status, 200);
+		assert.equal((await b.route("POST", "/sync/now")).status, 200);
+		assert.equal(await b.call("coreDataFile", { id: "flashcards", file: "flashcards.json" }), null, "a disabled plugin receives nothing");
+
+		// Enabling it on B brings A's deck before the plugin starts.
+		await b.call("setPluginEnabled", { id: "flashcards", enabled: true });
+		const onB = await flashcards(b, "get-state");
+		assert.deepEqual(deckNames(onB), ["Biology"]);
+		assert.deepEqual(questions(onB), ["What colour is chlorophyll?"]);
+
+		// Both devices edit the same file at the same time: a deck each. The three-way merge keeps both.
+		await flashcards(a, "create-deck", { name: "Chemistry" });
+		await flashcards(b, "create-deck", { name: "Physics" });
+		// "Sync now" uploads plugin files at once, although A uploaded this file less than 60 s ago.
+		assert.equal((await a.route("POST", "/sync/now")).status, 200);
+		assert.equal((await b.route("POST", "/sync/now")).status, 200);
+		assert.equal((await a.route("POST", "/sync/now")).status, 200);
+		assert.deepEqual(deckNames(await flashcards(a, "get-state")), ["Biology", "Chemistry", "Physics"]);
+		assert.deepEqual(deckNames(await flashcards(b, "get-state")), ["Biology", "Chemistry", "Physics"]);
+		const listed = (await b.route("GET", "/plugins")).body as { plugins: { id: string; inVault: boolean }[]; conflicts: number };
+		assert.ok(listed.plugins.some((p) => p.id === "flashcards" && p.inVault), "Settings lists Flashcards as stored in the vault");
+	});
+
 	test("a data folder shared with Syncthing is refused before the vault is enabled", async () => {
 		const c = device("syncthing");
 		c.markSyncthing();

@@ -23,7 +23,7 @@ A plugin syncs only on a device where it is **active**: installed, enabled, and,
 
 ## Finding local changes
 
-Plugins write files directly, so there is no store adapter to wrap. The host scans an active plugin's data folder (size and mtime, then SHA-256) after each backend operation through the JSON bridge, after each plugin worker finishes, every 60 s, and at shutdown. A changed file goes to the outbox; a removed file is a deletion. Uploads of the same file are coalesced to at most one every 60 s. A removal by uninstall or by sync being turned off is never a deletion.
+Plugins write files directly, so there is no store adapter to wrap. The host scans an active plugin's data folder (size and mtime, then SHA-256) after each backend operation through the JSON bridge, after each plugin worker finishes, every 60 s, and at shutdown. A changed file goes to the outbox; a removed file is a deletion. Uploads of the same file are coalesced to at most one every 60 s, except when the learner presses "Sync now". A removal by uninstall or by sync being turned off is never a deletion.
 
 ## Applying remote changes
 

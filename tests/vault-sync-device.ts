@@ -10,6 +10,9 @@ import * as readline from "node:readline";
 const { stores } = await import("../src/server/stores.ts");
 const { vaultHandle } = await import("../src/server/vault/service.ts");
 const { subscribe } = await import("../src/core/events.ts");
+const { pluginTransport, pluginCoreData } = await import("../src/server/plugins.ts");
+const { existsSync, readFileSync } = await import("node:fs");
+const { join } = await import("node:path");
 
 const events: string[] = [];
 subscribe((e) => events.push(e.type));
@@ -24,7 +27,26 @@ const ops: Record<string, (a: Record<string, unknown>) => unknown> = {
 	chats: () => stores.chatStore.listChats().map((c) => ({ id: c.id, title: c.title })),
 	messages: (a) => stores.chatStore.getChat(String(a.id))?.messages ?? null,
 	events: () => events.splice(0),
+	// Plugins through the app's transport, so the vault's plugin sync wraps enable and calls (ADR 0007).
+	setPluginEnabled: (a) => plugin(pluginTransport.setEnabled(String(a.id), post({ enabled: a.enabled === true }))),
+	pluginCall: async (a) => ((await plugin(pluginTransport.call(String(a.id), post({ operation: a.operation, input: a.input ?? {} })))) as { result: unknown }).result,
+	/** A core plugin's data file as text, or null. */
+	coreDataFile: (a) => {
+		const file = join(pluginCoreData.directory, String(a.id), String(a.file));
+		return existsSync(file) ? readFileSync(file, "utf8") : null;
+	},
 };
+
+function post(body: unknown): Request {
+	return new Request("http://localhost/", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+}
+
+async function plugin(response: Promise<Response>): Promise<unknown> {
+	const r = await response;
+	const body = (await r.json()) as unknown;
+	if (!r.ok) throw new Error(`plugin request failed (${r.status}): ${JSON.stringify(body)}`);
+	return body;
+}
 
 const rl = readline.createInterface({ input: process.stdin });
 rl.on("line", (line) => {

@@ -126,6 +126,8 @@ Deploying stays with the owner; no phase deploys or pushes by itself.
 | 6 export | vault `c7c24f6` | Go export vectors, `lhv-decrypt` tests |
 | Owner decisions: envelope version 2, re-authenticated deletion, slot numbering after tombstones | learnharness `3219116`, vault `c52e3be` | record and export vectors (version 2 cases), Go `TestReauthConsume`, `tests/vault-routes.test.ts` (plugin data deletion), vault `e2e/plugins.e2e.test.ts` (deletion with a grant, recreated file) |
 
+End-to-end test (2026-11-18): `tests/vault-sync-e2e.test.ts` runs two app processes with Flashcards against a real vault (a disabled plugin receives nothing, enabling it backfills the deck before the backend starts, concurrent deck edits on both devices merge). It needs the built core plugins (`npm run plugins:build-core`). It found that "Sync now" did not upload a plugin file pushed less than 60 s earlier, so the other device missed the edit; `POST /sync/now` now flushes plugin files (`engine.flushPluginFiles()`).
+
 Owner decisions after the first implementation (2026-11-18), done:
 
 - Delta-chain slots are a new spec version: envelope version `0x02` with the label `lhv2/rec/`, export manifest version 2 (spec sections 8 to 10, vectors). Clients skip envelope versions they do not know.
@@ -135,6 +137,6 @@ Owner decisions after the first implementation (2026-11-18), done:
 
 Not done:
 
-- No end-to-end test runs two app processes with Flashcards against a real vault; the engine is tested end to end with a test plugin host, and the app side with unit tests.
 - Plugin sync status reaches the UI through Settings → Vault → Plugin data only; the sync status banner does not mention plugins.
-- Nothing is pushed, released or deployed.
+- The app does not flush plugin files at shutdown (ADR 0007 says it does): `engine.flushPluginFiles()` has no caller there. An edit made less than 60 s before quitting goes up at the next start instead.
+- Pushed to the fork; not released.

@@ -247,7 +247,8 @@ export async function createVaultRuntime(serverUrl: string): Promise<VaultRoutes
 			status: () => wired?.engine.status() ?? { ...IDLE },
 			syncNow: async () => {
 				if (!wired) return { ...IDLE };
-				await wired.engine.sync();
+				// The learner asked for it: plugin files go up now, not after their 60 s upload interval (ADR 0007).
+				await wired.engine.flushPluginFiles();
 				return wired.engine.status();
 			},
 		},
